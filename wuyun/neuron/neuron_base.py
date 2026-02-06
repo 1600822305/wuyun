@@ -123,6 +123,20 @@ BASKET_PV_PARAMS = NeuronParams(
     neuron_type=NeuronType.BASKET_PV,
 )
 
+MARTINOTTI_SST_PARAMS = NeuronParams(
+    somatic=SomaticParams(tau_m=20.0, a=0.03, b=0.3, tau_w=300.0,
+                          v_threshold=-48.0),
+    kappa=0.0,  # 抑制性, 单区室
+    neuron_type=NeuronType.MARTINOTTI_SST,
+)
+
+VIP_PARAMS = NeuronParams(
+    somatic=SomaticParams(tau_m=15.0, a=0.01, b=0.1, tau_w=100.0,
+                          v_threshold=-48.0),
+    kappa=0.0,  # 抑制性, 单区室
+    neuron_type=NeuronType.VIP_INTERNEURON,
+)
+
 
 # =============================================================================
 # 双区室神经元基类

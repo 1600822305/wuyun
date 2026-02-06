@@ -31,6 +31,8 @@ from wuyun.neuron.neuron_base import (
     L6_PYRAMIDAL_PARAMS,
     STELLATE_PARAMS,
     BASKET_PV_PARAMS,
+    MARTINOTTI_SST_PARAMS,
+    VIP_PARAMS,
 )
 
 __all__ = [
@@ -48,4 +50,6 @@ __all__ = [
     "L6_PYRAMIDAL_PARAMS",
     "STELLATE_PARAMS",
     "BASKET_PV_PARAMS",
+    "MARTINOTTI_SST_PARAMS",
+    "VIP_PARAMS",
 ]
