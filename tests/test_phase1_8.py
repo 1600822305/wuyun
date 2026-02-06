@@ -6,6 +6,11 @@
 3. CorticalColumn 标准接口扩展 (侧向/输出汇总/稳态集成)
 """
 
+import sys
+import os
+sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from wuyun.synapse.plasticity.homeostatic import HomeostaticPlasticity, HomeostaticParams
 from wuyun.neuron.neuron_base import THALAMIC_RELAY_PARAMS, TRN_PARAMS, NeuronBase
 from wuyun.circuit.column_factory import create_sensory_column
@@ -143,7 +148,10 @@ def test_homeostatic_integration():
     h = HomeostaticPlasticity()
 
     # 记录初始权重
-    initial_weights = [s.weight for s in col.synapses if s.is_excitatory]
+    initial_weights = []
+    for sg in col.synapse_groups:
+        if sg.is_excitatory:
+            initial_weights.extend(sg.weights.tolist())
 
     # 跑 500 步让网络活跃
     for t in range(500):
@@ -154,15 +162,19 @@ def test_homeostatic_integration():
     col.apply_homeostatic_scaling(h)
 
     # 权重应该有变化 (因为发放率不可能刚好 = target_rate)
-    new_weights = [s.weight for s in col.synapses if s.is_excitatory]
+    new_weights = []
+    for sg in col.synapse_groups:
+        if sg.is_excitatory:
+            new_weights.extend(sg.weights.tolist())
     changed = sum(1 for a, b in zip(initial_weights, new_weights) if abs(a - b) > 1e-6)
 
     # 至少有一些权重发生了变化
     assert changed > 0, f"应有权重变化, 但 {changed}/{len(initial_weights)} 变了"
 
     # 所有权重仍在合法范围内
-    for syn in col.synapses:
-        assert syn.w_min <= syn.weight <= syn.w_max, f"权重越界: {syn.weight}"
+    for sg in col.synapse_groups:
+        for w in sg.weights:
+            assert sg.w_min <= w <= sg.w_max, f"权重越界: {w}"
 
     print(f"  {changed}/{len(initial_weights)} 个兴奋性权重被缩放")
     print("  ✅ PASS: 稳态可塑性集成正确")

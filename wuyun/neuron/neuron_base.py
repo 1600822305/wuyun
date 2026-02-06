@@ -228,6 +228,53 @@ GRID_CELL_PARAMS = NeuronParams(
 )
 
 
+# --- Phase 4: 基底节神经元参数预设 ---
+
+MSN_D1_PARAMS = NeuronParams(
+    somatic=SomaticParams(
+        tau_m=20.0,             # MSN: 标准时间常数
+        a=0.01,
+        b=0.01,                 # 弱适应
+        tau_w=200.0,            # 中等适应时间常数
+        v_rest=-80.0,           # ★ MSN 低静息电位 (Down state)
+        v_threshold=-50.0,      # 标准阈值
+        v_reset=-80.0,          # 重置回 Down state
+        refractory_period=2,
+    ),
+    kappa=0.0,                  # 单区室 (MSN 无显著 apical)
+    neuron_type=NeuronType.MEDIUM_SPINY_D1,
+)
+
+MSN_D2_PARAMS = NeuronParams(
+    somatic=SomaticParams(
+        tau_m=20.0,             # D2 参数与 D1 完全相同
+        a=0.01,                 # 差异来自 DA 调制方向, 不来自内在属性
+        b=0.01,
+        tau_w=200.0,
+        v_rest=-80.0,           # ★ MSN 低静息电位 (Down state)
+        v_threshold=-50.0,
+        v_reset=-80.0,
+        refractory_period=2,
+    ),
+    kappa=0.0,                  # 单区室
+    neuron_type=NeuronType.MEDIUM_SPINY_D2,
+)
+
+STN_PARAMS = NeuronParams(
+    somatic=SomaticParams(
+        tau_m=10.0,             # STN: 快速响应
+        a=0.0,                  # 无亚阈适应 → 持续高频发放
+        b=0.0,                  # 无脉冲后适应
+        tau_w=50.0,
+        v_threshold=-45.0,      # ★ 低阈值 → 容易兴奋
+        v_reset=-60.0,
+        refractory_period=1,    # 短不应期 → 高频
+    ),
+    kappa=0.0,                  # 单区室
+    neuron_type=NeuronType.STN,
+)
+
+
 # =============================================================================
 # 双区室神经元基类
 # =============================================================================
@@ -432,20 +479,18 @@ class NeuronBase:
         v_soma = self.soma.v
         v_apical = self.apical.v if self._has_apical else self.params.somatic.v_rest
 
+        # 使用合并方法 step_and_compute() 减少函数调用开销
         # 基底树突突触
         for syn in self._synapses_basal:
-            syn.step(current_time, dt)
-            self._i_basal += syn.compute_current(v_soma)
+            self._i_basal += syn.step_and_compute(current_time, v_soma, dt)
 
         # 顶端树突突触
         for syn in self._synapses_apical:
-            syn.step(current_time, dt)
-            self._i_apical += syn.compute_current(v_apical)
+            self._i_apical += syn.step_and_compute(current_time, v_apical, dt)
 
         # 胞体突触
         for syn in self._synapses_soma:
-            syn.step(current_time, dt)
-            self._i_soma += syn.compute_current(v_soma)
+            self._i_soma += syn.step_and_compute(current_time, v_soma, dt)
 
     def _continue_burst(
         self, current_time: int, dt: float, total_soma_input: float

@@ -13,6 +13,7 @@
 from abc import ABC, abstractmethod
 from typing import List
 from dataclasses import dataclass
+import math
 import numpy as np
 
 
@@ -134,14 +135,36 @@ class PlasticityRule(ABC):
         if not pre_spike_times or not post_spike_times:
             return 0.0
 
+        n_pre = len(pre_spike_times)
+        n_post = len(post_spike_times)
+
+        # 小规模配对: 纯 Python 更快 (避免 numpy 小数组开销)
+        if n_pre * n_post <= 64:
+            increment = 0.0
+            inv_tau_plus = 1.0 / tau_plus
+            inv_tau_minus = 1.0 / tau_minus
+            _exp = math.exp
+            for t_pre in pre_spike_times:
+                for t_post in post_spike_times:
+                    delta_t = t_post - t_pre
+                    if delta_t > 0:
+                        increment += a_plus * _exp(-delta_t * inv_tau_plus)
+                    elif delta_t < 0:
+                        increment -= a_minus * _exp(delta_t * inv_tau_minus)
+            return increment
+
+        # 大规模配对: numpy 向量化
+        pre = np.asarray(pre_spike_times, dtype=np.float64)
+        post = np.asarray(post_spike_times, dtype=np.float64)
+        dt = post[:, None] - pre[None, :]
+
         increment = 0.0
-        for t_pre in pre_spike_times:
-            for t_post in post_spike_times:
-                delta_t = t_post - t_pre
-                if delta_t > 0:
-                    increment += a_plus * np.exp(-delta_t / tau_plus)
-                elif delta_t < 0:
-                    increment -= a_minus * np.exp(delta_t / tau_minus)
+        ltp_vals = dt[dt > 0]
+        if len(ltp_vals):
+            increment += a_plus * float(np.exp(-ltp_vals / tau_plus).sum())
+        ltd_vals = dt[dt < 0]
+        if len(ltd_vals):
+            increment -= a_minus * float(np.exp(ltd_vals / tau_minus).sum())
         return increment
 
     @staticmethod

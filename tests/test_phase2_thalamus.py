@@ -13,6 +13,8 @@ Phase 2 测试 — 多柱 + 丘脑路由
 import sys
 import os
 import math
+import numpy as np
+sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 # 添加项目根目录到 sys.path，支持直接运行
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -301,8 +303,8 @@ def test_hierarchical_prediction():
     # 检查权重在合理范围
     all_weights_ok = True
     for col_id, column in network.columns.items():
-        for syn in column.synapses:
-            if syn.weight < 0 or syn.weight > 1:
+        for sg in column.synapse_groups:
+            if np.any(sg.weights < 0) or np.any(sg.weights > 1):
                 all_weights_ok = False
                 break
 
@@ -442,8 +444,8 @@ def test_long_term_stability():
 
             # 收集权重统计
             for col_id, col in network.columns.items():
-                weights = [syn.weight for syn in col.synapses]
-                if weights:
+                weights = np.concatenate([sg.weights for sg in col.synapse_groups]) if col.synapse_groups else np.array([])
+                if len(weights) > 0:
                     w_min = min(weights)
                     w_max = max(weights)
                     w_mean = sum(weights) / len(weights)

@@ -17,6 +17,7 @@ import sys
 import os
 import time
 import numpy as np
+sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 # 确保项目根目录在 path 中
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -187,7 +188,7 @@ def test_3_ca3_pattern_storage():
     for t in range(500):
         # 直接注入电流到目标 CA3 细胞 (模拟苔藓纤维强输入)
         for idx in active_ca3_indices:
-            ca3.pyramidal_neurons[idx].inject_basal_current(40.0)
+            ca3.pyramidal_pop.i_basal[idx] += 40.0
 
         ca3.step(t, enable_recurrent=False)
         ca3.apply_recurrent_stdp(t)
@@ -255,7 +256,7 @@ def test_4_ca3_pattern_completion():
     # 500 步足够权重饱和 (测试 3 验证), STDP 每 5 步更新 (降低计算负载)
     for t in range(500):
         for idx in target_cells:
-            ca3.pyramidal_neurons[idx].inject_basal_current(45.0)
+            ca3.pyramidal_pop.i_basal[idx] += 45.0
         ca3.step(t, enable_recurrent=False)
         if t % 5 == 0:
             ca3.apply_recurrent_stdp(t)
@@ -269,11 +270,11 @@ def test_4_ca3_pattern_completion():
     print(f"  编码后共活跃权重: mean={np.mean(co_w):.4f}" if co_w else "  无共活跃连接")
 
     # === 重置动态状态 (保留学习到的权重) ===
-    for n in ca3.pyramidal_neurons:
-        n.reset()
-    for n in ca3.pv_neurons:
-        n.reset()
-    ca3._bus.reset()
+    ca3.pyramidal_pop.reset()
+    ca3.pv_pop.reset()
+    ca3.recurrent_syn.reset()
+    ca3.ca3_pv_syn.reset()
+    ca3.pv_ca3_syn.reset()
 
     # === 回忆阶段: 只激活 50% 的目标细胞 ===
     cue_cells = target_cells[:len(target_cells) // 2]
@@ -284,7 +285,7 @@ def test_4_ca3_pattern_completion():
     for t in range(500, 1100):
         # 只激活线索细胞
         for idx in cue_cells:
-            ca3.pyramidal_neurons[idx].inject_basal_current(45.0)
+            ca3.pyramidal_pop.i_basal[idx] += 45.0
         ca3.step(t, enable_recurrent=True)  # ★ 检索期循环放大
         recalled_activity += ca3.get_activity()
 
@@ -337,22 +338,19 @@ def test_5_ca1_match_novelty():
 
     for t in range(500):
         # CA3→basal: 直接注入电流模拟 Schaffer 输入
-        for i in range(50):
-            ca1.pyramidal_neurons[i].inject_basal_current(20.0)
+        ca1.pyramidal_pop.i_basal[:] += 20.0
         # EC-III→apical: 注入 apical 电流
         ec3_pattern = rng.uniform(0.5, 1.0, size=16)
         ca1.inject_ec3_input(ec3_pattern)
 
         ca1.step(t)
 
-        for n in ca1.pyramidal_neurons:
-            st = n.current_spike_type
-            if st.is_active:
-                total_active_a += 1
-                if st.is_burst:
-                    burst_count_a += 1
-                elif st == 1:  # REGULAR
-                    regular_count_a += 1
+        st = ca1.pyramidal_pop.spike_type
+        active = st != 0
+        total_active_a += int(active.sum())
+        is_burst = (st == 3) | (st == 4) | (st == 5)  # BURST_START/CONTINUE/END
+        burst_count_a += int(is_burst.sum())
+        regular_count_a += int((st == 1).sum())  # REGULAR
 
     burst_ratio_a = burst_count_a / total_active_a if total_active_a > 0 else 0
     print(f"    活跃: {total_active_a}, burst: {burst_count_a}, regular: {regular_count_a}")
@@ -368,20 +366,17 @@ def test_5_ca1_match_novelty():
 
     for t in range(500):
         # CA3→basal: 直接注入电流
-        for i in range(50):
-            ca1.pyramidal_neurons[i].inject_basal_current(20.0)
+        ca1.pyramidal_pop.i_basal[:] += 20.0
         # 无 EC-III 输入
 
         ca1.step(t)
 
-        for n in ca1.pyramidal_neurons:
-            st = n.current_spike_type
-            if st.is_active:
-                total_active_b += 1
-                if st.is_burst:
-                    burst_count_b += 1
-                elif st == 1:  # REGULAR
-                    regular_count_b += 1
+        st = ca1.pyramidal_pop.spike_type
+        active = st != 0
+        total_active_b += int(active.sum())
+        is_burst = (st == 3) | (st == 4) | (st == 5)
+        burst_count_b += int(is_burst.sum())
+        regular_count_b += int((st == 1).sum())  # REGULAR
 
     burst_ratio_b = burst_count_b / total_active_b if total_active_b > 0 else 0
     print(f"    活跃: {total_active_b}, burst: {burst_count_b}, regular: {regular_count_b}")
@@ -529,18 +524,19 @@ def test_7_full_loop_encode_recall():
         print(f"  回忆模式 {i} (线索: {np.sum(mask > 0):.0f}/{np.sum(pattern > 0):.0f} 个活跃输入)...")
 
         # 重置动态状态但保留权重
-        for n in loop.ca3.pyramidal_neurons:
-            n.reset()
-        for n in loop.ca3.pv_neurons:
-            n.reset()
-        for n in loop.ca1.pyramidal_neurons:
-            n.reset()
-        for n in loop.ca1.pv_neurons:
-            n.reset()
-        for n in loop.dg.granule_neurons:
-            n.reset()
-        for n in loop.dg.pv_neurons:
-            n.reset()
+        loop.ca3.pyramidal_pop.reset()
+        loop.ca3.pv_pop.reset()
+        loop.ca3.recurrent_syn.reset()
+        loop.ca3.ca3_pv_syn.reset()
+        loop.ca3.pv_ca3_syn.reset()
+        loop.ca1.pyramidal_pop.reset()
+        loop.ca1.pv_pop.reset()
+        loop.ca1.ca1_pv_syn.reset()
+        loop.ca1.pv_ca1_syn.reset()
+        loop.dg.granule_pop.reset()
+        loop.dg.pv_pop.reset()
+        loop.dg.g2pv_syn.reset()
+        loop.dg.pv2g_syn.reset()
 
         # 回忆 (累积活动而非只看最后一步)
         ca3_accum = np.zeros(50)

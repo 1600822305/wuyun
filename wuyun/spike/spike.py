@@ -159,7 +159,15 @@ class SpikeTrain:
             return []
         latest = self._timestamps[-1]
         window_start = latest - window_ms
-        return [t for t in self._timestamps if t > window_start]
+        # 从尾部反向扫描 (时间戳有序, 遇到窗口外立即停止)
+        result = []
+        for i in range(len(self._timestamps) - 1, -1, -1):
+            t = self._timestamps[i]
+            if t <= window_start:
+                break
+            result.append(t)
+        result.reverse()
+        return result
 
     def clear(self) -> None:
         """清空所有记录"""

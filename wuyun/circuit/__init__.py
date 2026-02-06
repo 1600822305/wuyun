@@ -20,6 +20,13 @@ from wuyun.circuit.multi_column import (
     create_hierarchical_network,
     GainParams,
 )
+from wuyun.circuit.basal_ganglia import (
+    Striatum,
+    GPi,
+    GPe,
+    STN,
+    BasalGangliaCircuit,
+)
 
 __all__ = [
     "Layer",
@@ -28,4 +35,10 @@ __all__ = [
     "MultiColumnNetwork",
     "create_hierarchical_network",
     "GainParams",
+    # Phase 4: 基底节
+    "Striatum",
+    "GPi",
+    "GPe",
+    "STN",
+    "BasalGangliaCircuit",
 ]

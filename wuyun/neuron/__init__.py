@@ -38,6 +38,9 @@ from wuyun.neuron.neuron_base import (
     GRANULE_PARAMS,
     PLACE_CELL_PARAMS,
     GRID_CELL_PARAMS,
+    MSN_D1_PARAMS,
+    MSN_D2_PARAMS,
+    STN_PARAMS,
 )
 
 __all__ = [
@@ -63,4 +66,8 @@ __all__ = [
     "GRANULE_PARAMS",
     "PLACE_CELL_PARAMS",
     "GRID_CELL_PARAMS",
+    # Phase 4: 基底节神经元
+    "MSN_D1_PARAMS",
+    "MSN_D2_PARAMS",
+    "STN_PARAMS",
 ]

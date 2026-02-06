@@ -159,9 +159,46 @@
 
 ---
 
-## Phase 4 — 基底节 + 强化学习 ⏳
+## Phase 4 — 基底节 + 强化学习 ✅
 
 > Go/NoGo/Stop 通路 + DA 调制决策
+
+- ✅ **4-A**: Striatum 纹状体 — `wuyun/circuit/basal_ganglia/striatum.py`
+  - D1-MSN (直接通路) + D2-MSN (间接通路) + FSI (快速放电抑制)
+  - DA 调制: D1 兴奋/D2 抑制 (Up/Down 态, v_rest=-80mV)
+  - 三因子 DA-STDP: 资格痕迹 + DA 信号 → 权重变化
+- ✅ **4-B**: GPi 输出核 — `wuyun/circuit/basal_ganglia/gpi.py`
+  - Tonic 高频发放 (60Hz) 抑制丘脑
+  - 直接通路去抑制 (D1→GPi) + 间接通路兴奋 (STN→GPi)
+- ✅ **4-C**: IndirectPathway STN — `wuyun/circuit/basal_ganglia/indirect_pathway.py`
+  - 全局 Stop 信号 + 三通路竞争
+- ✅ **4-D**: 测试验证 — `tests/test_phase4_basal_ganglia.py` — 7/7 测试
+  - MSN Up/Down 态 | DA 调制方向性 | GPi tonic + 去抑制
+  - 三通路竞争 | 动作选择 WTA | 三因子 STDP | 全环路
+- 📊 **累计 63/63 测试通过** (56 旧 + 7 新, 2026-02-07)
+
+---
+
+## Phase V — 向量化重构 ✅
+
+> 将逐对象 Python 循环迁移到 NumPy 向量化批量运算
+
+- ✅ **V1**: 核心引擎 — `wuyun/core/population.py` + `synapse_group.py`
+  - NeuronPopulation: 向量化双区室 AdLIF+ (数值等价性误差 < 1e-10)
+  - SynapseGroup: 向量化突触组 (AMPA/NMDA/GABA_A + 延迟缓冲 + Mg²⁺阻断)
+  - 实测加速: **11.2×** (N=200, T=1000)
+- ✅ **V2**: 基底节迁移
+  - GPi → NeuronPopulation | Striatum → 3×NeuronPopulation + SynapseGroup
+- ✅ **V3**: 丘脑迁移
+  - ThalamicNucleus → tc_pop + trn_pop + SynapseGroup
+- ✅ **V4**: 皮层柱迁移
+  - Layer → exc_pop/pv_pop/sst_pop | CorticalColumn → SynapseGroup 连接
+  - 修复: `get_firing_rates` ring buffer bug (cutoff vs -1 初始值)
+- ✅ **V5**: 清理 + 全套验证
+  - 更新所有测试文件适配新 API
+  - 海马模块保留 NeuronBase (待后续按需迁移)
+- 📊 **62/62 测试全通过, 零回归** (2026-02-07)
+- 📝 详细设计文档: `docs/05_vectorization_design.md`
 
 ---
 

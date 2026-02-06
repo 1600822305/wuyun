@@ -1,5 +1,5 @@
 """
-3-C: CA1Network — 比较器与输出层
+3-C: CA1Network — 比较器与输出层 (向量化版本)
 
 核心功能: 比较 CA3 回忆与 EC-III 直接感知，检测新奇/匹配
 生物学: CA1 同时接收 CA3 (via Schaffer) 和 EC-III (via 穿通纤维)
@@ -9,42 +9,48 @@
   - 只有 CA3→basal                                        → REGULAR = 新奇
   - 只有 EC-III→apical                                    → 沉默 (感知但无回忆)
 
-组成:
-  - n_pyramidal 个 PLACE_CELL 神经元 (兴奋性, 双区室 κ=0.3)
-  - n_inhibitory 个 BASKET_PV 神经元 (抑制性)
-  - 内部 SpikeBus
-  - CA3→CA1: Schaffer collateral (SCHAFFER_COLLATERAL_STP) → BASAL
-  - EC-III→CA1: 穿通纤维 (直接感知) → APICAL
-  - CA1→PV / PV→CA1: 反馈抑制
+组成 (向量化):
+  - pyramidal_pop: NeuronPopulation (n_pyramidal, PLACE_CELL)
+  - pv_pop: NeuronPopulation (n_inhibitory, BASKET_PV)
+  - ca1_pv_syn: SynapseGroup (CA1→PV, AMPA)
+  - pv_ca1_syn: SynapseGroup (PV→CA1, GABA_A)
+  - CA3→CA1: Schaffer collateral (STP 电流注入) → BASAL
+  - EC-III→CA1: 矩阵乘法电流注入 → APICAL
 
-依赖: spike/ ← synapse/ ← neuron/ ← 本模块
+依赖: core/ (NeuronPopulation, SynapseGroup)
 """
 
 from typing import List, Dict, Optional
 import numpy as np
 
 from wuyun.spike.spike import Spike
-from wuyun.spike.spike_bus import SpikeBus
 from wuyun.spike.signal_types import (
     SpikeType,
     SynapseType,
     CompartmentType,
 )
-from wuyun.synapse.synapse_base import SynapseBase, AMPA_PARAMS, GABA_A_PARAMS
-from wuyun.synapse.plasticity.inhibitory_stdp import InhibitorySTDP
+from wuyun.synapse.synapse_base import AMPA_PARAMS, GABA_A_PARAMS
 from wuyun.synapse.short_term_plasticity import (
     ShortTermPlasticity,
     SCHAFFER_COLLATERAL_STP,
 )
 from wuyun.neuron.neuron_base import (
-    NeuronBase,
     PLACE_CELL_PARAMS,
     BASKET_PV_PARAMS,
 )
+from wuyun.core.population import NeuronPopulation
+from wuyun.core.synapse_group import SynapseGroup
+
+# SpikeType 整数编码
+_NONE = 0
+_REGULAR = SpikeType.REGULAR.value
+_BURST_START = SpikeType.BURST_START.value
+_BURST_CONTINUE = SpikeType.BURST_CONTINUE.value
+_BURST_END = SpikeType.BURST_END.value
 
 
 class CA1Network:
-    """CA1 — 比较器与输出层
+    """CA1 — 比较器与输出层 (向量化版本)
 
     利用双区室神经元的 regular/burst 机制天然实现匹配/新奇检测:
     - CA3→basal: 前馈回忆信号
@@ -77,38 +83,21 @@ class CA1Network:
         self._seed = seed
         self._rng = np.random.RandomState(seed)
 
-        # === 创建神经元 ===
-        # CA1 锥体细胞: ID 范围 [4000, 4000+n_pyramidal)
-        self.pyramidal_neurons: List[NeuronBase] = []
-        for i in range(n_pyramidal):
-            n = NeuronBase(neuron_id=4000 + i, params=PLACE_CELL_PARAMS)
-            self.pyramidal_neurons.append(n)
-
-        # PV 抑制性神经元: ID 范围 [4500, 4500+n_inhibitory)
-        self.pv_neurons: List[NeuronBase] = []
-        for i in range(n_inhibitory):
-            n = NeuronBase(neuron_id=4500 + i, params=BASKET_PV_PARAMS)
-            self.pv_neurons.append(n)
-
-        # === 内部 SpikeBus ===
-        self._bus = SpikeBus()
-
-        # === 突触存储 ===
-        self._synapses: List[SynapseBase] = []
+        # === 向量化神经元群体 ===
+        self.pyramidal_pop = NeuronPopulation(n_pyramidal, PLACE_CELL_PARAMS)
+        self.pv_pop = NeuronPopulation(n_inhibitory, BASKET_PV_PARAMS)
 
         # === STP 实例 (CA3→CA1 Schaffer collateral) ===
         self._schaffer_stp: Dict[int, ShortTermPlasticity] = {}
-
-        # === 连接矩阵 ===
-        # CA3→CA1 Schaffer 连接: schaffer_conn[ca3_idx] = [ca1_idx_list]
         self._schaffer_conn: Dict[int, List[int]] = {}
-        # EC-III→CA1 直接通路连接矩阵
+
+        # === EC-III→CA1 直接通路连接矩阵 ===
         self._ec3_conn = np.zeros((n_ec_inputs, n_pyramidal))
 
         # === 构建连接 ===
         self._build_schaffer_connections()
         self._build_ec3_connections()
-        self._build_inhibitory_connections()
+        self._build_synapse_groups()
 
         # === 追踪 ===
         self._step_count = 0
@@ -140,42 +129,41 @@ class CA1Network:
                 if self._rng.random() < 0.25:
                     self._ec3_conn[i, j] = 0.3 + 0.4 * self._rng.random()
 
-    def _build_inhibitory_connections(self) -> None:
-        """构建 CA1→PV 和 PV→CA1 连接"""
-        inh_stdp = InhibitorySTDP()
-
+    def _build_synapse_groups(self) -> None:
+        """构建内部突触组"""
         # CA1 → PV (全连接, AMPA)
-        for ca1 in self.pyramidal_neurons:
-            for pv in self.pv_neurons:
-                syn = SynapseBase(
-                    pre_id=ca1.id,
-                    post_id=pv.id,
-                    weight=0.5,
-                    delay=1,
-                    synapse_type=SynapseType.AMPA,
-                    target_compartment=CompartmentType.SOMA,
-                    params=AMPA_PARAMS,
-                )
-                pv.add_synapse(syn)
-                self._bus.register_synapse(syn)
-                self._synapses.append(syn)
+        n_ca1pv = self.n_pyramidal * self.n_inhibitory
+        ca1pv_pre = np.repeat(np.arange(self.n_pyramidal), self.n_inhibitory)
+        ca1pv_post = np.tile(np.arange(self.n_inhibitory), self.n_pyramidal)
+        self.ca1_pv_syn = SynapseGroup(
+            pre_ids=ca1pv_pre,
+            post_ids=ca1pv_post,
+            weights=np.full(n_ca1pv, 0.5),
+            delays=np.ones(n_ca1pv, dtype=np.int32),
+            synapse_type=SynapseType.AMPA,
+            target=CompartmentType.SOMA,
+            tau_decay=AMPA_PARAMS.tau_decay,
+            e_rev=AMPA_PARAMS.e_rev,
+            g_max=AMPA_PARAMS.g_max,
+            n_post=self.n_inhibitory,
+        )
 
-        # PV → CA1 (全连接, GABA_A + InhibitorySTDP)
-        for pv in self.pv_neurons:
-            for ca1 in self.pyramidal_neurons:
-                syn = SynapseBase(
-                    pre_id=pv.id,
-                    post_id=ca1.id,
-                    weight=0.6,
-                    delay=1,
-                    synapse_type=SynapseType.GABA_A,
-                    target_compartment=CompartmentType.SOMA,
-                    plasticity_rule=inh_stdp,
-                    params=GABA_A_PARAMS,
-                )
-                ca1.add_synapse(syn)
-                self._bus.register_synapse(syn)
-                self._synapses.append(syn)
+        # PV → CA1 (全连接, GABA_A)
+        n_pvca1 = self.n_inhibitory * self.n_pyramidal
+        pvca1_pre = np.repeat(np.arange(self.n_inhibitory), self.n_pyramidal)
+        pvca1_post = np.tile(np.arange(self.n_pyramidal), self.n_inhibitory)
+        self.pv_ca1_syn = SynapseGroup(
+            pre_ids=pvca1_pre,
+            post_ids=pvca1_post,
+            weights=np.full(n_pvca1, 0.6),
+            delays=np.ones(n_pvca1, dtype=np.int32),
+            synapse_type=SynapseType.GABA_A,
+            target=CompartmentType.SOMA,
+            tau_decay=GABA_A_PARAMS.tau_decay,
+            e_rev=GABA_A_PARAMS.e_rev,
+            g_max=GABA_A_PARAMS.g_max,
+            n_post=self.n_pyramidal,
+        )
 
     # =========================================================================
     # 外部接口
@@ -201,6 +189,7 @@ class CA1Network:
             if 0 <= ca3_idx < self.n_ca3:
                 active_ca3.add(ca3_idx)
 
+        schaffer_gain = self.schaffer_gain
         for ca3_idx in range(self.n_ca3):
             targets = self._schaffer_conn.get(ca3_idx, [])
             for ca1_idx in targets:
@@ -208,13 +197,10 @@ class CA1Network:
                 stp = self._schaffer_stp.get(key)
                 if stp is None:
                     continue
-
                 stp.step()
-
                 if ca3_idx in active_ca3:
                     efficacy = stp.on_spike()
-                    current = self.schaffer_gain * efficacy
-                    self.pyramidal_neurons[ca1_idx].inject_basal_current(current)
+                    self.pyramidal_pop.i_basal[ca1_idx] += schaffer_gain * efficacy
 
     def inject_ec3_input(self, pattern: np.ndarray) -> None:
         """注入 EC-III 直接感知输入
@@ -225,10 +211,9 @@ class CA1Network:
         Args:
             pattern: EC-III 输入向量, shape=(n_ec_inputs,)
         """
-        currents = pattern @ self._ec3_conn
-        for i, neuron in enumerate(self.pyramidal_neurons):
-            if currents[i] > 0:
-                neuron.inject_apical_current(currents[i] * self.ec3_gain)
+        currents = pattern @ self._ec3_conn * self.ec3_gain
+        mask = currents > 0
+        self.pyramidal_pop.i_apical[mask] += currents[mask]
 
     def step(self, t: int) -> None:
         """推进一个时间步
@@ -238,22 +223,28 @@ class CA1Network:
         """
         self._step_count += 1
 
-        # 更新 CA1 锥体细胞
-        for neuron in self.pyramidal_neurons:
-            spike_type = neuron.step(t)
-            if spike_type.is_active:
-                self._bus.emit(Spike(neuron.id, t, spike_type))
+        # --- 1. 更新 CA1 锥体细胞 ---
+        self.pyramidal_pop.step(t)
 
-        # 更新 PV 细胞
-        for neuron in self.pv_neurons:
-            spike_type = neuron.step(t)
-            if spike_type.is_active:
-                self._bus.emit(Spike(neuron.id, t, spike_type))
-                for ca1 in self.pyramidal_neurons:
-                    ca1.inject_somatic_current(-self.pv_gain)
+        # --- 2. CA1→PV 传递 ---
+        self.ca1_pv_syn.deliver_spikes(
+            self.pyramidal_pop.fired, self.pyramidal_pop.spike_type)
+        i_ca1pv = self.ca1_pv_syn.step_and_compute(self.pv_pop.v_soma)
+        self.pv_pop.i_soma += i_ca1pv
 
-        # SpikeBus 分发
-        self._bus.step(t)
+        # --- 3. 更新 PV ---
+        self.pv_pop.step(t)
+
+        # PV 发放 → 全局抑制电流
+        pv_firing = self.pv_pop.fired.sum()
+        if pv_firing > 0:
+            self.pyramidal_pop.i_soma -= pv_firing * self.pv_gain
+
+        # --- 4. PV→CA1 传递 ---
+        self.pv_ca1_syn.deliver_spikes(
+            self.pv_pop.fired, self.pv_pop.spike_type)
+        i_pvca1 = self.pv_ca1_syn.step_and_compute(self.pyramidal_pop.v_soma)
+        self.pyramidal_pop.i_soma += i_pvca1
 
     # =========================================================================
     # 匹配/新奇检测
@@ -267,15 +258,13 @@ class CA1Network:
         Returns:
             匹配度 [0, 1], burst/(burst+regular)
         """
-        total_active = 0
-        total_burst = 0
-        for n in self.pyramidal_neurons:
-            st = n.current_spike_type
-            if st.is_active:
-                total_active += 1
-                if st.is_burst:
-                    total_burst += 1
-        return total_burst / total_active if total_active > 0 else 0.0
+        st = self.pyramidal_pop.spike_type
+        active = st != _NONE
+        total_active = int(active.sum())
+        if total_active == 0:
+            return 0.0
+        is_burst = (st == _BURST_START) | (st == _BURST_CONTINUE) | (st == _BURST_END)
+        return int(is_burst.sum()) / total_active
 
     def get_novelty_signal(self) -> float:
         """获取新奇信号 (regular 比率)
@@ -285,15 +274,12 @@ class CA1Network:
         Returns:
             新奇度 [0, 1], regular/(burst+regular)
         """
-        total_active = 0
-        total_regular = 0
-        for n in self.pyramidal_neurons:
-            st = n.current_spike_type
-            if st.is_active:
-                total_active += 1
-                if st == SpikeType.REGULAR:
-                    total_regular += 1
-        return total_regular / total_active if total_active > 0 else 0.0
+        st = self.pyramidal_pop.spike_type
+        active = st != _NONE
+        total_active = int(active.sum())
+        if total_active == 0:
+            return 0.0
+        return int((st == _REGULAR).sum()) / total_active
 
     def get_activity(self) -> np.ndarray:
         """获取 CA1 锥体细胞活跃状态 (binary)
@@ -301,10 +287,7 @@ class CA1Network:
         Returns:
             binary 向量, shape=(n_pyramidal,)
         """
-        return np.array([
-            1.0 if n.current_spike_type.is_active else 0.0
-            for n in self.pyramidal_neurons
-        ])
+        return self.pyramidal_pop.fired.astype(np.float64)
 
     def get_output(self) -> np.ndarray:
         """获取 CA1 输出 (发放率向量, → EC-V 记忆巩固)
@@ -312,7 +295,8 @@ class CA1Network:
         Returns:
             发放率向量, shape=(n_pyramidal,), 单位 Hz
         """
-        return np.array([n.firing_rate for n in self.pyramidal_neurons])
+        return self.pyramidal_pop.get_firing_rates(
+            window_ms=1000, current_time=self._step_count)
 
     def get_mean_rate(self) -> float:
         """获取 CA1 平均发放率 (Hz)"""
@@ -324,21 +308,22 @@ class CA1Network:
         Returns:
             burst 比率 [0, 1]
         """
-        ratios = [n.burst_ratio for n in self.pyramidal_neurons]
-        active_ratios = [r for r in ratios if r > 0]
-        return float(np.mean(active_ratios)) if active_ratios else 0.0
+        st = self.pyramidal_pop.spike_type
+        active = st != _NONE
+        total_active = int(active.sum())
+        if total_active == 0:
+            return 0.0
+        is_burst = (st == _BURST_START) | (st == _BURST_CONTINUE) | (st == _BURST_END)
+        return int(is_burst.sum()) / total_active
 
     def reset(self) -> None:
         """重置所有状态"""
-        for n in self.pyramidal_neurons:
-            n.reset()
-        for n in self.pv_neurons:
-            n.reset()
-        for s in self._synapses:
-            s.reset()
+        self.pyramidal_pop.reset()
+        self.pv_pop.reset()
+        self.ca1_pv_syn.reset()
+        self.pv_ca1_syn.reset()
         for stp in self._schaffer_stp.values():
             stp.reset()
-        self._bus.reset()
         self._step_count = 0
 
     def __repr__(self) -> str:

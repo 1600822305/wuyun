@@ -10,6 +10,7 @@ Case 5: 抑制平衡 — 发放率在生物合理范围
 
 import sys
 import os
+sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from wuyun.spike.signal_types import SpikeType, NeuronType
@@ -57,29 +58,22 @@ def test_case_1_structure():
     # L4 应有 stellate + PV+
     assert l4.n_excitatory > 0, "L4 应有兴奋性神经元"
     assert l4.n_inhibitory > 0, "L4 应有抑制性神经元"
-    for n in l4.excitatory:
-        assert n.params.neuron_type == NeuronType.STELLATE, \
-            f"L4 兴奋性应为 STELLATE, 得到 {n.params.neuron_type.name}"
+    assert l4.exc_pop.params.neuron_type == NeuronType.STELLATE, \
+        f"L4 兴奋性应为 STELLATE, 得到 {l4.exc_pop.params.neuron_type.name}"
 
     # L23 应有 pyramidal + PV+ + SST+
     assert l23.n_excitatory > 0, "L23 应有兴奋性神经元"
     assert l23.n_inhibitory > 0, "L23 应有抑制性神经元"
-    l23_types = {n.params.neuron_type for n in l23.inhibitory}
-    assert NeuronType.BASKET_PV in l23_types, "L23 应有 PV+"
-    assert NeuronType.MARTINOTTI_SST in l23_types, "L23 应有 SST+"
+    assert l23.pv_pop is not None, "L23 应有 PV+"
+    assert l23.sst_pop is not None, "L23 应有 SST+"
 
     # L5 应有 L5_PYRAMIDAL
-    for n in l5.excitatory:
-        assert n.params.neuron_type == NeuronType.L5_PYRAMIDAL
-        assert n.params.kappa == 0.6, f"L5 κ 应为 0.6, 得到 {n.params.kappa}"
+    assert l5.exc_pop.params.neuron_type == NeuronType.L5_PYRAMIDAL
+    assert l5.exc_pop.params.kappa == 0.6, f"L5 κ 应为 0.6, 得到 {l5.exc_pop.params.kappa}"
 
     # 突触数量应合理
     assert col.n_synapses > 50, f"突触数应 > 50, 得到 {col.n_synapses}"
     assert col.n_synapses < 2000, f"n=10 时突触数不应超过 2000, 得到 {col.n_synapses}"
-
-    # 所有突触应已注册到 SpikeBus
-    assert col.bus.synapse_count == col.n_synapses, \
-        f"SpikeBus 突触数 ({col.bus.synapse_count}) 应等于柱突触数 ({col.n_synapses})"
 
     print(f"\n  ✅ PASS: 柱结构正确")
     return True
@@ -259,10 +253,6 @@ def test_case_5_inhibition_balance():
     # 生物合理范围: 皮层神经元稳态发放率通常 < 50 Hz
     # 因为有抑制性中间神经元控制
     for lid, layer in col.layers.items():
-        for n in layer.excitatory:
-            rate = n.firing_rate
-            # 允许个别神经元较高 (因为是小网络), 但平均应合理
-            # 只检查平均值
         avg_exc_rate = rates.get(lid, 0)
 
     # 检查 L4 兴奋性发放率 (直接接收输入, 最可能过高)

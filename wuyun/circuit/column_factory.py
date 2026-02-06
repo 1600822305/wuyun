@@ -1,39 +1,33 @@
 """
-Layer 3: Column Factory — 皮层柱工厂函数
+Layer 3: Column Factory — 皮层柱工厂函数 (向量化版本)
 
 创建预配置的皮层柱实例:
-- 分配神经元 (每层的类型/数量)
-- 建立柱内突触连接 (解剖拓扑, 可硬编码)
-- 挂载可塑性规则
-- 注册到 SpikeBus
+- 分配 NeuronPopulation (每层的类型/数量)
+- 建立柱内 SynapseGroup 连接 (解剖拓扑, 可硬编码)
 
 连接拓扑 (解剖结构 = 基因决定, 允许硬编码):
   L4 stellate → L23 pyramidal  (basal)  AMPA  p=0.3   层间前馈
   L23 pyramidal → L5 pyramidal (basal)  AMPA  p=0.3   层间前馈
   L5 pyramidal → L6 pyramidal  (basal)  AMPA  p=0.2   层间前馈
-  L6 pyramidal → L23 pyramidal (apical) AMPA  p=0.2   ★ 柱内预测反馈
-  L6 pyramidal → L5 pyramidal  (apical) AMPA  p=0.2   ★ 柱内预测反馈
+  L6 pyramidal → L23 pyramidal (apical) NMDA  p=0.3   ★ 柱内预测反馈
+  L6 pyramidal → L5 pyramidal  (apical) NMDA  p=0.3   ★ 柱内预测反馈
   PV+ → 同层锥体              (soma)   GABA_A p=0.5  胞体抑制
   SST+ → 同层锥体             (apical) GABA_A p=0.3  树突抑制 (控制burst)
 
 权重: 随机初始化 (不能硬编码! 由 STDP 学习)
+
+依赖: core/ (NeuronPopulation, SynapseGroup)
 """
 
 from typing import List, Tuple
 import numpy as np
 
 from wuyun.spike.signal_types import (
-    SpikeType,
     SynapseType,
     CompartmentType,
-    NeuronType,
 )
-from wuyun.spike.spike_bus import SpikeBus
-from wuyun.synapse.synapse_base import SynapseBase
-from wuyun.synapse.plasticity.classical_stdp import ClassicalSTDP
-from wuyun.synapse.plasticity.inhibitory_stdp import InhibitorySTDP
+from wuyun.synapse.synapse_base import AMPA_PARAMS, NMDA_PARAMS, GABA_A_PARAMS
 from wuyun.neuron.neuron_base import (
-    NeuronBase,
     NeuronParams,
     L23_PYRAMIDAL_PARAMS,
     L5_PYRAMIDAL_PARAMS,
@@ -42,147 +36,74 @@ from wuyun.neuron.neuron_base import (
     BASKET_PV_PARAMS,
     MARTINOTTI_SST_PARAMS,
 )
+from wuyun.core.population import NeuronPopulation
+from wuyun.core.synapse_group import SynapseGroup
 from wuyun.circuit.layer import Layer
 from wuyun.circuit.cortical_column import CorticalColumn
-
-
-# 可塑性规则单例 (同类型突触共享规则对象, 节省内存)
-_EXCITATORY_STDP = ClassicalSTDP()
-_INHIBITORY_STDP = InhibitorySTDP()
 
 
 def _make_neuron_id(column_id: int, layer_id: int, local_id: int) -> int:
     """生成全局唯一神经元 ID
 
     编码规则: column_id * 10000 + layer_id * 100 + local_id
-
-    Args:
-        column_id: 柱 ID (0-999)
-        layer_id: 层 ID (1, 4, 5, 6, 23)
-        local_id: 层内局部 ID (0-99)
-
-    Returns:
-        全局唯一 ID
     """
     return column_id * 10000 + layer_id * 100 + local_id
 
 
-def _create_layer_neurons(
-    column_id: int,
-    layer_id: int,
-    exc_params: NeuronParams,
-    n_exc: int,
-    n_pv: int,
-    n_sst: int = 0,
-) -> Tuple[List[NeuronBase], List[NeuronBase], List[NeuronBase], List[NeuronBase]]:
-    """创建一层的神经元
-
-    Returns:
-        (all_neurons, excitatory, pv_neurons, sst_neurons)
-    """
-    neurons = []
-    excitatory = []
-    pv_neurons = []
-    sst_neurons = []
-    local_id = 0
-
-    # 兴奋性
-    for i in range(n_exc):
-        nid = _make_neuron_id(column_id, layer_id, local_id)
-        neuron = NeuronBase(
-            neuron_id=nid,
-            params=exc_params,
-            column_id=column_id,
-            layer=layer_id,
-        )
-        neurons.append(neuron)
-        excitatory.append(neuron)
-        local_id += 1
-
-    # PV+
-    for i in range(n_pv):
-        nid = _make_neuron_id(column_id, layer_id, local_id)
-        neuron = NeuronBase(
-            neuron_id=nid,
-            params=BASKET_PV_PARAMS,
-            column_id=column_id,
-            layer=layer_id,
-        )
-        neurons.append(neuron)
-        pv_neurons.append(neuron)
-        local_id += 1
-
-    # SST+
-    for i in range(n_sst):
-        nid = _make_neuron_id(column_id, layer_id, local_id)
-        neuron = NeuronBase(
-            neuron_id=nid,
-            params=MARTINOTTI_SST_PARAMS,
-            column_id=column_id,
-            layer=layer_id,
-        )
-        neurons.append(neuron)
-        sst_neurons.append(neuron)
-        local_id += 1
-
-    return neurons, excitatory, pv_neurons, sst_neurons
-
-
-def _connect_populations(
-    pre_neurons: List[NeuronBase],
-    post_neurons: List[NeuronBase],
-    target_compartment: CompartmentType,
+def _build_synapse_group(
+    n_pre: int,
+    n_post: int,
     synapse_type: SynapseType,
+    target: CompartmentType,
     probability: float,
-    w_init_range: Tuple[float, float] = (0.3, 0.7),
-    delay: int = 1,
-    is_inhibitory: bool = False,
-    rng: np.random.RandomState = None,
-) -> List[SynapseBase]:
-    """按概率连接两个神经元群
-
-    Args:
-        pre_neurons: 突触前神经元列表
-        post_neurons: 突触后神经元列表
-        target_compartment: 目标区室 (BASAL/APICAL/SOMA)
-        synapse_type: 突触类型 (AMPA/GABA_A)
-        probability: 连接概率 [0, 1]
-        w_init_range: 初始权重范围 (随机均匀)
-        delay: 传导延迟 (ms)
-        is_inhibitory: 是否为抑制性突触
-        rng: 随机数生成器
+    w_init_range: Tuple[float, float],
+    delay: int,
+    rng: np.random.RandomState,
+) -> SynapseGroup:
+    """按概率创建 SynapseGroup
 
     Returns:
-        创建的突触列表
+        SynapseGroup 实例
     """
-    if rng is None:
-        rng = np.random.RandomState()
-
-    plasticity_rule = _INHIBITORY_STDP if is_inhibitory else _EXCITATORY_STDP
-    synapses = []
-
-    for pre in pre_neurons:
-        for post in post_neurons:
-            # 不允许自连接
-            if pre.id == post.id:
-                continue
-            # 按概率连接
+    pre_list, post_list, w_list = [], [], []
+    for i in range(n_pre):
+        for j in range(n_post):
             if rng.random() < probability:
-                w = rng.uniform(w_init_range[0], w_init_range[1])
-                syn = SynapseBase(
-                    pre_id=pre.id,
-                    post_id=post.id,
-                    weight=w,
-                    delay=delay,
-                    synapse_type=synapse_type,
-                    target_compartment=target_compartment,
-                    plasticity_rule=plasticity_rule,
-                )
-                # 注册到突触后神经元
-                post.add_synapse(syn)
-                synapses.append(syn)
+                pre_list.append(i)
+                post_list.append(j)
+                w_list.append(rng.uniform(w_init_range[0], w_init_range[1]))
 
-    return synapses
+    k = len(pre_list)
+    if k > 0:
+        pre_ids = np.array(pre_list, dtype=np.int32)
+        post_ids = np.array(post_list, dtype=np.int32)
+        weights = np.array(w_list)
+    else:
+        pre_ids = np.zeros(0, dtype=np.int32)
+        post_ids = np.zeros(0, dtype=np.int32)
+        weights = np.zeros(0)
+
+    # 选择参数
+    if synapse_type == SynapseType.AMPA:
+        params = AMPA_PARAMS
+    elif synapse_type == SynapseType.NMDA:
+        params = NMDA_PARAMS
+    elif synapse_type == SynapseType.GABA_A:
+        params = GABA_A_PARAMS
+    else:
+        params = AMPA_PARAMS
+
+    return SynapseGroup(
+        pre_ids=pre_ids, post_ids=post_ids,
+        weights=weights,
+        delays=np.full(k, delay, dtype=np.int32),
+        synapse_type=synapse_type,
+        target=target,
+        tau_decay=params.tau_decay,
+        e_rev=params.e_rev,
+        g_max=params.g_max,
+        n_post=n_post,
+    )
 
 
 def create_sensory_column(
@@ -198,9 +119,6 @@ def create_sensory_column(
         n_per_layer: 每层兴奋性神经元数量 (默认 20, 测试用小规模)
         seed: 随机种子 (可复现)
         ff_connection_strength: 前馈连接强度倍率 (默认 1.0)
-            控制 L4→L23→L5→L6 前馈连接的初始权重范围。
-            例如 1.5 → w_init_range = (0.45, 1.0) 而非 (0.3, 0.7)。
-            用于大网络 (n≥50) 确保深层 (L5/L6) 能被激活。
 
     神经元配置:
         L4:  n 个 Stellate (κ=0.1) + n//4 个 PV+
@@ -209,203 +127,143 @@ def create_sensory_column(
         L6:  n//2 个 L6Pyramidal (κ=0.2) + n//4 个 PV+
 
     Returns:
-        配置好的 CorticalColumn (含所有突触和 SpikeBus)
+        配置好的 CorticalColumn
     """
     rng = np.random.RandomState(seed)
 
-    # 前馈权重范围: 基础 (0.3, 0.7) × ff_connection_strength
     ff_w_lo = min(0.3 * ff_connection_strength, 1.0)
     ff_w_hi = min(0.7 * ff_connection_strength, 1.0)
     ff_w_range = (ff_w_lo, ff_w_hi)
+    fb_w_range = (ff_w_lo, ff_w_hi)
 
     n_pv = max(1, n_per_layer // 4)
     n_sst = max(1, n_per_layer // 4)
     n_deep = max(1, n_per_layer // 2)
 
-    # === 创建各层神经元 ===
+    # === 创建各层 NeuronPopulation ===
+    l4_exc_pop = NeuronPopulation(n_per_layer, STELLATE_PARAMS)
+    l4_pv_pop = NeuronPopulation(n_pv, BASKET_PV_PARAMS)
 
-    # L4: 输入层 — Stellate + PV+
-    l4_all, l4_exc, l4_pv, _ = _create_layer_neurons(
-        column_id, 4, STELLATE_PARAMS, n_per_layer, n_pv, 0,
-    )
+    l23_exc_pop = NeuronPopulation(n_per_layer, L23_PYRAMIDAL_PARAMS)
+    l23_pv_pop = NeuronPopulation(n_pv, BASKET_PV_PARAMS)
+    l23_sst_pop = NeuronPopulation(n_sst, MARTINOTTI_SST_PARAMS)
 
-    # L2/3: 浅层 — L23 Pyramidal + PV+ + SST+
-    l23_all, l23_exc, l23_pv, l23_sst = _create_layer_neurons(
-        column_id, 23, L23_PYRAMIDAL_PARAMS, n_per_layer, n_pv, n_sst,
-    )
+    l5_exc_pop = NeuronPopulation(n_deep, L5_PYRAMIDAL_PARAMS)
+    l5_pv_pop = NeuronPopulation(n_pv, BASKET_PV_PARAMS)
 
-    # L5: 输出层 — L5 Pyramidal + PV+
-    l5_all, l5_exc, l5_pv, _ = _create_layer_neurons(
-        column_id, 5, L5_PYRAMIDAL_PARAMS, n_deep, n_pv, 0,
-    )
+    l6_exc_pop = NeuronPopulation(n_deep, L6_PYRAMIDAL_PARAMS)
+    l6_pv_pop = NeuronPopulation(n_pv, BASKET_PV_PARAMS)
 
-    # L6: 多形层 — L6 Pyramidal + PV+
-    l6_all, l6_exc, l6_pv, _ = _create_layer_neurons(
-        column_id, 6, L6_PYRAMIDAL_PARAMS, n_deep, n_pv, 0,
-    )
+    # === 计算全局 ID 基址 ===
+    # ID 编码: column_id * 10000 + layer_id * 100 + local_id
+    # 每层内: exc 从 local_id=0 开始, PV 从 n_exc 开始, SST 从 n_exc+n_pv 开始
+    l4_exc_base = _make_neuron_id(column_id, 4, 0)
+    l4_pv_base = _make_neuron_id(column_id, 4, n_per_layer)
+
+    l23_exc_base = _make_neuron_id(column_id, 23, 0)
+    l23_pv_base = _make_neuron_id(column_id, 23, n_per_layer)
+    l23_sst_base = _make_neuron_id(column_id, 23, n_per_layer + n_pv)
+
+    l5_exc_base = _make_neuron_id(column_id, 5, 0)
+    l5_pv_base = _make_neuron_id(column_id, 5, n_deep)
+
+    l6_exc_base = _make_neuron_id(column_id, 6, 0)
+    l6_pv_base = _make_neuron_id(column_id, 6, n_deep)
 
     # === 组装 Layer 对象 ===
     layers = {
-        4: Layer(4, l4_all),
-        23: Layer(23, l23_all),
-        5: Layer(5, l5_all),
-        6: Layer(6, l6_all),
+        4: Layer(4, l4_exc_pop, pv_pop=l4_pv_pop,
+                 exc_id_base=l4_exc_base, pv_id_base=l4_pv_base),
+        23: Layer(23, l23_exc_pop, pv_pop=l23_pv_pop, sst_pop=l23_sst_pop,
+                  exc_id_base=l23_exc_base, pv_id_base=l23_pv_base,
+                  sst_id_base=l23_sst_base),
+        5: Layer(5, l5_exc_pop, pv_pop=l5_pv_pop,
+                 exc_id_base=l5_exc_base, pv_id_base=l5_pv_base),
+        6: Layer(6, l6_exc_pop, pv_pop=l6_pv_pop,
+                 exc_id_base=l6_exc_base, pv_id_base=l6_pv_base),
     }
 
-    # === 创建柱内突触连接 ===
-    all_synapses: List[SynapseBase] = []
+    # === 创建柱内 SynapseGroup 连接 ===
+    # 每个连接: (SynapseGroup, src_pop, tgt_pop)
+    connections = []
 
-    # --- 层间前馈连接 (兴奋性 AMPA → basal) ---
+    # --- 层间前馈 (AMPA → basal) ---
+    # L4 exc → L23 exc
+    sg = _build_synapse_group(n_per_layer, n_per_layer, SynapseType.AMPA,
+                              CompartmentType.BASAL, 0.3, ff_w_range, 1, rng)
+    connections.append((sg, l4_exc_pop, l23_exc_pop))
 
-    # L4 stellate → L23 pyramidal (basal)
-    syns = _connect_populations(
-        l4_exc, l23_exc,
-        CompartmentType.BASAL, SynapseType.AMPA,
-        probability=0.3, w_init_range=ff_w_range, delay=1, rng=rng,
-    )
-    all_synapses.extend(syns)
+    # L23 exc → L5 exc
+    sg = _build_synapse_group(n_per_layer, n_deep, SynapseType.AMPA,
+                              CompartmentType.BASAL, 0.3, ff_w_range, 1, rng)
+    connections.append((sg, l23_exc_pop, l5_exc_pop))
 
-    # L23 pyramidal → L5 pyramidal (basal)
-    syns = _connect_populations(
-        l23_exc, l5_exc,
-        CompartmentType.BASAL, SynapseType.AMPA,
-        probability=0.3, w_init_range=ff_w_range, delay=1, rng=rng,
-    )
-    all_synapses.extend(syns)
+    # L5 exc → L6 exc
+    sg = _build_synapse_group(n_deep, n_deep, SynapseType.AMPA,
+                              CompartmentType.BASAL, 0.2, ff_w_range, 1, rng)
+    connections.append((sg, l5_exc_pop, l6_exc_pop))
 
-    # L5 pyramidal → L6 pyramidal (basal)
-    syns = _connect_populations(
-        l5_exc, l6_exc,
-        CompartmentType.BASAL, SynapseType.AMPA,
-        probability=0.2, w_init_range=ff_w_range, delay=1, rng=rng,
-    )
-    all_synapses.extend(syns)
+    # --- 柱内反馈 (NMDA → apical) ★关键 ---
+    # L6 exc → L23 exc (apical)
+    sg = _build_synapse_group(n_deep, n_per_layer, SynapseType.NMDA,
+                              CompartmentType.APICAL, 0.3, fb_w_range, 2, rng)
+    connections.append((sg, l6_exc_pop, l23_exc_pop))
 
-    # --- 柱内反馈连接 (兴奋性 NMDA → apical) ★关键 ---
-    # 使用 NMDA (τ_decay=100ms) 而非 AMPA (τ_decay=2ms):
-    #   生物学事实: 皮层反馈连接以 NMDA 受体为主
-    #   功能需要: 反馈信号需要较长时间窗口整合, 才能使 apical 达到 Ca²⁺ 阈值
-    #   AMPA 的 2ms 衰减太快, 零星的 L6 spike 无法累积足够的去极化
-    # 反馈权重也受 ff_connection_strength 控制
-    fb_w_lo = min(0.3 * ff_connection_strength, 1.0)
-    fb_w_hi = min(0.7 * ff_connection_strength, 1.0)
-    fb_w_range = (fb_w_lo, fb_w_hi)
+    # L6 exc → L5 exc (apical)
+    sg = _build_synapse_group(n_deep, n_deep, SynapseType.NMDA,
+                              CompartmentType.APICAL, 0.3, fb_w_range, 2, rng)
+    connections.append((sg, l6_exc_pop, l5_exc_pop))
 
-    # L6 pyramidal → L23 pyramidal (apical) — 柱内预测
-    syns = _connect_populations(
-        l6_exc, l23_exc,
-        CompartmentType.APICAL, SynapseType.NMDA,
-        probability=0.3, w_init_range=fb_w_range,
-        delay=2, rng=rng,  # 反馈稍慢 delay=2ms
-    )
-    all_synapses.extend(syns)
+    # --- 层内抑制 ---
+    # L4: PV → exc (soma GABA_A)
+    sg = _build_synapse_group(n_pv, n_per_layer, SynapseType.GABA_A,
+                              CompartmentType.SOMA, 0.5, (0.3, 0.7), 1, rng)
+    connections.append((sg, l4_pv_pop, l4_exc_pop))
+    # L4: exc → PV (basal AMPA)
+    sg = _build_synapse_group(n_per_layer, n_pv, SynapseType.AMPA,
+                              CompartmentType.BASAL, 0.3, (0.3, 0.7), 1, rng)
+    connections.append((sg, l4_exc_pop, l4_pv_pop))
 
-    # L6 pyramidal → L5 pyramidal (apical) — 柱内预测
-    syns = _connect_populations(
-        l6_exc, l5_exc,
-        CompartmentType.APICAL, SynapseType.NMDA,
-        probability=0.3, w_init_range=fb_w_range,
-        delay=2, rng=rng,
-    )
-    all_synapses.extend(syns)
+    # L23: PV → exc (soma GABA_A)
+    sg = _build_synapse_group(n_pv, n_per_layer, SynapseType.GABA_A,
+                              CompartmentType.SOMA, 0.5, (0.3, 0.7), 1, rng)
+    connections.append((sg, l23_pv_pop, l23_exc_pop))
+    # L23: SST → exc (apical GABA_A) ★控制 burst
+    sg = _build_synapse_group(n_sst, n_per_layer, SynapseType.GABA_A,
+                              CompartmentType.APICAL, 0.3, (0.3, 0.7), 1, rng)
+    connections.append((sg, l23_sst_pop, l23_exc_pop))
+    # L23: exc → PV (basal AMPA)
+    sg = _build_synapse_group(n_per_layer, n_pv, SynapseType.AMPA,
+                              CompartmentType.BASAL, 0.3, (0.3, 0.7), 1, rng)
+    connections.append((sg, l23_exc_pop, l23_pv_pop))
+    # L23: exc → SST (basal AMPA)
+    sg = _build_synapse_group(n_per_layer, n_sst, SynapseType.AMPA,
+                              CompartmentType.BASAL, 0.2, (0.3, 0.7), 1, rng)
+    connections.append((sg, l23_exc_pop, l23_sst_pop))
 
-    # --- 层内抑制连接 ---
+    # L5: PV → exc (soma GABA_A)
+    sg = _build_synapse_group(n_pv, n_deep, SynapseType.GABA_A,
+                              CompartmentType.SOMA, 0.5, (0.3, 0.7), 1, rng)
+    connections.append((sg, l5_pv_pop, l5_exc_pop))
+    # L5: exc → PV (basal AMPA)
+    sg = _build_synapse_group(n_deep, n_pv, SynapseType.AMPA,
+                              CompartmentType.BASAL, 0.3, (0.3, 0.7), 1, rng)
+    connections.append((sg, l5_exc_pop, l5_pv_pop))
 
-    # L4: PV+ → L4 stellate (soma) — 快速抑制
-    syns = _connect_populations(
-        l4_pv, l4_exc,
-        CompartmentType.SOMA, SynapseType.GABA_A,
-        probability=0.5, delay=1,
-        is_inhibitory=True, rng=rng,
-    )
-    all_synapses.extend(syns)
-
-    # L4: L4 stellate → L4 PV+ (basal) — 兴奋性驱动抑制
-    syns = _connect_populations(
-        l4_exc, l4_pv,
-        CompartmentType.BASAL, SynapseType.AMPA,
-        probability=0.3, delay=1, rng=rng,
-    )
-    all_synapses.extend(syns)
-
-    # L23: PV+ → L23 pyramidal (soma) — 快速抑制
-    syns = _connect_populations(
-        l23_pv, l23_exc,
-        CompartmentType.SOMA, SynapseType.GABA_A,
-        probability=0.5, delay=1,
-        is_inhibitory=True, rng=rng,
-    )
-    all_synapses.extend(syns)
-
-    # L23: SST+ → L23 pyramidal (apical) — 树突抑制 ★控制 burst
-    syns = _connect_populations(
-        l23_sst, l23_exc,
-        CompartmentType.APICAL, SynapseType.GABA_A,
-        probability=0.3, delay=1,
-        is_inhibitory=True, rng=rng,
-    )
-    all_synapses.extend(syns)
-
-    # L23: L23 pyramidal → L23 PV+ (basal) — 驱动
-    syns = _connect_populations(
-        l23_exc, l23_pv,
-        CompartmentType.BASAL, SynapseType.AMPA,
-        probability=0.3, delay=1, rng=rng,
-    )
-    all_synapses.extend(syns)
-
-    # L23: L23 pyramidal → L23 SST+ (basal) — 驱动
-    syns = _connect_populations(
-        l23_exc, l23_sst,
-        CompartmentType.BASAL, SynapseType.AMPA,
-        probability=0.2, delay=1, rng=rng,
-    )
-    all_synapses.extend(syns)
-
-    # L5: PV+ → L5 pyramidal (soma)
-    syns = _connect_populations(
-        l5_pv, l5_exc,
-        CompartmentType.SOMA, SynapseType.GABA_A,
-        probability=0.5, delay=1,
-        is_inhibitory=True, rng=rng,
-    )
-    all_synapses.extend(syns)
-
-    # L5: L5 pyramidal → L5 PV+ (basal)
-    syns = _connect_populations(
-        l5_exc, l5_pv,
-        CompartmentType.BASAL, SynapseType.AMPA,
-        probability=0.3, delay=1, rng=rng,
-    )
-    all_synapses.extend(syns)
-
-    # L6: PV+ → L6 pyramidal (soma)
-    syns = _connect_populations(
-        l6_pv, l6_exc,
-        CompartmentType.SOMA, SynapseType.GABA_A,
-        probability=0.5, delay=1,
-        is_inhibitory=True, rng=rng,
-    )
-    all_synapses.extend(syns)
-
-    # L6: L6 pyramidal → L6 PV+ (basal)
-    syns = _connect_populations(
-        l6_exc, l6_pv,
-        CompartmentType.BASAL, SynapseType.AMPA,
-        probability=0.3, delay=1, rng=rng,
-    )
-    all_synapses.extend(syns)
-
-    # === 创建 SpikeBus 并注册所有突触 ===
-    bus = SpikeBus()
-    bus.register_synapses(all_synapses)
+    # L6: PV → exc (soma GABA_A)
+    sg = _build_synapse_group(n_pv, n_deep, SynapseType.GABA_A,
+                              CompartmentType.SOMA, 0.5, (0.3, 0.7), 1, rng)
+    connections.append((sg, l6_pv_pop, l6_exc_pop))
+    # L6: exc → PV (basal AMPA)
+    sg = _build_synapse_group(n_deep, n_pv, SynapseType.AMPA,
+                              CompartmentType.BASAL, 0.3, (0.3, 0.7), 1, rng)
+    connections.append((sg, l6_exc_pop, l6_pv_pop))
 
     # === 组装 CorticalColumn ===
     column = CorticalColumn(
         column_id=column_id,
         layers=layers,
-        bus=bus,
-        synapses=all_synapses,
+        connections=connections,
     )
 
     return column

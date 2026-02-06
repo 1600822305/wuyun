@@ -16,6 +16,7 @@ Phase 0 验证实验: 单个双区室神经元的 regular/burst/silence 测试
 
 import sys
 import os
+sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 # 确保能导入 wuyun 包
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

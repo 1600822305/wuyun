@@ -86,6 +86,13 @@ class SynapseBase:
         params:  突触参数 (时间常数/反转电位/最大电导)
     """
 
+    __slots__ = (
+        'pre_id', 'post_id', 'target_compartment', 'synapse_type',
+        'plasticity_type', '_plasticity_rule', 'weight', 'w_max', 'w_min',
+        'delay', 'params', '_s', '_x', '_eligibility', '_delay_buffer',
+        '_decay_factor', '_elig_decay_factor', '_is_nmda', '_gw', '_e_rev',
+    )
+
     def __init__(
         self,
         pre_id: int,
@@ -136,6 +143,11 @@ class SynapseBase:
         # 预计算衰减因子 (dt=1.0 快速路径)
         self._decay_factor: float = math.exp(-1.0 / self.params.tau_decay)
         self._elig_decay_factor: float = math.exp(-1.0 / 1000.0)
+
+        # 性能缓存: 避免每步重复计算
+        self._is_nmda: bool = (synapse_type == SynapseType.NMDA)
+        self._gw: float = self.params.g_max * self.weight  # g_max * weight 缓存
+        self._e_rev: float = self.params.e_rev              # 反转电位缓存
 
     def _default_params(self) -> SynapseParams:
         """根据突触类型返回默认参数"""
@@ -201,11 +213,58 @@ class SynapseBase:
             # 门控变量上限为 1.0 (饱和)
             self._s = min(self._s, 1.0)
 
-        # 资格痕迹衰减 (用于三因子学习)
-        if dt == 1.0:
-            self._eligibility *= self._elig_decay_factor
-        else:
-            self._eligibility *= math.exp(-dt / 1000.0)
+        # 资格痕迹衰减 (仅当有可塑性规则或痕迹非零时才计算)
+        if self._eligibility != 0.0:
+            if dt == 1.0:
+                self._eligibility *= self._elig_decay_factor
+            else:
+                self._eligibility *= math.exp(-dt / 1000.0)
+
+    def step_and_compute(self, current_time: int, v_post: float,
+                         dt: float = 1.0) -> float:
+        """合并 step + compute_current 的高性能版本
+
+        比分开调用减少一次 Python 函数调用开销,
+        并在 _s < 1e-7 时跳过电流计算 (绝大多数突触大部分时间处于非活跃状态).
+
+        Args:
+            current_time: 当前时间步
+            v_post: 突触后神经元膜电位 (mV)
+            dt: 时间步长
+
+        Returns:
+            突触电流
+        """
+        # --- step 部分 ---
+        arrived = False
+        spike_type_arrived = SpikeType.NONE
+        buf = self._delay_buffer
+        while buf and buf[0][0] <= current_time:
+            _, spike_type_arrived = buf.popleft()
+            arrived = True
+
+        s = self._s * self._decay_factor if dt == 1.0 else self._s * math.exp(-dt / self.params.tau_decay)
+
+        if arrived:
+            increment = 1.5 if spike_type_arrived.is_burst else 1.0
+            s = min(s + increment, 1.0)
+
+        self._s = s
+
+        # 资格痕迹衰减 (仅非零时)
+        if self._eligibility != 0.0:
+            self._eligibility *= self._elig_decay_factor if dt == 1.0 else math.exp(-dt / 1000.0)
+
+        # --- compute_current 部分 (非活跃时跳过) ---
+        if s < 1e-7:
+            return 0.0
+
+        conductance = self._gw * s
+
+        if self._is_nmda:
+            conductance /= (1.0 + 0.28011204 * math.exp(-0.062 * v_post))
+
+        return conductance * (self._e_rev - v_post)
 
     def compute_current(self, v_post: float) -> float:
         """计算突触电流
@@ -290,6 +349,7 @@ class SynapseBase:
         )
         new_w = self.weight + dw
         self.weight = float(max(self.w_min, min(new_w, self.w_max)))
+        self._gw = self.params.g_max * self.weight
         return dw
 
     def update_eligibility(
@@ -346,6 +406,7 @@ class SynapseBase:
         )
         new_w = self.weight + dw
         self.weight = float(max(self.w_min, min(new_w, self.w_max)))
+        self._gw = self.params.g_max * self.weight
         return dw
 
     # =========================================================================
