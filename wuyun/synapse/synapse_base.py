@@ -20,6 +20,8 @@ Layer 1: 突触基类与 AMPA 突触实现
   - 这是预测编码的硬件基础: 前馈→basal, 反馈→apical
 """
 
+import math
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Optional
 import numpy as np
@@ -110,7 +112,7 @@ class SynapseBase:
         self._plasticity_rule = plasticity_rule
 
         # 突触权重 (可塑性学习的对象)
-        self.weight = np.clip(weight, w_min, w_max)
+        self.weight = max(w_min, min(weight, w_max))
         self.w_max = w_max
         self.w_min = w_min
 
@@ -129,7 +131,11 @@ class SynapseBase:
         self._eligibility: float = 0.0  # 资格痕迹 (三因子学习)
 
         # 延迟缓冲: 存储待传递的脉冲 (timestamp → spike_type)
-        self._delay_buffer: list = []
+        self._delay_buffer: deque = deque()
+
+        # 预计算衰减因子 (dt=1.0 快速路径)
+        self._decay_factor: float = math.exp(-1.0 / self.params.tau_decay)
+        self._elig_decay_factor: float = math.exp(-1.0 / 1000.0)
 
     def _default_params(self) -> SynapseParams:
         """根据突触类型返回默认参数"""
@@ -170,22 +176,20 @@ class SynapseBase:
             current_time: 当前时间步
             dt: 时间步长 (ms), 默认 1.0
         """
-        # 检查是否有脉冲到达
+        # 检查是否有脉冲到达 (利用 deque FIFO 顺序)
         arrived = False
         spike_type_arrived = SpikeType.NONE
-        remaining = []
-        for arrival_time, spike_type in self._delay_buffer:
-            if arrival_time <= current_time:
-                arrived = True
-                spike_type_arrived = spike_type
-            else:
-                remaining.append((arrival_time, spike_type))
-        self._delay_buffer = remaining
+        while self._delay_buffer and self._delay_buffer[0][0] <= current_time:
+            _, spike_type = self._delay_buffer.popleft()
+            arrived = True
+            spike_type_arrived = spike_type
 
         # 门控变量动力学 (双指数模型简化为单指数)
         # ds/dt = -s / τ_decay
-        decay = dt / self.params.tau_decay
-        self._s *= np.exp(-decay)
+        if dt == 1.0:
+            self._s *= self._decay_factor
+        else:
+            self._s *= math.exp(-dt / self.params.tau_decay)
 
         # 脉冲到达时: s 跳增
         if arrived:
@@ -198,8 +202,10 @@ class SynapseBase:
             self._s = min(self._s, 1.0)
 
         # 资格痕迹衰减 (用于三因子学习)
-        tau_eligibility = 1000.0  # ms
-        self._eligibility *= np.exp(-dt / tau_eligibility)
+        if dt == 1.0:
+            self._eligibility *= self._elig_decay_factor
+        else:
+            self._eligibility *= math.exp(-dt / 1000.0)
 
     def compute_current(self, v_post: float) -> float:
         """计算突触电流
@@ -267,7 +273,8 @@ class SynapseBase:
             pre_spike_times, post_spike_times,
             self.weight, self.w_min, self.w_max,
         )
-        self.weight = float(np.clip(self.weight + dw, self.w_min, self.w_max))
+        new_w = self.weight + dw
+        self.weight = float(max(self.w_min, min(new_w, self.w_max)))
         return dw
 
     def update_eligibility(
@@ -322,7 +329,8 @@ class SynapseBase:
             self._eligibility, modulation,
             self.weight, self.w_min, self.w_max,
         )
-        self.weight = float(np.clip(self.weight + dw, self.w_min, self.w_max))
+        new_w = self.weight + dw
+        self.weight = float(max(self.w_min, min(new_w, self.w_max)))
         return dw
 
     # =========================================================================

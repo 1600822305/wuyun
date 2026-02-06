@@ -14,6 +14,7 @@ Spike 是悟韵 (WuYun) 系统的"原子"信号单元。
 """
 
 from dataclasses import dataclass, field
+from collections import deque
 from typing import List, Optional
 import numpy as np
 
@@ -72,25 +73,20 @@ class SpikeTrain:
     def __init__(self, neuron_id: int, capacity: int = 1000):
         self.neuron_id = neuron_id
         self.capacity = capacity
-        self._timestamps: List[int] = []
-        self._types: List[SpikeType] = []
+        self._timestamps: deque = deque(maxlen=capacity)
+        self._types: deque = deque(maxlen=capacity)
 
     def record(self, spike: Spike) -> None:
         """记录一个脉冲事件"""
         self._timestamps.append(spike.timestamp)
         self._types.append(spike.spike_type)
-        # 滑动窗口: 超出容量时移除最早的记录
-        if len(self._timestamps) > self.capacity:
-            self._timestamps.pop(0)
-            self._types.pop(0)
+        # deque(maxlen) 自动淘汰最旧记录, 无需手动 pop
 
     def record_spike(self, timestamp: int, spike_type: SpikeType) -> None:
         """直接记录脉冲参数 (避免创建 Spike 对象的开销)"""
         self._timestamps.append(timestamp)
         self._types.append(spike_type)
-        if len(self._timestamps) > self.capacity:
-            self._timestamps.pop(0)
-            self._types.pop(0)
+        # deque(maxlen) 自动淘汰最旧记录, 无需手动 pop
 
     @property
     def last_spike_time(self) -> Optional[int]:
