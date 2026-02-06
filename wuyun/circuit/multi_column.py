@@ -37,8 +37,8 @@ class GainParams:
     - 高层柱能被低层误差驱动
     """
     tc_to_column_gain: float = 30.0       # 丘脑→皮层: TC 每个 spike 对 L4 的驱动强度
-    column_to_tc_gain: float = 10.0       # 皮层→丘脑反馈 (L6→TC apical)
-    column_to_trn_gain: float = 5.0       # 皮层→TRN (L6→TRN, 负反馈关键!)
+    column_to_tc_gain: float = 25.0       # 皮层→丘脑反馈 (L6→TC apical, 预测信号)
+    column_to_trn_gain: float = 15.0      # 皮层→TRN (L6→TRN, 负反馈关键!)
     error_forward_gain: float = 20.0      # 误差上传 (低柱 L2/3 regular → 高柱 L4)
     prediction_backward_gain: float = 10.0  # 预测下传 (高柱 L6 → 低柱 apical)
     lateral_gain: float = 5.0             # 侧向上下文

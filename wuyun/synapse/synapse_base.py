@@ -212,6 +212,11 @@ class SynapseBase:
 
         I_syn = g_max * weight * s * (V_post - E_rev)
 
+        NMDA 突触额外应用 Mg²⁺ 电压门控因子 B(V):
+          B(V) = 1 / (1 + [Mg²⁺]/3.57 · exp(-0.062 · V))
+        这使 NMDA 成为重合检测器: 只有突触后细胞已部分去极化时才传导。
+        (Jahr & Stevens, 1990; Mayer et al., 1984)
+
         注意: 对于兴奋性突触 (E_rev=0mV), 当 V_post < 0 时,
         (V_post - E_rev) < 0, 所以 I_syn < 0 (内向电流, 去极化方向)。
         在神经元方程中用 -I_syn 或直接用正值表示去极化电流。
@@ -229,6 +234,16 @@ class SynapseBase:
         """
         # 电导: g = g_max * weight * s
         conductance = self.params.g_max * self.weight * self._s
+
+        # NMDA 电压门控: Mg²⁺ 阻断因子 (Jahr & Stevens, 1990)
+        # B(V) ≈ 0.1 at V=-65mV (静息态, 几乎完全阻断)
+        # B(V) ≈ 0.5 at V=-35mV (部分去极化, 开始传导)
+        # B(V) ≈ 0.9 at V=-10mV (强去极化, 几乎完全传导)
+        if self.synapse_type == SynapseType.NMDA:
+            mg_concentration = 1.0  # mM, 生理浓度
+            mg_block = 1.0 / (1.0 + (mg_concentration / 3.57)
+                              * math.exp(-0.062 * v_post))
+            conductance *= mg_block
 
         # 驱动力: (E_rev - V_post) — 注意符号方向
         # 当 E_rev > V_post → 正电流 → 去极化 (兴奋)
