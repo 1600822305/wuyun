@@ -33,14 +33,25 @@
 
 > 神经元+突触 → 皮层柱 → 核心回路 → 扩展脑区 → 布线 → 涌现
 
-### Step 1: C++ 工程骨架 + 基础验证
-- ⬜ CMake 工程搭建 (src/ + pybind11 + Google Test)
-- ⬜ src/core/: types.h, neuron.h/cpp, population.h/cpp (双区室 AdLIF+)
-- ⬜ src/core/: synapse_group.h/cpp (CSR 稀疏), spike_queue.h/cpp (环形缓冲)
-- ⬜ src/plasticity/: stdp.h/cpp, stp.h/cpp
-- ⬜ src/bindings/: pybind11 绑定 → Python 可 import
-- ⬜ tests/cpp/test_neuron.cpp: 验证 regular/burst/silence 发放模式
-- ⬜ tests/python/test_binding.py: 验证 Python↔C++ 桥接
+### Step 1: C++ 工程骨架 + 基础验证 ✅ (2026-02-07)
+- ✅ CMake 工程搭建 (MSVC 17, Visual Studio 2022, C++17)
+- ✅ src/core/types.h — 枚举、参数结构体、4种预设神经元
+- ✅ src/core/neuron.h/cpp — 单神经元 step (调试用)
+- ✅ src/core/population.h/cpp — SoA 向量化双区室 AdLIF+ 群体
+- ✅ src/core/synapse_group.h/cpp — CSR 稀疏突触组 (电导型)
+- ✅ src/core/spike_queue.h/cpp — 环形缓冲延迟队列
+- ✅ src/plasticity/stdp.h/cpp — 经典 STDP
+- ✅ src/plasticity/stp.h/cpp — 短时程可塑性 (Tsodyks-Markram)
+- ✅ tests/cpp/test_neuron.cpp — 9 测试全通过 (silence/regular/burst/refrac/adapt/pop×4)
+- ⏸ pybind11 绑定 — 延后到 Step 3 再做 (先验证回路)
+- **Benchmark (Release, 单线程, CPU):**
+  | 规模 | 每步耗时 | 吞吐量 |
+  |------|---------|--------|
+  | 10K 神经元 | 146 μs | 68M/s |
+  | 100K 神经元 | 1.5 ms | 67M/s |
+  | 1M 神经元 | 26 ms | 38M/s |
+  | 100K 突触 | 75 μs | — |
+  | 1M 突触 | 1.2 ms | — |
 
 ### Step 2: 皮层柱模板 (C++)
 - ⬜ src/circuit/cortical_column.h/cpp (6层通用模板)
