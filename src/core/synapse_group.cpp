@@ -1,0 +1,98 @@
+#include "core/synapse_group.h"
+#include <algorithm>
+#include <numeric>
+
+namespace wuyun {
+
+SynapseGroup::SynapseGroup(
+    size_t n_pre,
+    size_t n_post,
+    const std::vector<int32_t>& pre_ids,
+    const std::vector<int32_t>& post_ids,
+    const std::vector<float>& weights,
+    const std::vector<int32_t>& delays,
+    const SynapseParams& syn_params,
+    CompartmentType target
+)
+    : n_pre_(n_pre)
+    , n_post_(n_post)
+    , target_(target)
+    , weights_(weights)
+    , delays_(delays)
+    , tau_decay_(syn_params.tau_decay)
+    , e_rev_(syn_params.e_rev)
+    , g_max_(syn_params.g_max)
+    , g_(weights.size(), 0.0f)
+    , i_post_(n_post, 0.0f)
+{
+    // Build CSR from COO (pre_ids, post_ids)
+    size_t n_syn = pre_ids.size();
+    row_ptr_.resize(n_pre + 1, 0);
+
+    // Count synapses per pre neuron
+    for (size_t s = 0; s < n_syn; ++s) {
+        row_ptr_[static_cast<size_t>(pre_ids[s]) + 1] += 1;
+    }
+    // Prefix sum
+    for (size_t i = 1; i <= n_pre; ++i) {
+        row_ptr_[i] += row_ptr_[i - 1];
+    }
+
+    // Sort by pre_id to fill CSR col_idx
+    // Use temporary offset array
+    col_idx_.resize(n_syn);
+    std::vector<float> sorted_weights(n_syn);
+    std::vector<int32_t> sorted_delays(n_syn);
+    std::vector<int32_t> offset(n_pre, 0);
+
+    for (size_t s = 0; s < n_syn; ++s) {
+        size_t pre = static_cast<size_t>(pre_ids[s]);
+        size_t pos = static_cast<size_t>(row_ptr_[pre]) + static_cast<size_t>(offset[pre]);
+        col_idx_[pos]       = post_ids[s];
+        sorted_weights[pos] = weights[s];
+        sorted_delays[pos]  = delays[s];
+        offset[pre] += 1;
+    }
+    weights_ = std::move(sorted_weights);
+    delays_  = std::move(sorted_delays);
+}
+
+void SynapseGroup::deliver_spikes(
+    const std::vector<uint8_t>& pre_fired,
+    const std::vector<int8_t>& /*pre_spike_type*/
+) {
+    // For each fired pre neuron, increment gating variable of its synapses
+    for (size_t pre = 0; pre < n_pre_; ++pre) {
+        if (!pre_fired[pre]) continue;
+        int32_t start = row_ptr_[pre];
+        int32_t end   = row_ptr_[pre + 1];
+        for (int32_t s = start; s < end; ++s) {
+            g_[static_cast<size_t>(s)] += 1.0f;
+        }
+    }
+}
+
+std::vector<float> SynapseGroup::step_and_compute(
+    const std::vector<float>& v_post,
+    float dt
+) {
+    // Clear output buffer
+    std::fill(i_post_.begin(), i_post_.end(), 0.0f);
+
+    float decay = dt / tau_decay_;
+    size_t n_syn = col_idx_.size();
+
+    for (size_t s = 0; s < n_syn; ++s) {
+        // Decay gating variable: ds/dt = -s / tau_decay
+        g_[s] -= g_[s] * decay;
+
+        // I_syn = g_max * w * s * (V_post - E_rev)
+        size_t post = static_cast<size_t>(col_idx_[s]);
+        float i_syn = g_max_ * weights_[s] * g_[s] * (v_post[post] - e_rev_);
+        i_post_[post] += i_syn;
+    }
+
+    return i_post_;
+}
+
+} // namespace wuyun
