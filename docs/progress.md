@@ -14,12 +14,18 @@
   - 丘脑 16核团 | 杏仁核 8核团 | 海马 7亚区 | 中脑 11核团 | 小脑 8小叶区
   - 总分区: **~97区** (皮层25 + 皮层下72)，每个皮层下核团标注 FreeSurfer 编号
 
-### P0 代码 (2026-02-07)
-- ✅ `spike/` — SpikeType、Spike、SpikeBus、OscillationClock
-- ✅ `synapse/` — SynapseBase、STP、STDP、DA-STDP、抑制性STDP、稳态可塑性
-- ✅ `neuron/` — NeuronBase(16种参数预设)、双区室Compartment
-- ✅ `core/` — 向量化 NeuronPopulation、SynapseGroup
-- ✅ 全模块导入测试通过
+### P0 Python 原型 (2026-02-07) → 已归档为算法参考
+- ✅ `wuyun/spike/` — SpikeType、Spike、SpikeBus、OscillationClock
+- ✅ `wuyun/synapse/` — SynapseBase、STP、STDP、DA-STDP、抑制性STDP、稳态可塑性
+- ✅ `wuyun/neuron/` — NeuronBase(16种参数预设)、双区室Compartment
+- ✅ `wuyun/core/` — 向量化 NeuronPopulation、SynapseGroup
+- → 归档至 `_archived/python_prototype/`，数学方程不变，C++ 重新实现
+
+### 架构决策: C++ 核心引擎 (2026-02-07)
+- ✅ 决定: 仿真核心用 **C++17**，Python 只做配置/实验/可视化
+- ✅ 理由: Python 100万神经元 ~10秒/step 不可用; C++ ~10-50ms/step 接近实时; 未来迁移 CUDA 容易
+- ✅ 03项目结构文档重写为 C++ core + pybind11 + Python 实验层 (v0.4)
+- ✅ 技术栈: C++17 / CMake / pybind11 / Google Test / SoA布局 / CSR稀疏 / 事件驱动
 
 ---
 
@@ -27,12 +33,18 @@
 
 > 神经元+突触 → 皮层柱 → 核心回路 → 扩展脑区 → 布线 → 涌现
 
-### Step 1: 验证基础
-- ⬜ 迁移 test_phase0_neuron.py 并验证通过
+### Step 1: C++ 工程骨架 + 基础验证
+- ⬜ CMake 工程搭建 (src/ + pybind11 + Google Test)
+- ⬜ src/core/: types.h, neuron.h/cpp, population.h/cpp (双区室 AdLIF+)
+- ⬜ src/core/: synapse_group.h/cpp (CSR 稀疏), spike_queue.h/cpp (环形缓冲)
+- ⬜ src/plasticity/: stdp.h/cpp, stp.h/cpp
+- ⬜ src/bindings/: pybind11 绑定 → Python 可 import
+- ⬜ tests/cpp/test_neuron.cpp: 验证 regular/burst/silence 发放模式
+- ⬜ tests/python/test_binding.py: 验证 Python↔C++ 桥接
 
-### Step 2: 皮层柱模板
-- ⬜ circuit/ 目录 (cortical_column, layer, column_factory)
-- ⬜ 6层微环路 (L2/3↔L4↔L5↔L6，含E/I平衡)
+### Step 2: 皮层柱模板 (C++)
+- ⬜ src/circuit/cortical_column.h/cpp (6层通用模板)
+- ⬜ src/circuit/microcircuit.h/cpp (PV+/SST+/VIP)
 - ⬜ 预测编码验证 (前馈→regular, 前馈+反馈→burst)
 
 ### Step 3: 核心回路 — 最小可工作大脑
@@ -104,11 +116,11 @@
 ## 架构备忘
 
 ```
-神经元 + 突触             ← 已完成 (spike/ synapse/ neuron/ core/)
+C++ 工程骨架 + 基础验证  ← Step 1: CMake + core/ + pybind11
      ↓
-皮层柱模板 (6层)          ← Step 2
+皮层柱模板 (6层, C++)    ← Step 2: circuit/cortical_column
      ↓
-核心回路 (最小大脑)       ← Step 3: V1+PFC+BG+丘脑4核+DA → 感觉→决策→动作
+核心回路 (最小大脑)       ← Step 3: V1+PFC+BG+丘脑4核+DA
      ↓
 记忆+情感                 ← Step 4: 海马7区+杏仁核8核+Papez
      ↓
@@ -120,5 +132,6 @@
      ↓
 全脑功能涌现              ← Step 8: 睡眠/注意力/发育
 
-OOP版 (neuron/synapse/) → 调试    向量化版 (core/) → 生产
+技术栈: C++17 核心引擎 + pybind11 → Python 实验/可视化
+Python 原型 (wuyun/) → _archived/ 算法参考
 ```
