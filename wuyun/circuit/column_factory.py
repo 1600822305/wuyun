@@ -189,6 +189,7 @@ def create_sensory_column(
     column_id: int,
     n_per_layer: int = 20,
     seed: int = None,
+    ff_connection_strength: float = 1.0,
 ) -> CorticalColumn:
     """创建一个感觉皮层柱 (如 V1)
 
@@ -196,6 +197,10 @@ def create_sensory_column(
         column_id: 柱全局 ID
         n_per_layer: 每层兴奋性神经元数量 (默认 20, 测试用小规模)
         seed: 随机种子 (可复现)
+        ff_connection_strength: 前馈连接强度倍率 (默认 1.0)
+            控制 L4→L23→L5→L6 前馈连接的初始权重范围。
+            例如 1.5 → w_init_range = (0.45, 1.0) 而非 (0.3, 0.7)。
+            用于大网络 (n≥50) 确保深层 (L5/L6) 能被激活。
 
     神经元配置:
         L4:  n 个 Stellate (κ=0.1) + n//4 个 PV+
@@ -207,6 +212,11 @@ def create_sensory_column(
         配置好的 CorticalColumn (含所有突触和 SpikeBus)
     """
     rng = np.random.RandomState(seed)
+
+    # 前馈权重范围: 基础 (0.3, 0.7) × ff_connection_strength
+    ff_w_lo = min(0.3 * ff_connection_strength, 1.0)
+    ff_w_hi = min(0.7 * ff_connection_strength, 1.0)
+    ff_w_range = (ff_w_lo, ff_w_hi)
 
     n_pv = max(1, n_per_layer // 4)
     n_sst = max(1, n_per_layer // 4)
@@ -251,7 +261,7 @@ def create_sensory_column(
     syns = _connect_populations(
         l4_exc, l23_exc,
         CompartmentType.BASAL, SynapseType.AMPA,
-        probability=0.3, delay=1, rng=rng,
+        probability=0.3, w_init_range=ff_w_range, delay=1, rng=rng,
     )
     all_synapses.extend(syns)
 
@@ -259,7 +269,7 @@ def create_sensory_column(
     syns = _connect_populations(
         l23_exc, l5_exc,
         CompartmentType.BASAL, SynapseType.AMPA,
-        probability=0.3, delay=1, rng=rng,
+        probability=0.3, w_init_range=ff_w_range, delay=1, rng=rng,
     )
     all_synapses.extend(syns)
 
@@ -267,25 +277,35 @@ def create_sensory_column(
     syns = _connect_populations(
         l5_exc, l6_exc,
         CompartmentType.BASAL, SynapseType.AMPA,
-        probability=0.2, delay=1, rng=rng,
+        probability=0.2, w_init_range=ff_w_range, delay=1, rng=rng,
     )
     all_synapses.extend(syns)
 
-    # --- 柱内反馈连接 (兴奋性 AMPA → apical) ★关键 ---
+    # --- 柱内反馈连接 (兴奋性 NMDA → apical) ★关键 ---
+    # 使用 NMDA (τ_decay=100ms) 而非 AMPA (τ_decay=2ms):
+    #   生物学事实: 皮层反馈连接以 NMDA 受体为主
+    #   功能需要: 反馈信号需要较长时间窗口整合, 才能使 apical 达到 Ca²⁺ 阈值
+    #   AMPA 的 2ms 衰减太快, 零星的 L6 spike 无法累积足够的去极化
+    # 反馈权重也受 ff_connection_strength 控制
+    fb_w_lo = min(0.3 * ff_connection_strength, 1.0)
+    fb_w_hi = min(0.7 * ff_connection_strength, 1.0)
+    fb_w_range = (fb_w_lo, fb_w_hi)
 
     # L6 pyramidal → L23 pyramidal (apical) — 柱内预测
     syns = _connect_populations(
         l6_exc, l23_exc,
-        CompartmentType.APICAL, SynapseType.AMPA,
-        probability=0.2, delay=2, rng=rng,  # 反馈稍慢 delay=2ms
+        CompartmentType.APICAL, SynapseType.NMDA,
+        probability=0.3, w_init_range=fb_w_range,
+        delay=2, rng=rng,  # 反馈稍慢 delay=2ms
     )
     all_synapses.extend(syns)
 
     # L6 pyramidal → L5 pyramidal (apical) — 柱内预测
     syns = _connect_populations(
         l6_exc, l5_exc,
-        CompartmentType.APICAL, SynapseType.AMPA,
-        probability=0.2, delay=2, rng=rng,
+        CompartmentType.APICAL, SynapseType.NMDA,
+        probability=0.3, w_init_range=fb_w_range,
+        delay=2, rng=rng,
     )
     all_synapses.extend(syns)
 
