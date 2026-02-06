@@ -294,6 +294,111 @@ class CorticalColumn:
         """按 ID 获取神经元"""
         return self._all_neurons.get(neuron_id)
 
+    # =========================================================================
+    # 侧向输入接口 (Phase 1.8 新增)
+    # =========================================================================
+
+    def receive_lateral(self, spikes: List[Spike]) -> None:
+        """接收侧向输入 → L2/3 的 basal
+
+        侧向输入来自同层其他柱的 L2/3，提供上下文信息。
+
+        Args:
+            spikes: 侧向脉冲列表
+        """
+        for spike in spikes:
+            self.bus.emit(spike)
+
+    def inject_lateral_current(self, current: float) -> None:
+        """直接向 L2/3 兴奋性神经元注入侧向电流 (测试用)
+
+        Args:
+            current: 注入电流强度
+        """
+        if 23 in self.layers:
+            for neuron in self.layers[23].excitatory:
+                neuron.inject_basal_current(current)
+
+    # =========================================================================
+    # 统一输出汇总 (Phase 1.8 新增)
+    # =========================================================================
+
+    def get_output_summary(self) -> dict:
+        """获取当前时间步的所有输出信号汇总
+
+        返回一个字典，包含各类输出的 Spike 列表和统计:
+        - prediction_error: L2/3 regular spikes (向上传递)
+        - match_signal: L2/3 burst spikes
+        - prediction: L6 所有输出 (向下/丘脑反馈)
+        - drive: L5 burst 输出 (驱动皮层下)
+        - l23_firing_rate: L2/3 当前发放率
+        - l5_firing_rate: L5 当前发放率
+        - l6_firing_rate: L6 当前发放率
+
+        Returns:
+            dict with keys: prediction_error, match_signal, prediction,
+            drive, l23_firing_rate, l5_firing_rate, l6_firing_rate
+        """
+        rates = self.get_layer_firing_rates()
+        return {
+            'prediction_error': self.get_prediction_error(),
+            'match_signal': self.get_match_signal(),
+            'prediction': self.get_prediction(),
+            'drive': self.get_drive_output(),
+            'l23_firing_rate': rates.get(23, 0.0),
+            'l5_firing_rate': rates.get(5, 0.0),
+            'l6_firing_rate': rates.get(6, 0.0),
+        }
+
+    def get_neuron_ids(self, layer_id: int, excitatory_only: bool = True) -> List[int]:
+        """获取指定层的神经元 ID 列表
+
+        Args:
+            layer_id: 层编号 (4, 23, 5, 6)
+            excitatory_only: 是否只返回兴奋性神经元 (默认 True)
+
+        Returns:
+            神经元 ID 列表
+        """
+        if layer_id not in self.layers:
+            return []
+        if excitatory_only:
+            return [n.id for n in self.layers[layer_id].excitatory]
+        return [n.id for n in self.layers[layer_id].neurons]
+
+    # =========================================================================
+    # 稳态可塑性接口 (Phase 1.8 新增)
+    # =========================================================================
+
+    def apply_homeostatic_scaling(self, homeostatic) -> None:
+        """应用稳态可塑性 — 每隔 N 步调用一次 (不是每步!)
+
+        对每个兴奋性神经元:
+          1. 读取其发放率
+          2. 对其所有传入兴奋性突触应用缩放
+
+        Args:
+            homeostatic: HomeostaticPlasticity 规则实例
+        """
+        for neuron in self._all_neurons.values():
+            rate = neuron.firing_rate
+            # 缩放基底树突传入的兴奋性突触
+            for syn in neuron._synapses_basal:
+                if syn.is_excitatory:
+                    syn.weight = homeostatic.scale_weight(
+                        syn.weight, rate, syn.w_min, syn.w_max
+                    )
+            # 缩放顶端树突传入的兴奋性突触
+            for syn in neuron._synapses_apical:
+                if syn.is_excitatory:
+                    syn.weight = homeostatic.scale_weight(
+                        syn.weight, rate, syn.w_min, syn.w_max
+                    )
+
+    # =========================================================================
+    # 生命周期
+    # =========================================================================
+
     def reset(self) -> None:
         """重置柱到初始状态"""
         for layer in self.layers.values():

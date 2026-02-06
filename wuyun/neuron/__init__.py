@@ -33,6 +33,11 @@ from wuyun.neuron.neuron_base import (
     BASKET_PV_PARAMS,
     MARTINOTTI_SST_PARAMS,
     VIP_PARAMS,
+    THALAMIC_RELAY_PARAMS,
+    TRN_PARAMS,
+    GRANULE_PARAMS,
+    PLACE_CELL_PARAMS,
+    GRID_CELL_PARAMS,
 )
 
 __all__ = [
@@ -52,4 +57,10 @@ __all__ = [
     "BASKET_PV_PARAMS",
     "MARTINOTTI_SST_PARAMS",
     "VIP_PARAMS",
+    "THALAMIC_RELAY_PARAMS",
+    "TRN_PARAMS",
+    # Phase 2.8: 海马神经元
+    "GRANULE_PARAMS",
+    "PLACE_CELL_PARAMS",
+    "GRID_CELL_PARAMS",
 ]

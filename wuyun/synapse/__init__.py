@@ -25,6 +25,15 @@ from wuyun.synapse.synapse_base import (
     GABA_B_PARAMS,
 )
 
+from wuyun.synapse.short_term_plasticity import (
+    ShortTermPlasticity,
+    STPParams,
+    MOSSY_FIBER_STP,
+    SCHAFFER_COLLATERAL_STP,
+    DEPRESSING_STP,
+    FACILITATING_STP,
+)
+
 from wuyun.synapse.plasticity import (
     PlasticityRule,
     ClassicalSTDP,
@@ -33,6 +42,8 @@ from wuyun.synapse.plasticity import (
     DAModulatedSTDPParams,
     InhibitorySTDP,
     InhibitorySTDPParams,
+    HomeostaticPlasticity,
+    HomeostaticParams,
 )
 
 __all__ = [
@@ -51,4 +62,13 @@ __all__ = [
     "DAModulatedSTDPParams",
     "InhibitorySTDP",
     "InhibitorySTDPParams",
+    "HomeostaticPlasticity",
+    "HomeostaticParams",
+    # Phase 2.8: 短时程可塑性
+    "ShortTermPlasticity",
+    "STPParams",
+    "MOSSY_FIBER_STP",
+    "SCHAFFER_COLLATERAL_STP",
+    "DEPRESSING_STP",
+    "FACILITATING_STP",
 ]

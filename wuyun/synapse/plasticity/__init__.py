@@ -17,6 +17,7 @@ from wuyun.synapse.plasticity.plasticity_base import PlasticityRule
 from wuyun.synapse.plasticity.classical_stdp import ClassicalSTDP, ClassicalSTDPParams
 from wuyun.synapse.plasticity.da_modulated_stdp import DAModulatedSTDP, DAModulatedSTDPParams
 from wuyun.synapse.plasticity.inhibitory_stdp import InhibitorySTDP, InhibitorySTDPParams
+from wuyun.synapse.plasticity.homeostatic import HomeostaticPlasticity, HomeostaticParams
 
 __all__ = [
     "PlasticityRule",
@@ -26,4 +27,6 @@ __all__ = [
     "DAModulatedSTDPParams",
     "InhibitorySTDP",
     "InhibitorySTDPParams",
+    "HomeostaticPlasticity",
+    "HomeostaticParams",
 ]

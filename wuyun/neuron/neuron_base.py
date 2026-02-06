@@ -137,6 +137,96 @@ VIP_PARAMS = NeuronParams(
     neuron_type=NeuronType.VIP_INTERNEURON,
 )
 
+THALAMIC_RELAY_PARAMS = NeuronParams(
+    somatic=SomaticParams(
+        tau_m=20.0,
+        a=0.02,
+        b=0.5,
+        tau_w=200.0,
+        v_threshold=-50.0,
+        v_reset=-65.0,
+        refractory_period=2,
+    ),
+    apical=ApicalParams(
+        tau_a=25.0,
+        r_a=0.8,
+        v_ca_threshold=-35.0,  # TC 细胞 Ca²⁺ 阈值略高
+        ca_boost=25.0,          # burst 时增强更强
+        ca_duration=40,         # TC burst 持续更长 (40-50ms)
+    ),
+    kappa=0.3,                  # 中等耦合 (接收皮层反馈)
+    kappa_backward=0.1,
+    neuron_type=NeuronType.THALAMIC_RELAY,
+    burst_spike_count=4,        # TC burst 典型 3-5 个脉冲
+    burst_isi=4,                # ~250Hz ISI (比皮层 burst 更快)
+)
+
+TRN_PARAMS = NeuronParams(
+    somatic=SomaticParams(
+        tau_m=10.0,             # TRN 快速响应
+        a=0.0,
+        b=0.0,
+        tau_w=50.0,
+        v_threshold=-45.0,      # TRN 低阈值 (容易被激活)
+        refractory_period=1,
+    ),
+    kappa=0.0,                  # TRN 是抑制性，无 apical
+    neuron_type=NeuronType.TRN,
+)
+
+# --- Phase 2.8: 海马神经元参数预设 ---
+
+GRANULE_PARAMS = NeuronParams(
+    somatic=SomaticParams(
+        tau_m=15.0,             # DG 颗粒细胞: 中等时间常数
+        a=0.0,
+        b=0.1,
+        tau_w=100.0,
+        v_threshold=-40.0,      # ★ 高阈值 → 极稀疏激活 (~2%)
+        v_reset=-70.0,
+        refractory_period=2,
+    ),
+    kappa=0.0,                  # 单区室 (颗粒细胞无显著 apical)
+    neuron_type=NeuronType.GRANULE,
+)
+
+PLACE_CELL_PARAMS = NeuronParams(
+    somatic=SomaticParams(
+        tau_m=20.0,             # CA3/CA1 锥体: 标准时间常数
+        a=0.02,
+        b=0.4,
+        tau_w=200.0,
+        v_threshold=-50.0,
+        v_reset=-65.0,
+        refractory_period=2,
+    ),
+    apical=ApicalParams(
+        tau_a=30.0,
+        ca_boost=20.0,          # burst 能力 (CA3 pattern completion)
+        ca_duration=30,
+    ),
+    kappa=0.3,                  # 中等耦合 (接收 EC L3 反馈)
+    kappa_backward=0.1,
+    neuron_type=NeuronType.PLACE_CELL,
+    burst_spike_count=3,
+    burst_isi=5,
+)
+
+GRID_CELL_PARAMS = NeuronParams(
+    somatic=SomaticParams(
+        tau_m=20.0,             # EC-II 网格细胞: 内在振荡倾向
+        a=0.03,                 # 较强亚阈适应 → 膜电位振荡
+        b=0.3,
+        tau_w=250.0,
+        v_threshold=-48.0,
+        refractory_period=2,
+    ),
+    apical=ApicalParams(tau_a=25.0),
+    kappa=0.2,                  # 弱耦合 (EC 层间反馈)
+    kappa_backward=0.08,
+    neuron_type=NeuronType.GRID_CELL,
+)
+
 
 # =============================================================================
 # 双区室神经元基类

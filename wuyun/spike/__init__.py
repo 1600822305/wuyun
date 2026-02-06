@@ -31,6 +31,16 @@ from wuyun.spike.spike import (
 
 from wuyun.spike.spike_bus import SpikeBus, SpikeReceiver
 
+from wuyun.spike.oscillation_clock import (
+    OscillationClock,
+    OscillationParams,
+    THETA_PARAMS,
+    GAMMA_PARAMS,
+    ALPHA_PARAMS,
+    BETA_PARAMS,
+    DELTA_PARAMS,
+)
+
 __all__ = [
     # 核心脉冲
     "SpikeType",
@@ -50,4 +60,12 @@ __all__ = [
     # 数据结构
     "NeuromodulatorLevels",
     "OscillationState",
+    # Phase 2.8: 振荡时钟
+    "OscillationClock",
+    "OscillationParams",
+    "THETA_PARAMS",
+    "GAMMA_PARAMS",
+    "ALPHA_PARAMS",
+    "BETA_PARAMS",
+    "DELTA_PARAMS",
 ]
