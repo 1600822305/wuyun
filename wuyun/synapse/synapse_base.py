@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 from typing import Optional
 import numpy as np
 
+from typing import List
+
 from wuyun.spike.signal_types import (
     SpikeType,
     SynapseType,
@@ -91,6 +93,7 @@ class SynapseBase:
         synapse_type: SynapseType = SynapseType.AMPA,
         target_compartment: CompartmentType = CompartmentType.BASAL,
         plasticity_type: PlasticityType = PlasticityType.NONE,
+        plasticity_rule: 'Optional[PlasticityRule]' = None,
         params: Optional[SynapseParams] = None,
         w_max: float = 1.0,
         w_min: float = 0.0,
@@ -101,6 +104,10 @@ class SynapseBase:
         self.target_compartment = target_compartment
         self.synapse_type = synapse_type
         self.plasticity_type = plasticity_type
+
+        # 可塑性规则对象 (可选, None = 无可塑性)
+        # 使用字符串类型注解避免循环依赖 (PlasticityRule 在 plasticity/ 子模块中)
+        self._plasticity_rule = plasticity_rule
 
         # 突触权重 (可塑性学习的对象)
         self.weight = np.clip(weight, w_min, w_max)
@@ -225,43 +232,98 @@ class SynapseBase:
         return conductance * driving_force
 
     # =========================================================================
-    # 可塑性接口 (Step 2 仅提供框架, 详细实现在后续)
+    # 可塑性接口
     # =========================================================================
 
-    def update_eligibility(self, delta_t: float) -> None:
-        """更新资格痕迹 (用于三因子 STDP)
+    @property
+    def plasticity_rule(self):
+        """当前可塑性规则对象 (可为 None)"""
+        return self._plasticity_rule
 
+    @plasticity_rule.setter
+    def plasticity_rule(self, rule) -> None:
+        """设置可塑性规则"""
+        self._plasticity_rule = rule
+
+    def update_weight_stdp(
+        self,
+        pre_spike_times: List[int],
+        post_spike_times: List[int],
+    ) -> float:
+        """通过 STDP 规则直接更新权重 (经典 STDP 路径)
+
+        委托给 plasticity_rule.compute_weight_update()。
+
+        Args:
+            pre_spike_times: 突触前最近脉冲时间列表 (ms)
+            post_spike_times: 突触后最近脉冲时间列表 (ms)
+
+        Returns:
+            实际权重变化量 Δw
+        """
+        if self._plasticity_rule is None:
+            return 0.0
+        dw = self._plasticity_rule.compute_weight_update(
+            pre_spike_times, post_spike_times,
+            self.weight, self.w_min, self.w_max,
+        )
+        self.weight = float(np.clip(self.weight + dw, self.w_min, self.w_max))
+        return dw
+
+    def update_eligibility(
+        self,
+        pre_spike_times: List[int],
+        post_spike_times: List[int],
+        dt: float = 1.0,
+    ) -> None:
+        """更新资格痕迹 (三因子 STDP 路径)
+
+        委托给 plasticity_rule.update_eligibility()。
         STDP 产生的权重变化先存储在资格痕迹中,
         等到调质信号 (如 DA) 到来时才转化为实际权重变化。
 
         Args:
-            delta_t: 突触前-突触后脉冲时间差 (ms)
+            pre_spike_times: 突触前最近脉冲时间列表 (ms)
+            post_spike_times: 突触后最近脉冲时间列表 (ms)
+            dt: 时间步长 (ms)
         """
-        if self.plasticity_type == PlasticityType.NONE:
+        if self._plasticity_rule is None:
             return
-        # 经典 STDP 窗口
-        tau_plus = 20.0   # LTP 时间窗口 (ms)
-        tau_minus = 20.0   # LTD 时间窗口 (ms)
-        a_plus = 0.005     # LTP 幅度
-        a_minus = 0.00525  # LTD 幅度 (略大, 维持稀疏性)
+        self._eligibility = self._plasticity_rule.update_eligibility(
+            pre_spike_times, post_spike_times,
+            self._eligibility, dt,
+        )
 
-        if delta_t > 0:
-            # 突触前先于突触后 → LTP
-            self._eligibility += a_plus * np.exp(-delta_t / tau_plus)
-        elif delta_t < 0:
-            # 突触后先于突触前 → LTD
-            self._eligibility -= a_minus * np.exp(delta_t / tau_minus)
-
-    def apply_plasticity(self, modulation: float = 1.0) -> None:
+    def apply_plasticity(self, modulation: float = 1.0) -> float:
         """应用可塑性规则, 将资格痕迹转化为权重变化
+
+        委托给 plasticity_rule.apply_modulated_update()。
+
+        注意: 此方法不会重置 eligibility。资格痕迹通过
+        update_eligibility() 中的指数衰减自然消退 (τ_e=1000ms)。
+
+        正确使用模式:
+            # 每个时间步: 更新资格痕迹 (衰减 + STDP 增量)
+            syn.update_eligibility(pre_times, post_times, dt=1.0)
+
+            # 仅在 DA 事件到达时调用 (不是每个时间步!)
+            if da_event:
+                syn.apply_plasticity(modulation=da_level)
 
         Args:
             modulation: 调制因子 (如 DA 水平). 1.0 = 无调制.
+
+        Returns:
+            实际权重变化量 Δw
         """
-        if self.plasticity_type == PlasticityType.NONE:
-            return
-        dw = self._eligibility * modulation
+        if self._plasticity_rule is None:
+            return 0.0
+        dw = self._plasticity_rule.apply_modulated_update(
+            self._eligibility, modulation,
+            self.weight, self.w_min, self.w_max,
+        )
         self.weight = float(np.clip(self.weight + dw, self.w_min, self.w_max))
+        return dw
 
     # =========================================================================
     # 状态查询
