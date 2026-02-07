@@ -24,6 +24,7 @@
 #include "region/limbic/mammillary_body.h"
 #include "region/limbic/hypothalamus.h"
 #include "engine/global_workspace.h"
+#include "engine/sensory_input.h"
 #include "region/subcortical/cerebellum.h"
 
 namespace py = pybind11;
@@ -359,6 +360,57 @@ PYBIND11_MODULE(pywuyun, m) {
         .def("winning_salience", &GlobalWorkspace::winning_salience)
         .def("register_source", &GlobalWorkspace::register_source,
              py::arg("region_id"), py::arg("name"));
+
+    // =========================================================================
+    // VisualInput
+    // =========================================================================
+    py::class_<VisualInputConfig>(m, "VisualInputConfig")
+        .def(py::init<>())
+        .def_readwrite("input_width", &VisualInputConfig::input_width)
+        .def_readwrite("input_height", &VisualInputConfig::input_height)
+        .def_readwrite("n_lgn_neurons", &VisualInputConfig::n_lgn_neurons)
+        .def_readwrite("center_radius", &VisualInputConfig::center_radius)
+        .def_readwrite("surround_radius", &VisualInputConfig::surround_radius)
+        .def_readwrite("gain", &VisualInputConfig::gain)
+        .def_readwrite("baseline", &VisualInputConfig::baseline)
+        .def_readwrite("noise_amp", &VisualInputConfig::noise_amp)
+        .def_readwrite("on_off_channels", &VisualInputConfig::on_off_channels);
+
+    py::class_<VisualInput>(m, "VisualInput",
+        "Visual input encoder: pixels -> LGN currents via center-surround RFs")
+        .def(py::init<const VisualInputConfig&>(), py::arg("config") = VisualInputConfig{})
+        .def("encode", &VisualInput::encode, py::arg("pixels"),
+             "Encode grayscale pixels [0,1] to LGN current vector")
+        .def("encode_and_inject", &VisualInput::encode_and_inject,
+             py::arg("pixels"), py::arg("lgn"),
+             "Encode and inject into LGN region")
+        .def("input_width", &VisualInput::input_width)
+        .def("input_height", &VisualInput::input_height)
+        .def("n_pixels", &VisualInput::n_pixels)
+        .def("n_lgn", &VisualInput::n_lgn);
+
+    // =========================================================================
+    // AuditoryInput
+    // =========================================================================
+    py::class_<AuditoryInputConfig>(m, "AuditoryInputConfig")
+        .def(py::init<>())
+        .def_readwrite("n_freq_bands", &AuditoryInputConfig::n_freq_bands)
+        .def_readwrite("n_mgn_neurons", &AuditoryInputConfig::n_mgn_neurons)
+        .def_readwrite("gain", &AuditoryInputConfig::gain)
+        .def_readwrite("baseline", &AuditoryInputConfig::baseline)
+        .def_readwrite("noise_amp", &AuditoryInputConfig::noise_amp)
+        .def_readwrite("temporal_decay", &AuditoryInputConfig::temporal_decay);
+
+    py::class_<AuditoryInput>(m, "AuditoryInput",
+        "Auditory input encoder: spectrum -> MGN currents via tonotopic mapping")
+        .def(py::init<const AuditoryInputConfig&>(), py::arg("config") = AuditoryInputConfig{})
+        .def("encode", &AuditoryInput::encode, py::arg("spectrum"),
+             "Encode frequency spectrum [0,1] to MGN current vector")
+        .def("encode_and_inject", &AuditoryInput::encode_and_inject,
+             py::arg("spectrum"), py::arg("mgn"),
+             "Encode and inject into MGN region")
+        .def("n_freq_bands", &AuditoryInput::n_freq_bands)
+        .def("n_mgn", &AuditoryInput::n_mgn);
 
     // =========================================================================
     // SpikeBus

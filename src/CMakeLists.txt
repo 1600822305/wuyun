@@ -31,6 +31,7 @@ set(WUYUN_CORE_SOURCES
     region/neuromod/nbm_ach.cpp
     engine/simulation_engine.cpp
     engine/global_workspace.cpp
+    engine/sensory_input.cpp
 )
 
 add_library(wuyun_core STATIC ${WUYUN_CORE_SOURCES})

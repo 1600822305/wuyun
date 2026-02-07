@@ -197,5 +197,13 @@ if(MSVC)
 endif()
 add_test(NAME sleep_replay_tests COMMAND test_sleep_replay)
 
+# Step 9 sensory input interface tests
+add_executable(test_sensory_input test_sensory_input.cpp)
+target_link_libraries(test_sensory_input PRIVATE wuyun_core)
+if(MSVC)
+    target_compile_options(test_sensory_input PRIVATE /utf-8)
+endif()
+add_test(NAME sensory_input_tests COMMAND test_sensory_input)
+
 # Register as CTest
 add_test(NAME neuron_tests COMMAND test_neuron)

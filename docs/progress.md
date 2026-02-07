@@ -819,6 +819,42 @@
 - ⬜ 发育/关键期: 连接修剪 + PV+成熟
 - ⬜ REM睡眠: PnO (MB-11) + 梦境 + theta节律
 
+### Step 9: 感觉输入接口 — ✅ 完成
+
+**新增文件:** `engine/sensory_input.h/cpp`
+
+**9a. VisualInput — 视觉编码器:**
+- 图像像素 [0,1] → LGN relay 电流向量
+- Center-surround 感受野 (Kuffler 1953): ON cell 中心兴奋/周围抑制, OFF cell 反之
+- 预计算权重矩阵: 像素→LGN mapping (grid layout + jitter)
+- ON/OFF 通道: 前半LGN=ON, 后半=OFF
+- 配置: input_width/height, center/surround_radius, gain, baseline, noise_amp
+- `encode(pixels)` → 电流向量, `encode_and_inject(pixels, lgn)` → 直接注入
+
+**9b. AuditoryInput — 听觉编码器:**
+- 频谱功率 [0,1] → MGN relay 电流向量
+- Tonotopic mapping: 频率带→MGN神经元 (低频→前, 高频→后)
+- Onset emphasis: 新声音→更强响应 (temporal_decay差分)
+- 配置: n_freq_bands, gain, baseline, noise_amp, temporal_decay
+- `encode(spectrum)` → 电流向量, `encode_and_inject(spectrum, mgn)` → 直接注入
+
+**pybind11 绑定:**
+- VisualInputConfig + VisualInput (encode, encode_and_inject)
+- AuditoryInputConfig + AuditoryInput (encode, encode_and_inject)
+
+**测试 (test_sensory_input.cpp, 7测试):**
+1. VisualInput 基础: 8x8→50 LGN, bright_sum=3098 > dark_sum=250
+2. Center-surround: spot_max=29 > uniform_max=5 (ON cells)
+3. 视觉 E2E: pixels→LGN→V1, bright=1993 >> no_input=222
+4. AuditoryInput 基础: low_freq_first=243 > second=30 (tonotopic)
+5. Onset 检测: onset=165 > sustained=140
+6. 听觉 E2E: spectrum→MGN→A1, spikes=329
+7. 多模态: V1=2013 + A1=329 同时活跃
+
+**系统状态:**
+- **48区域** | **5528神经元** | **~109投射** | 4调质 | 4学习 | 预测编码 | WM | 注意力 | 内驱力 | GNW | 睡眠/重放 | **感觉输入**
+- **149 测试全通过** (142+7), 零回归
+
 ---
 
 ## 架构备忘
@@ -836,9 +872,9 @@ C++ 工程骨架 + 基础验证  ← Step 1: CMake + core/ + pybind11
      ↓
 调质+内驱力+小脑          ← Step 6: 5-HT/NE/ACh+下丘脑+小脑8叶
      ↓
-连接组学布线              ← Step 7
+睡眠/海马重放             ← Step 8: SWR + 皮层慢波 + 记忆巩固
      ↓
-全脑功能涌现              ← Step 8: 睡眠/注意力/发育
+感觉输入接口              ← Step 9: VisualInput + AuditoryInput
 
 技术栈: C++17 核心引擎 + pybind11 → Python 实验/可视化
 Python 原型 (wuyun/) → _archived/ 算法参考
