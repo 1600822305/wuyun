@@ -405,6 +405,38 @@
 - 21区域 | 3239神经元 | 36投射 | 4调质 | 4种学习
 - **80 测试全通过** (9+6+6+5+7+7+5+4+4+4+5+6+6+6), 零回归
 
+### Step 6: 预测编码框架 ✅ (2026-02-07)
+> 目标: 皮层层级预测与误差计算 (Rao-Ballard + Friston Free Energy)
+
+**核心机制 (修改 CorticalRegion, 零新文件):**
+- ✅ `enable_predictive_coding()` — 可选启用, 向后完全兼容
+- ✅ `add_feedback_source(region_id)` — 标记反馈来源, 区分FF/FB
+- ✅ 反馈路由: feedback源脉冲→`pc_prediction_buf_`(L2/3 sized), 非feedback→L4 `psp_buffer_`
+- ✅ 预测抑制: prediction_buf → L2/3 apical 负注入 (抑制误差单元)
+- ✅ 预测误差跟踪: `pc_error_smooth_` 指数平滑
+
+**精度加权 (神经调质驱动):**
+- ✅ NE → `pc_precision_sensory_` = ne_gain (0.5~2.0): 高NE信任感觉
+- ✅ ACh → `pc_precision_prior_` = max(0.2, 1.0-0.8*ACh): 高ACh不信任预测
+- L4注入 × sensory精度, prediction注入 × prior精度
+
+**验证结果:**
+- **预测抑制涌现**: V1(早期无预测)=226 → V1(晚期有预测)=116 (-49%)
+- **NE精度**: V1(NE=0.1)=85 → V1(NE=0.5)=187 → V1(NE=0.9)=235
+- **ACh精度**: ACh=0.8→prior=0.36, ACh=0.1→prior=0.92
+- **层级PC**: V1↔V2↔V4 双向预测+误差
+- **向后兼容**: 无PC时 V1=262, PC无反馈时 V1=262 (完全一致)
+
+**生物学对应:**
+- L6 → 反馈 → 下级L2/3 apical = 预测信号 (Mumford 1992)
+- L2/3 = 感觉(L4 basal) - 预测(apical) = 预测误差 (Rao & Ballard 1999)
+- NE = 感觉精度 (意外→LC→NE↑→信任感觉) (Feldman & Friston 2010)
+- ACh = 先验精度倒数 (新环境→NBM→ACh↑→不信任预测) (Yu & Dayan 2005)
+
+**系统状态:**
+- 21区域 | 3239神经元 | 36投射 | 4调质 | 4学习 | **预测编码**
+- **86 测试全通过** (9+6+6+5+7+7+5+4+4+4+5+6+6+6+6), 零回归
+
 ### Step 4 剩余 (低优先级):
 - ⬜ 前下托 + HATA (H-06~07)
 - ⬜ 隔核 theta 起搏 (SP-01~02)

@@ -10,6 +10,7 @@
 
 #include "region/brain_region.h"
 #include "circuit/cortical_column.h"
+#include <set>
 
 namespace wuyun {
 
@@ -47,6 +48,22 @@ public:
     /** 上一步的输出 */
     const ColumnOutput& output() const { return last_output_; }
 
+    // --- 预测编码接口 ---
+
+    /** 启用预测编码 (L6预测 + L2/3误差 + 精度加权) */
+    void enable_predictive_coding();
+    bool predictive_coding_enabled() const { return pc_enabled_; }
+
+    /** 标记反馈来源区域 (这些区域的脉冲→prediction_buffer_) */
+    void add_feedback_source(uint32_t region_id);
+
+    /** 当前预测误差强度 (指数平滑) */
+    float prediction_error() const { return pc_error_smooth_; }
+
+    /** 精度参数 (NE↑→sensory↑, ACh↑→prior↓) */
+    float precision_sensory() const { return pc_precision_sensory_; }
+    float precision_prior()   const { return pc_precision_prior_; }
+
 private:
     CorticalColumn column_;
     ColumnOutput   last_output_;
@@ -64,6 +81,16 @@ private:
     size_t psp_fan_out_;             // Number of L4 neurons per incoming spike
 
     void aggregate_firing_state();
+
+    // --- 预测编码状态 ---
+    bool pc_enabled_ = false;
+    std::set<uint32_t> pc_feedback_sources_;  // 反馈来源区域ID
+    std::vector<float> pc_prediction_buf_;    // L2/3 sized, 来自高级区L6的预测
+    float pc_precision_sensory_ = 1.0f;       // NE调制: 感觉精度
+    float pc_precision_prior_   = 1.0f;       // ACh调制: 先验精度
+    float pc_error_smooth_      = 0.0f;       // 指数平滑的预测误差
+    static constexpr float PC_ERROR_SMOOTH = 0.1f;  // 平滑率
+    static constexpr float PC_PRED_DECAY   = 0.7f;  // 预测缓冲衰减
 };
 
 } // namespace wuyun

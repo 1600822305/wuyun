@@ -15,6 +15,7 @@ CorticalRegion::CorticalRegion(const std::string& name, const ColumnConfig& conf
     , psp_current_regular_(config.input_psp_regular)
     , psp_current_burst_(config.input_psp_burst)
     , psp_fan_out_(std::max<size_t>(3, static_cast<size_t>(config.n_l4_stellate * config.input_fan_out_frac)))
+    , pc_prediction_buf_(config.n_l23_pyramidal, 0.0f)
 {}
 
 void CorticalRegion::step(int32_t t, float dt) {
@@ -25,13 +26,48 @@ void CorticalRegion::step(int32_t t, float dt) {
     // NE gain modulation: neuromod system's gain affects all incoming PSP
     float ne_gain = neuromod_.compute_effect().gain;  // 0.5 ~ 2.0
 
-    // Inject decaying PSP buffer into L4 basal (simulates synaptic time constant)
+    // === Predictive coding: update precision from neuromodulators ===
+    if (pc_enabled_) {
+        // NE -> sensory precision (bottom-up salience)
+        // gain = 0.5 + 1.5*NE, so NE=0.5 -> gain=1.25
+        pc_precision_sensory_ = ne_gain;
+
+        // ACh -> inverse prior precision (high ACh = distrust predictions)
+        // ACh typically 0.0~1.0, compute_effect doesn't have ACh directly
+        // Use neuromod ACh level: high ACh -> low prior precision
+        float ach = neuromod_.current().ach;
+        pc_precision_prior_ = std::max(0.2f, 1.0f - 0.8f * ach);
+    }
+
+    // Inject decaying PSP buffer into L4 basal (feedforward sensory input)
     auto& l4 = column_.l4();
     for (size_t i = 0; i < psp_buffer_.size(); ++i) {
         if (psp_buffer_[i] > 0.5f) {
-            l4.inject_basal(i, psp_buffer_[i] * ne_gain);
+            float current = psp_buffer_[i];
+            if (pc_enabled_) current *= pc_precision_sensory_;
+            else current *= ne_gain;
+            l4.inject_basal(i, current);
         }
-        psp_buffer_[i] *= PSP_DECAY;  // Exponential decay
+        psp_buffer_[i] *= PSP_DECAY;
+    }
+
+    // === Predictive coding: inject prediction into L2/3 apical ===
+    if (pc_enabled_) {
+        auto& l23 = column_.l23();
+        float error_sum = 0.0f;
+        for (size_t i = 0; i < pc_prediction_buf_.size(); ++i) {
+            if (pc_prediction_buf_[i] > 0.5f) {
+                // Prediction arrives as INHIBITORY input to L2/3 apical
+                // (predictions suppress prediction error units)
+                float pred = pc_prediction_buf_[i] * pc_precision_prior_;
+                l23.inject_apical(i, -pred);  // Negative = suppressive
+                error_sum += pc_prediction_buf_[i];
+            }
+            pc_prediction_buf_[i] *= PC_PRED_DECAY;
+        }
+        // Smooth prediction error tracking
+        float instant_error = error_sum / static_cast<float>(pc_prediction_buf_.size() + 1);
+        pc_error_smooth_ += PC_ERROR_SMOOTH * (instant_error - pc_error_smooth_);
     }
 
     // Step the cortical column
@@ -42,15 +78,26 @@ void CorticalRegion::step(int32_t t, float dt) {
 }
 
 void CorticalRegion::receive_spikes(const std::vector<SpikeEvent>& events) {
-    // Route arriving spikes to PSP buffer (sustained over multiple steps)
-    // Fan-out: each spike activates ~30% of L4 (biological cortico-cortical convergence)
     for (const auto& evt : events) {
         float current = is_burst(static_cast<SpikeType>(evt.spike_type))
                         ? psp_current_burst_ : psp_current_regular_;
-        size_t base = evt.neuron_id % psp_buffer_.size();
-        for (size_t k = 0; k < psp_fan_out_; ++k) {
-            size_t idx = (base + k) % psp_buffer_.size();
-            psp_buffer_[idx] += current;
+
+        // Predictive coding: route feedback sources to prediction buffer
+        if (pc_enabled_ && pc_feedback_sources_.count(evt.region_id)) {
+            // Feedback → prediction buffer (L2/3 sized)
+            size_t base = evt.neuron_id % pc_prediction_buf_.size();
+            size_t fan = std::max<size_t>(3, pc_prediction_buf_.size() / 10);
+            for (size_t k = 0; k < fan; ++k) {
+                size_t idx = (base + k) % pc_prediction_buf_.size();
+                pc_prediction_buf_[idx] += current * 0.5f;  // Prediction weaker than sensory
+            }
+        } else {
+            // Feedforward → L4 PSP buffer (same as before)
+            size_t base = evt.neuron_id % psp_buffer_.size();
+            for (size_t k = 0; k < psp_fan_out_; ++k) {
+                size_t idx = (base + k) % psp_buffer_.size();
+                psp_buffer_[idx] += current;
+            }
         }
     }
 }
@@ -111,6 +158,14 @@ void CorticalRegion::aggregate_firing_state() {
     // Access inhibitory populations through column internals
     // For now, the remaining slots stay 0 (inhibitory firing not exported)
     // This is fine — SpikeBus only needs excitatory output for cross-region routing
+}
+
+void CorticalRegion::enable_predictive_coding() {
+    pc_enabled_ = true;
+}
+
+void CorticalRegion::add_feedback_source(uint32_t region_id) {
+    pc_feedback_sources_.insert(region_id);
 }
 
 } // namespace wuyun
