@@ -50,43 +50,43 @@ struct AgentConfig {
     size_t vision_height = 5;
 
     // Action decoding
-    // Step 29 best: 30gen×40pop Baldwin (gen11, fitness=2.89, 泛化+0.667)
-    size_t brain_steps_per_action = 17;
-    size_t reward_processing_steps = 10;
+    // Step 32 best: 30gen×40pop Baldwin (gen27, fitness=2.41, STDP+LHb修复后)
+    size_t brain_steps_per_action = 16;
+    size_t reward_processing_steps = 8;
 
-    float reward_scale = 1.8f;
+    float reward_scale = 3.55f;
 
-    float exploration_noise = 55.0f;
+    float exploration_noise = 70.3f;
     size_t exploration_anneal_steps = 0;  // Steps over which noise reduces (0=no anneal, let BG override)
 
     // Learning
-    // Step 29 best (30gen Baldwin, 泛化+0.667)
+    // Step 32 best (30gen Baldwin, STDP+LHb修复后, gen27 fitness=2.41)
     bool enable_da_stdp     = true;
-    float da_stdp_lr        = 0.046f;
+    float da_stdp_lr        = 0.061f;
     bool enable_homeostatic = true;
     bool enable_cortical_stdp = true;
-    float cortical_stdp_a_plus  = 0.005f;  // v32: 生物学正常值
-    float cortical_stdp_a_minus = -0.006f; // v32: 1.2× LTP (之前 3.7× 导致权重崩塌)
-    float cortical_stdp_w_max   = 2.8f;
+    float cortical_stdp_a_plus  = 0.017f;  // v32: 进化后 (修复LTD/LTP比例后重新进化)
+    float cortical_stdp_a_minus = -0.010f; // v32: 0.6× LTP (进化后LTD<LTP, 鼓励增强)
+    float cortical_stdp_w_max   = 2.74f;
 
-    float lgn_gain           = 188.0f;
-    float lgn_baseline       = 4.8f;
-    float lgn_noise_amp      = 2.6f;
+    float lgn_gain           = 243.0f;
+    float lgn_baseline       = 3.08f;
+    float lgn_noise_amp      = 4.25f;
 
-    float bg_to_m1_gain      = 21.0f;
-    float attractor_drive_ratio  = 0.35f;
-    float background_drive_ratio = 0.24f;
+    float bg_to_m1_gain      = 2.42f;
+    float attractor_drive_ratio  = 0.39f;
+    float background_drive_ratio = 0.25f;
 
-    float ne_food_scale      = 1.0f;
-    float ne_floor           = 1.0f;
+    float ne_food_scale      = 6.13f;
+    float ne_floor           = 0.56f;
 
-    float homeostatic_target_rate = 5.4f;
-    float homeostatic_eta    = 0.0015f;
+    float homeostatic_target_rate = 7.43f;
+    float homeostatic_eta    = 0.0068f;
 
     // Brain size factors (multiplied on base neuron counts)
-    float v1_size_factor     = 1.0f;
-    float dlpfc_size_factor  = 1.0f;
-    float bg_size_factor     = 1.0f;
+    float v1_size_factor     = 1.10f;
+    float dlpfc_size_factor  = 1.37f;
+    float bg_size_factor     = 1.27f;
 
     // Predictive coding (dlPFC → V1 attentional feedback)
     // v21: enabled by default — 5×5 vision field has enough redundancy for PC benefit.
@@ -105,8 +105,8 @@ struct AgentConfig {
 
     // Awake SWR Replay (experience replay via hippocampal sharp-wave ripples)
     bool  enable_replay      = true;
-    int   replay_passes      = 10;
-    float replay_da_scale    = 0.62f;
+    int   replay_passes      = 5;
+    float replay_da_scale    = 0.99f;
     size_t replay_buffer_size = 50;    // Max episodes in buffer (v21: 30→50, 10×10 has 100 positions)
 
     // Negative experience replay (LHb-controlled avoidance learning)
