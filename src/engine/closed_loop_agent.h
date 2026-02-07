@@ -49,43 +49,44 @@ struct AgentConfig {
     size_t vision_height = 5;
 
     // Action decoding
-    size_t brain_steps_per_action = 15;
-    size_t reward_processing_steps = 5;
+    // v29: Baldwin-evolved parameters (275s evolution, gen11, fitness=2.89)
+    size_t brain_steps_per_action = 17;   // evolved: 16.8
+    size_t reward_processing_steps = 10;  // evolved: 9.7
 
     // Reward scaling
-    float reward_scale = 1.5f;
+    float reward_scale = 1.8f;  // evolved: 1.79
 
     // Exploration
-    float exploration_noise = 80.0f;
+    float exploration_noise = 55.0f;  // evolved: 55.5 (back to original!)
     size_t exploration_anneal_steps = 0;  // Steps over which noise reduces (0=no anneal, let BG override)
 
     // Learning
-    // Learning
+    // Learning — Baldwin evolved (gen11)
     bool enable_da_stdp     = true;
-    float da_stdp_lr        = 0.03f;
+    float da_stdp_lr        = 0.046f;   // evolved: 0.046 (was 0.03)
     bool enable_homeostatic = true;
     bool enable_cortical_stdp = true;
-    float cortical_stdp_a_plus  = 0.005f;
-    float cortical_stdp_a_minus = -0.006f;
-    float cortical_stdp_w_max   = 1.5f;
+    float cortical_stdp_a_plus  = 0.003f;  // evolved: 0.003 (was 0.005)
+    float cortical_stdp_a_minus = -0.011f; // evolved: 0.011 (was 0.006)
+    float cortical_stdp_w_max   = 2.8f;    // evolved: 2.81 (was 1.5)
 
-    // Visual encoding (LGN) — partially evolved (safe values only)
-    float lgn_gain           = 200.0f;
-    float lgn_baseline       = 5.0f;
-    float lgn_noise_amp      = 2.0f;
+    // Visual encoding (LGN) — evolved (safe: close to manual)
+    float lgn_gain           = 188.0f;  // evolved: 188.4 (was 200)
+    float lgn_baseline       = 4.8f;    // evolved: 4.8 (was 5, safe!)
+    float lgn_noise_amp      = 2.6f;    // evolved: 2.6 (was 2)
 
-    // Motor / BG-M1 coupling — evolved safe values
-    float bg_to_m1_gain      = 12.0f;   // evolved: 12.1 (was 8, safe to apply)
-    float attractor_drive_ratio  = 0.6f;
-    float background_drive_ratio = 0.1f;
+    // Motor / BG-M1 coupling — evolved
+    float bg_to_m1_gain      = 21.0f;   // evolved: 20.8 (was 12!)
+    float attractor_drive_ratio  = 0.35f;  // evolved: 0.35 (was 0.6)
+    float background_drive_ratio = 0.24f;  // evolved: 0.24 (was 0.1)
 
-    // NE exploration modulation
-    float ne_food_scale      = 3.0f;
-    float ne_floor           = 0.7f;
+    // NE exploration modulation — evolved
+    float ne_food_scale      = 1.0f;    // evolved: 1.0 (was 3, no NE decay!)
+    float ne_floor           = 1.0f;    // evolved: 1.0 (was 0.7, always explore!)
 
-    // Homeostatic plasticity
-    float homeostatic_target_rate = 5.0f;
-    float homeostatic_eta    = 0.001f;
+    // Homeostatic plasticity — evolved
+    float homeostatic_target_rate = 5.4f;  // evolved: 5.4 (was 5)
+    float homeostatic_eta    = 0.0015f;    // evolved: 0.0015 (was 0.001)
 
     // Brain size factors (multiplied on base neuron counts)
     float v1_size_factor     = 1.0f;
@@ -109,8 +110,8 @@ struct AgentConfig {
 
     // Awake SWR Replay (experience replay via hippocampal sharp-wave ripples)
     bool  enable_replay      = true;
-    int   replay_passes      = 5;
-    float replay_da_scale    = 0.5f;
+    int   replay_passes      = 10;    // evolved: 9.5 (was 5, more replay!)
+    float replay_da_scale    = 0.62f; // evolved: 0.62 (was 0.5)
     size_t replay_buffer_size = 50;    // Max episodes in buffer (v21: 30→50, 10×10 has 100 positions)
 
     // Negative experience replay (LHb-controlled avoidance learning)

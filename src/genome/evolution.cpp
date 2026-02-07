@@ -87,43 +87,33 @@ std::vector<Genome> EvolutionEngine::next_generation(std::vector<Genome>& curren
 
 FitnessResult EvolutionEngine::evaluate_single(const Genome& genome, uint32_t seed) const {
     AgentConfig cfg = genome.to_agent_config();
-
-    // Apply genome-specific parameters not in AgentConfig
-    // (bg_to_m1_gain, lgn_gain, etc. are hardcoded in build_brain/agent_step)
-    // For v1, we pass them through AgentConfig extensions or use the direct fields.
     cfg.world_config = config_.world_config;
     cfg.world_config.seed = seed;
 
     ClosedLoopAgent agent(cfg);
 
-    // Warm-up: first 20% of steps
-    size_t warmup = config_.eval_steps / 5;
-    size_t test_half = (config_.eval_steps - warmup) / 2;
+    // v29: Baldwin effect evaluation — measure LEARNING IMPROVEMENT
+    // Phase 1: Early (first 200 steps) — innate ability, no learning accumulated
+    size_t early_steps = config_.eval_steps / 5;  // 200 of 1000
+    size_t late_steps = config_.eval_steps - early_steps;  // 800
 
-    int warmup_food = 0;
-    for (size_t i = 0; i < warmup; ++i) {
-        auto result = agent.agent_step();
-        if (result.got_food) warmup_food++;
-    }
-
-    // Early termination: if 0 food after warmup, this genome is broken
-    if (warmup_food == 0 && warmup >= 500) {
-        FitnessResult bad{};
-        bad.fitness = -2.0f;
-        return bad;
-    }
-
-    // Early phase
     int early_food = 0, early_danger = 0;
-    for (size_t i = 0; i < test_half; ++i) {
+    for (size_t i = 0; i < early_steps; ++i) {
         auto result = agent.agent_step();
         if (result.got_food) early_food++;
         if (result.hit_danger) early_danger++;
     }
 
-    // Late phase
+    // Early termination: agent not moving (0 food AND 0 danger = frozen)
+    if (early_food == 0 && early_danger == 0 && early_steps >= 100) {
+        FitnessResult bad{};
+        bad.fitness = -1.0f;
+        return bad;
+    }
+
+    // Phase 2: Late (remaining 800 steps) — after learning
     int late_food = 0, late_danger = 0;
-    for (size_t i = 0; i < test_half; ++i) {
+    for (size_t i = 0; i < late_steps; ++i) {
         auto result = agent.agent_step();
         if (result.got_food) late_food++;
         if (result.hit_danger) late_danger++;
@@ -138,11 +128,14 @@ FitnessResult EvolutionEngine::evaluate_single(const Genome& genome, uint32_t se
     res.total_food = agent.world().total_food_collected();
     res.total_danger = agent.world().total_danger_hits();
 
-    // Fitness: late performance + learning ability (Baldwin effect)
-    res.fitness = res.late_safety * 1.0f
-                + res.improvement * 2.0f
-                - static_cast<float>(res.total_danger) * 0.002f
-                + static_cast<float>(res.total_food) * 0.001f;
+    // v29: Baldwin fitness — heavily reward LEARNING ABILITY (improvement)
+    // improvement×3: "能学会的大脑" >> "天生就会的大脑"
+    // late_safety×1: 最终表现也重要但次要
+    // food/danger微弱奖惩: 鼓励探索, 惩罚冒险
+    res.fitness = res.improvement * 3.0f
+                + res.late_safety * 1.0f
+                + static_cast<float>(res.total_food) * 0.001f
+                - static_cast<float>(res.total_danger) * 0.001f;
 
     return res;
 }

@@ -23,24 +23,21 @@ int main(int argc, char* argv[]) {
     if (argc >= 3) n_pop = static_cast<size_t>(std::atoi(argv[2]));
 
     setvbuf(stdout, NULL, _IONBF, 0);
-    printf("=== WuYun Genome Layer v2: Evolution (Step 28) ===\n");
+    printf("=== WuYun Genome Layer v3: Baldwin Evolution (Step 29) ===\n");
     printf("  Population: %zu, Generations: %zu\n", n_pop, n_gen);
-    printf("  Genes: 23 closed-loop parameters\n");
-    printf("  Eval: 200 steps x 3 seeds (~120 neurons, <1s/individual)\n");
-    printf("  Fitness: late_safety + improvement*2 - danger*0.002 + food*0.001\n\n");
+    printf("  Eval: 1000 steps x 5 seeds (~120 neurons)\n");
+    printf("  Fitness: improvement*3 + late_safety*1 (Baldwin effect)\n\n");
 
     EvolutionConfig ecfg;
     ecfg.population_size = n_pop;
     ecfg.n_generations = n_gen;
     ecfg.tournament_size = 5;
     ecfg.mutation_rate = 0.15f;
-    ecfg.mutation_sigma = 0.15f;   // v28: slightly more exploration
+    ecfg.mutation_sigma = 0.12f;
     ecfg.elite_fraction = 0.10f;
-    ecfg.eval_steps = 200;         // v28: 5000→200, ~120 neurons = fast eval
-    ecfg.eval_seeds = {42, 77, 123};
+    ecfg.eval_steps = 1000;        // v29: 1000 steps (200 early + 800 late)
+    ecfg.eval_seeds = {42, 77, 123, 200, 555};  // v29: 5 seeds for generalization
     ecfg.ga_seed = 2024;
-
-    // Default 10x10 grid, 5x5 vision, 5 food, 3 danger
 
     EvolutionEngine engine(ecfg);
 

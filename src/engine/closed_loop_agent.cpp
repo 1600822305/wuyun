@@ -608,8 +608,8 @@ StepResult ClosedLoopAgent::agent_step() {
         // Motor efference copy: mark current exploration direction in BG sensory slots.
         // Combined with visual hierarchy IT→dlPFC→BG context, enables DA-STDP to
         // learn joint "visual context + action → reward" associations.
-        // v28: i>=8: evolved brain_steps=13, pipeline ~8 steps
-        if (i >= 8 && attractor_group >= 0) {
+        // v29: i>=10: evolved brain_steps=17, pipeline ~10 steps
+        if (i >= 10 && attractor_group >= 0) {
             bg_->mark_motor_efference(attractor_group);
         }
     }
