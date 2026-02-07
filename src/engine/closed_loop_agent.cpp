@@ -473,11 +473,17 @@ StepResult ClosedLoopAgent::agent_step() {
     // End episode recording and trigger awake SWR replay for significant rewards
     if (config_.enable_replay) {
         replay_buffer_.end_episode(result.reward, static_cast<int>(action));
-        // Only replay POSITIVE rewards (food found).
-        // Biology: awake SWR preferentially replays reward-associated trajectories.
-        // Negative experiences are learned online via DA dip, not amplified by replay.
+        // Positive replay: food found → replay old successes (consolidate Go)
         if (result.reward > 0.05f && agent_step_count_ >= 10) {
             run_awake_replay(result.reward);
+        }
+        // Negative replay: danger hit → replay old failures (consolidate NoGo)
+        // Previously disabled (D2 over-strengthening). Now safe with LHb-controlled DA pause.
+        // Biology: aversive SWR replay strengthens avoidance memories
+        // (Wu et al. 2017, de Lavilléon et al. 2015)
+        if (config_.enable_negative_replay && config_.enable_lhb &&
+            result.reward < -0.05f && agent_step_count_ >= 200) {
+            run_negative_replay(result.reward);
         }
     }
 
@@ -631,6 +637,81 @@ void ClosedLoopAgent::capture_dlpfc_spikes(int action_group) {
     }
 
     replay_buffer_.record_step(cortical_events, action_group, sensory_events);
+}
+
+void ClosedLoopAgent::run_negative_replay(float reward) {
+    // Negative experience replay — LHb-controlled avoidance learning:
+    //
+    //   When a danger event occurs, replay OLDER danger episodes
+    //   with DA level BELOW baseline (LHb-mediated DA pause).
+    //   This strengthens D2 NoGo pathway for the action context
+    //   that led to danger, teaching the agent to AVOID it.
+    //
+    //   Key difference from positive replay:
+    //   - DA below baseline (not above) → D2 LTP, D1 LTD
+    //   - Fewer passes (2 vs 5) to prevent D2 over-strengthening
+    //   - Only enabled when LHb is active (provides graded control)
+    //
+    //   Previous issue without LHb: raw DA dip was uncontrolled,
+    //   leading to D2 over-strengthening → behavioral oscillation.
+    //   LHb provides biologically realistic graded DA pause.
+
+    if (!bg_ || !vta_ || !lhb_ || config_.negative_replay_passes <= 0) return;
+    if (replay_buffer_.size() < 3) return;  // Need sufficient history
+
+    // Collect older episodes with negative reward (skip most recent = current)
+    auto recent = replay_buffer_.recent(std::min(replay_buffer_.size(), (size_t)10));
+    std::vector<const Episode*> replay_candidates;
+    for (size_t i = 1; i < recent.size(); ++i) {  // Skip index 0 = current
+        if (recent[i]->reward < -0.05f && !recent[i]->steps.empty()) {
+            replay_candidates.push_back(recent[i]);
+        }
+    }
+    if (replay_candidates.empty()) return;
+
+    // Save current BG state
+    float saved_da = bg_->da_level();
+
+    // Replay DA: below baseline (LHb-mediated DA pause)
+    // Biology: LHb activation during replay drives VTA DA below tonic level
+    //   da_replay = baseline - |reward| × scale = 0.3 - 1.0×0.3 = 0.0
+    //   Clamped to [0.05, 0.25] to prevent complete DA washout
+    float da_baseline = 0.3f;
+    float da_dip = std::abs(reward) * config_.negative_replay_da_scale;
+    float da_replay_level = std::clamp(da_baseline - da_dip, 0.05f, 0.25f);
+
+    // Enter replay mode (suppresses weight decay)
+    bg_->set_replay_mode(true);
+
+    // Replay each candidate episode once
+    size_t n_replay = std::min(replay_candidates.size(), (size_t)config_.negative_replay_passes);
+    for (size_t ep_idx = 0; ep_idx < n_replay; ++ep_idx) {
+        const Episode& ep = *replay_candidates[ep_idx];
+
+        bg_->set_da_level(da_replay_level);
+
+        // Replay later brain steps (i>=8) where visual context is established
+        size_t start_step = (ep.steps.size() > 8) ? 8 : 0;
+        for (size_t i = start_step; i < ep.steps.size(); ++i) {
+            const SpikeSnapshot& snap = ep.steps[i];
+
+            // Inject cortical spikes → BG DA-STDP with low DA
+            // D2: Δw = -lr × (da_replay - baseline) × elig
+            //     = -lr × (-0.15) × elig = +0.0045 × elig (D2 strengthened)
+            // D1: Δw = +lr × (-0.15) × elig = -0.0045 × elig (D1 weakened)
+            if (!snap.cortical_events.empty()) {
+                bg_->receive_spikes(snap.cortical_events);
+            }
+            if (snap.action_group >= 0) {
+                bg_->mark_motor_efference(snap.action_group);
+            }
+            bg_->replay_learning_step(0, 1.0f);
+        }
+    }
+
+    // Exit replay mode and restore DA level
+    bg_->set_replay_mode(false);
+    bg_->set_da_level(saved_da);
 }
 
 void ClosedLoopAgent::run_awake_replay(float reward) {

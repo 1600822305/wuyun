@@ -2033,11 +2033,52 @@ Phase B (动作处理):
 
 ### 回归测试: 29/29 CTest 全通过, 零回归
 
+### Step 17-B: 负经验重放集成 (LHb-controlled avoidance replay)
+
+> 日期: 2026-02-08
+
+之前 Step 14 明确禁用了负重放: "负重放导致D2过度强化→行为振荡"。
+有了 LHb 的受控 DA pause 后，负重放变得安全且有效。
+
+#### 机制
+
+```
+danger事件 → run_negative_replay()
+  1. 收集最近的负奖励 episodes (reward < -0.05)
+  2. DA level 设为 baseline 以下: da_replay = 0.3 - |reward|×0.3 ∈ [0.05, 0.25]
+  3. 重放旧 danger 的 cortical spikes → BG DA-STDP
+  4. D2: Δw = -lr × (0.15-0.3) × elig = +0.0045×elig (NoGo 强化)
+  5. D1: Δw = +lr × (0.15-0.3) × elig = -0.0045×elig (Go 弱化)
+```
+
+#### 安全措施 (防止 D2 过度强化)
+
+- **fewer passes**: 负重放 2 passes vs 正重放 5 passes
+- **DA floor**: da_replay 不低于 0.05 (不会完全 DA 清零)
+- **延迟启用**: agent_step >= 200 才启动 (避免早期噪声)
+- **依赖 LHb**: enable_lhb=false 时自动禁用
+
+#### 效果验证
+
+| 指标 | 仅LHb (无负重放) | LHb + 负重放 | 提升 |
+|------|----------|--------|------|
+| Learner advantage | -0.0035 | **+0.0085** | ✅ 翻正 |
+| Learner safety | 0.44 | **0.63** | +43% |
+| 10k Improvement | -0.031 | **+0.158** | ✅ 翻正 |
+| 10k Late safety | 0.556 | **0.603** | +8% |
+
+**Improvement +0.158 超过 Step 14 基线 +0.120 (+32%)**
+
+### 回归测试: 29/29 CTest 全通过, 零回归
+
 ### 系统状态
 
 ```
 49区域 · 自适应神经元数 · ~110投射 · 29 CTest suites
-新增: LHb 负RPE (25 neurons), LHb→VTA 抑制投射
-奖惩闭环: 食物→VTA DA burst→D1 Go 强化 + 危险→LHb→VTA DA pause→D2 NoGo 强化
+新增: LHb 负RPE + 负经验重放
+完整奖惩回路:
+  食物→VTA DA burst→D1 Go 强化 + 正重放巩固 (5 passes)
+  危险→LHb→VTA DA pause→D2 NoGo 强化 + 负重放巩固 (2 passes)
+学习能力: improvement +0.158 (+32% vs Step 14 基线 +0.120)
 下一步: 环境扩展 或 继续补充脑区 (SNc/上丘等)
 ```

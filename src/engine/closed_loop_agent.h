@@ -105,6 +105,13 @@ struct AgentConfig {
     float replay_da_scale    = 0.5f;   // DA signal scaling during replay (moderate vs online)
     size_t replay_buffer_size = 30;    // Max episodes in buffer
 
+    // Negative experience replay (LHb-controlled avoidance learning)
+    // Previously disabled: D2 over-strengthening without LHb control.
+    // Now safe: LHb provides graded DA pause → controlled D2 learning.
+    bool  enable_negative_replay = true;  // Enable replay of danger episodes
+    int   negative_replay_passes = 2;     // Conservative: fewer passes than positive (5)
+    float negative_replay_da_scale = 0.3f; // DA dip scale (baseline - |reward|×this)
+
     // Evolution fast-eval mode
     bool fast_eval = false;  // Skip hippocampus + cortical STDP for ~40% speedup
 
@@ -212,6 +219,7 @@ private:
     // --- Awake SWR replay ---
     EpisodeBuffer replay_buffer_;
     void run_awake_replay(float reward);
+    void run_negative_replay(float reward);
     void capture_dlpfc_spikes(int action_group);
 };
 
