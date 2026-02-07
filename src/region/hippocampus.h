@@ -74,6 +74,13 @@ struct HippocampusConfig {
     float w_ca3_dg_fb  = 0.2f;   // Feedback
     float w_inh        = 1.5f;   // Inhibitory weight (positive; GABA e_rev handles sign)
     float w_exc_to_inh = 1.2f;   // Excitatory → inhibitory (strong to drive DG basket cells)
+
+    // --- CA3 STDP (one-shot memory encoding) ---
+    bool  ca3_stdp_enabled = true;   // Enable STDP on CA3 recurrent synapses
+    float ca3_stdp_a_plus  = 0.05f;  // Fast LTP (5x cortical, one-shot learning)
+    float ca3_stdp_a_minus = -0.06f; // LTD (slightly stronger for competition)
+    float ca3_stdp_tau     = 20.0f;  // Time window (ms)
+    float ca3_stdp_w_max   = 2.0f;   // Max weight (higher than initial 0.3)
 };
 
 class Hippocampus : public BrainRegion {

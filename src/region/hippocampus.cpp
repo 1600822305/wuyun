@@ -168,6 +168,18 @@ void Hippocampus::build_synapses() {
     syn_ca1_inh_to_ca1_ = build_synapse_group(
         config_.n_ca1_inh, config_.n_ca1, config_.p_ca1_inh_to_ca1, config_.w_inh,
         GABA_A_PARAMS, CompartmentType::BASAL, seed++);
+
+    // --- Enable CA3 fast STDP (one-shot memory encoding) ---
+    if (config_.ca3_stdp_enabled) {
+        STDPParams ca3_stdp;
+        ca3_stdp.a_plus   = config_.ca3_stdp_a_plus;
+        ca3_stdp.a_minus  = config_.ca3_stdp_a_minus;
+        ca3_stdp.tau_plus  = config_.ca3_stdp_tau;
+        ca3_stdp.tau_minus = config_.ca3_stdp_tau;
+        ca3_stdp.w_min     = 0.0f;
+        ca3_stdp.w_max     = config_.ca3_stdp_w_max;
+        syn_ca3_to_ca3_.enable_stdp(ca3_stdp);
+    }
 }
 
 // =============================================================================
@@ -277,6 +289,14 @@ void Hippocampus::step(int32_t t, float dt) {
     ca1_.step(t, dt);
     ca1_inh_.step(t, dt);
     sub_.step(t, dt);
+
+    // ========================================
+    // Online plasticity (after all neurons stepped)
+    // ========================================
+    // CA3 recurrent STDP: co-active CA3 neurons strengthen mutual connections
+    if (config_.ca3_stdp_enabled) {
+        syn_ca3_to_ca3_.apply_stdp(ca3_.fired(), ca3_.fired(), t);
+    }
 
     aggregate_state();
 }

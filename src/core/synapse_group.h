@@ -14,6 +14,7 @@
 
 #include "types.h"
 #include "../plasticity/stp.h"
+#include "../plasticity/stdp.h"
 #include <vector>
 #include <cstdint>
 
@@ -70,6 +71,20 @@ public:
     void enable_stp(const STPParams& params);
     bool has_stp() const { return stp_enabled_; }
 
+    /** 启用 STDP (长时程可塑性) */
+    void enable_stdp(const STDPParams& params);
+    bool has_stdp() const { return stdp_enabled_; }
+
+    /**
+     * 应用 STDP 权重更新 (在 step 后调用)
+     * @param pre_fired   突触前神经元发放状态
+     * @param post_fired  突触后神经元发放状态
+     * @param t           当前时间步
+     */
+    void apply_stdp(const std::vector<uint8_t>& pre_fired,
+                    const std::vector<uint8_t>& post_fired,
+                    int32_t t);
+
 private:
     size_t n_pre_;
     size_t n_post_;
@@ -94,6 +109,12 @@ private:
     bool stp_enabled_ = false;
     STPParams stp_params_;
     std::vector<STPState> stp_states_; // 长度 = n_pre (enabled 时)
+
+    // STDP (optional, online weight plasticity)
+    bool stdp_enabled_ = false;
+    STDPParams stdp_params_;
+    std::vector<float> last_spike_pre_;   // 长度 = n_pre
+    std::vector<float> last_spike_post_;  // 长度 = n_post
 
     // 聚合输出缓冲
     std::vector<float> i_post_;       // 长度 = n_post

@@ -128,4 +128,56 @@ std::vector<float> SynapseGroup::step_and_compute(
     return i_post_;
 }
 
+void SynapseGroup::enable_stdp(const STDPParams& params) {
+    stdp_enabled_ = true;
+    stdp_params_ = params;
+    last_spike_pre_.assign(n_pre_, -1000.0f);
+    last_spike_post_.assign(n_post_, -1000.0f);
+}
+
+void SynapseGroup::apply_stdp(
+    const std::vector<uint8_t>& pre_fired,
+    const std::vector<uint8_t>& post_fired,
+    int32_t t
+) {
+    if (!stdp_enabled_) return;
+
+    float tf = static_cast<float>(t);
+
+    // Update last spike times
+    for (size_t i = 0; i < n_pre_; ++i) {
+        if (pre_fired[i]) last_spike_pre_[i] = tf;
+    }
+    for (size_t i = 0; i < n_post_; ++i) {
+        if (post_fired[i]) last_spike_post_[i] = tf;
+    }
+
+    // For each synapse: if pre or post fired this step, apply STDP
+    for (size_t pre = 0; pre < n_pre_; ++pre) {
+        int32_t start = row_ptr_[pre];
+        int32_t end   = row_ptr_[pre + 1];
+
+        for (int32_t s = start; s < end; ++s) {
+            size_t post = static_cast<size_t>(col_idx_[s]);
+
+            float dw = 0.0f;
+
+            // Pre fired this step: check last post spike time (LTD if post was recent)
+            if (pre_fired[pre]) {
+                dw += stdp_delta_w(tf, last_spike_post_[post], stdp_params_);
+            }
+
+            // Post fired this step: check last pre spike time (LTP if pre was recent)
+            if (post_fired[post]) {
+                dw += stdp_delta_w(last_spike_pre_[pre], tf, stdp_params_);
+            }
+
+            if (dw != 0.0f) {
+                weights_[s] += dw;
+                weights_[s] = std::clamp(weights_[s], stdp_params_.w_min, stdp_params_.w_max);
+            }
+        }
+    }
+}
+
 } // namespace wuyun
