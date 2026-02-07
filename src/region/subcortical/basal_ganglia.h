@@ -45,12 +45,18 @@ struct BasalGangliaConfig {
     float w_gpe_inh  = 0.5f;
     float w_stn_exc  = 0.7f;   // STN→GPi 强兴奋 (刹车)
 
+    // MSN up-state drive: brings MSN from down state (-80mV) closer to threshold
+    // Biological basis: MSN exhibit bistable up/down states (Wilson & Kawaguchi 1996)
+    // In up state, MSN are ~15mV from threshold and fire readily from cortical input
+    float msn_up_state_drive = 25.0f;  // Tonic baseline (up+da_base=40 < threshold 50)
+
     // --- DA-STDP (three-factor reinforcement learning) ---
     bool  da_stdp_enabled  = false;   // Enable DA-STDP on cortical→MSN
     float da_stdp_lr       = 0.005f;  // Learning rate
     float da_stdp_baseline = 0.1f;    // DA baseline (above=reward, below=punishment)
     float da_stdp_w_min    = 0.1f;    // Min connection weight
     float da_stdp_w_max    = 3.0f;    // Max connection weight
+    float da_stdp_elig_decay = 0.95f; // Eligibility trace decay per step (~20 step window)
 };
 
 class BasalGanglia : public BrainRegion {
@@ -83,6 +89,25 @@ public:
     NeuronPopulation& d1()  { return d1_msn_; }
     NeuronPopulation& d2()  { return d2_msn_; }
     NeuronPopulation& stn() { return stn_; }
+
+    /** DA-STDP 权重诊断 */
+    size_t d1_weight_count() const { return ctx_d1_w_.size(); }
+    const std::vector<float>& d1_weights_for(size_t src) const { return ctx_d1_w_[src]; }
+    size_t d2_weight_count() const { return ctx_d2_w_.size(); }
+    const std::vector<float>& d2_weights_for(size_t src) const { return ctx_d2_w_[src]; }
+    float da_level() const { return da_level_; }
+    float da_spike_accum() const { return da_spike_accum_; }
+
+    /** Eligibility trace diagnostics */
+    float total_elig_d1() const {
+        float s = 0; for (auto& v : elig_d1_) for (float e : v) s += e; return s;
+    }
+    float total_elig_d2() const {
+        float s = 0; for (auto& v : elig_d2_) for (float e : v) s += e; return s;
+    }
+    size_t input_active_count() const {
+        size_t c = 0; for (auto a : input_active_) c += a; return c;
+    }
 
 private:
     void build_synapses();
@@ -132,6 +157,11 @@ private:
     std::vector<std::vector<float>> ctx_d1_w_;  // [src][idx]
     std::vector<std::vector<float>> ctx_d2_w_;  // [src][idx]
     std::vector<uint8_t> input_active_;  // flags: which input slots fired this step
+
+    // Eligibility traces (Izhikevich 2007, Frémaux & Gerstner 2016)
+    // Bridges temporal gap between action (cortex→BG co-activation) and reward (DA)
+    std::vector<std::vector<float>> elig_d1_;  // [src][idx] decaying trace
+    std::vector<std::vector<float>> elig_d2_;  // [src][idx]
     void apply_da_stdp(int32_t t);
 };
 

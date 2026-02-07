@@ -1090,13 +1090,80 @@ VTA.inject_reward() → DA → BG DA-STDP → 学习
 
 ### 回归测试: 28/28 CTest 全通过 (0 失败)
 
+---
+
+## Step 13-B+: DA-STDP 闭环学习修复
+
+### 问题诊断
+
+闭环Agent在500步测试中行为随机，DA-STDP不产生学习效果。逐层诊断发现5个根因：
+
+1. **时序信用分配断裂**: 奖励在action之后注入VTA，但DA-STDP在下一步的brain steps中运行时，eligibility已清零
+2. **MSN从不发放**: D1/D2 MSN (v_rest=-80, v_thresh=-50) 需要I≥50，但cortex PSP(15) + DA tonic(3) = 18 远不够
+3. **D1/D2不对称**: baseline DA时 D1=38 vs D2=53，D2始终压过D1
+4. **缺少动作特异性**: dlPFC随机映射到所有D1，DA-STDP强化所有连接而非特定动作
+5. **BG输出不影响动作选择**: M1 L5纯靠探索噪声，BG→MotorThal→M1信号无法覆盖
+
+### 修复方案 (5个架构修复)
+
+#### 1. BG Eligibility Traces (Izhikevich 2007)
+- `elig_d1_[src][idx]`, `elig_d2_[src][idx]` 衰减缓冲
+- Co-activation (cortex + D1/D2) 递增 trace，DA 到达时乘 trace 更新权重
+- `da_stdp_elig_decay = 0.95` (~20步窗口)
+
+#### 2. Agent Step 时序重构
+- **Phase A**: 注入上步奖励 → 跑 reward_processing_steps(5) 让 VTA→DA→BG 传播
+- **Phase B**: 注入新观测 → 跑 brain_steps_per_action(10) 构建新 eligibility traces
+- **Phase C**: 执行动作 → 存储奖励为 pending
+
+#### 3. MSN Up-State Drive (Wilson & Kawaguchi 1996)
+- `msn_up_state_drive = 25` + `da_base = 15` = 40 (接近阈值50)
+- DA 对称调制: `da_exc_d1 = up + base + (DA-baseline)*gain`
+- Baseline DA 时 D1 = D2 (对称)，DA偏离时产生 Go/NoGo 不对称
+
+#### 4. BG D1 动作子组 + Action-Specific Boost
+- D1 分为4组 (UP/DOWN/LEFT/RIGHT)
+- 探索噪声选择的M1 L5组 → 同时 boost 对应 BG D1 子组 (+15)
+- 只有被选动作的 D1 子组发放 → 动作特异性 eligibility traces
+
+#### 5. Combined Action Decoding
+- `decode_action(l5_accum, d1_accum)`: M1 L5 + BG D1 combined score
+- `score[g] = m1_scores[g] + bg_weight * d1_scores[g]`
+- BG 学习偏好通过 D1 发放直接影响动作选择
+
+### 验证结果
+
+```
+DA-STDP 学习管线打通:
+  step=7  r=1.00 | elig=25.6          ← 吃到食物，traces 积累
+  step=8  | DA=0.911 accum=16.2       ← VTA DA burst 到达 BG
+  step=9  | DA=0.585 | D1=7           ← DA 驱动 D1 Go pathway
+
+Learner vs Control (3000步):
+  Learner: danger=16, safety=0.48
+  Control: danger=33, safety=0.34     ← Learner 减少 51% 危险碰撞
+
+BG 权重变化: range=0.4698 (从 1.0 初始值)
+D1 发放: 31 fires / 50 steps (previously 0)
+```
+
+### 修改文件
+
+- `basal_ganglia.h/cpp`: eligibility traces, up-state drive, 对称DA调制, 权重诊断接口
+- `closed_loop_agent.h/cpp`: Phase A/B/C 时序, D1 action boost, combined decode
+- `test_learning_curve.cpp`: 4个学习曲线测试 (5k/3k对照/诊断/10k)
+- `test_bg_learning.cpp`: 反转学习断言更新 (相对偏好)
+
+### 回归测试: 29/29 CTest 全通过 (0 失败)
+
 ### 系统状态
 
 ```
-48区域 · ~5528+神经元 · ~109投射 · 175测试 · 28 CTest suites
+48区域 · ~5528+神经元 · ~109投射 · 179测试 · 29 CTest suites
 完整功能: 感觉输入 · 视听编码 · 层级处理 · 双流视觉 · 语言
           5种学习(STDP/STP/DA-STDP/CA3-STDP/稳态) · 预测编码 · 工作记忆
           注意力 · GNW意识 · 内驱力 · NREM巩固 · REM梦境 · 睡眠周期管理
           4种调质广播 · 稳态可塑性 · 规模可扩展(E/I自平衡)
           闭环Agent · GridWorld环境 · 运动探索 · VTA奖励信号
+          DA-STDP闭环学习 · Eligibility Traces · 动作特异性信用分配
 ```

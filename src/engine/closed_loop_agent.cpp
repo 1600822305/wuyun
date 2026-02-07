@@ -165,26 +165,50 @@ void ClosedLoopAgent::reset_world() {
 }
 
 StepResult ClosedLoopAgent::agent_step() {
-    // 1. Observe environment
+    // =====================================================================
+    // Temporal credit assignment: reward → DA → BG eligibility traces
+    //
+    // Timeline per agent_step:
+    //   Phase A: Inject PREVIOUS reward → run reward_processing_steps
+    //            VTA produces DA burst → BG DA-STDP modulates traces from prev action
+    //   Phase B: Inject NEW observation → run brain_steps_per_action
+    //            Cortex processes visual → BG builds new eligibility traces
+    //            M1 L5 accumulates spikes → decode action
+    //   Phase C: Act in world → store reward as pending for next step
+    // =====================================================================
+
+    // --- Phase A: Process pending reward (from previous action) ---
+    if (has_pending_reward_) {
+        inject_reward(pending_reward_);
+        // Run a few steps so VTA→DA→BG can propagate
+        // Eligibility traces from previous action still active (decay ~0.95^5 = 0.77)
+        for (size_t i = 0; i < config_.reward_processing_steps; ++i) {
+            engine_.step();
+        }
+        has_pending_reward_ = false;
+    }
+
+    // --- Phase B: Observe + decide ---
+
+    // B1. Inject new visual observation
     inject_observation();
 
-    // 2. Run brain for N steps (accumulate M1 activity)
-
-    // Motor exploration: pick ONE action group for this entire action period
-    // and give it sustained drive (mimics BG thalamic disinhibition selecting one action)
+    // B2. Motor exploration: pick ONE action group for this action period
     int boosted_group = -1;
     if (config_.exploration_noise > 0.0f) {
         std::uniform_int_distribution<int> group_pick(0, 3);
         boosted_group = group_pick(motor_rng_);
     }
 
-    // Accumulate M1 L5 spike counts across all brain steps
+    // B3. Accumulate M1 L5 + BG D1 spike counts across brain steps
     const auto& col = m1_->column();
     size_t l4_size  = col.l4().size();
     size_t l23_size = col.l23().size();
     size_t l5_size  = col.l5().size();
     size_t l5_offset = l4_size + l23_size;
     std::vector<int> l5_accum(l5_size, 0);
+    size_t d1_size = bg_->d1().size();
+    std::vector<int> d1_accum(d1_size, 0);
 
     for (size_t i = 0; i < config_.brain_steps_per_action; ++i) {
         // Re-inject observation every few brain steps to sustain input
@@ -193,8 +217,9 @@ StepResult ClosedLoopAgent::agent_step() {
         }
 
         // Sustained motor exploration noise into the selected M1 L5 group
-        // (Biological basis: motor variability for exploration, Todorov 2004)
+        // AND the corresponding BG D1 subgroup (action-specific credit assignment)
         if (boosted_group >= 0) {
+            // M1 L5 noise
             auto& l5 = m1_->column().l5();
             if (l5_size >= 4) {
                 size_t group_size = l5_size / 4;
@@ -208,6 +233,21 @@ StepResult ClosedLoopAgent::agent_step() {
                     l5.inject_basal(j, bias + jitter(motor_rng_));
                 }
             }
+
+            // BG D1 action-specific boost: divide D1 into 4 action channels
+            // Only the channel matching the selected action gets extra drive
+            // This creates action-specific eligibility traces for DA-STDP
+            size_t d1_size = bg_->d1().size();
+            if (d1_size >= 4) {
+                size_t d1_group = d1_size / 4;
+                float d1_boost = 15.0f;  // Extra drive to push selected D1 subgroup over threshold
+                size_t d1_start = static_cast<size_t>(boosted_group) * d1_group;
+                size_t d1_end = (boosted_group < 3)
+                    ? static_cast<size_t>(boosted_group + 1) * d1_group : d1_size;
+                for (size_t j = d1_start; j < d1_end; ++j) {
+                    bg_->d1().inject_basal(j, d1_boost);
+                }
+            }
         }
 
         engine_.step();
@@ -217,18 +257,25 @@ StepResult ClosedLoopAgent::agent_step() {
         for (size_t j = 0; j < l5_size && (l5_offset + j) < m1_fired.size(); ++j) {
             l5_accum[j] += m1_fired[l5_offset + j];
         }
+        // Accumulate BG D1 fired state (action preference from learned weights)
+        const auto& d1_fired = bg_->d1().fired();
+        for (size_t j = 0; j < d1_size && j < d1_fired.size(); ++j) {
+            d1_accum[j] += d1_fired[j];
+        }
     }
 
-    // 3. Decode M1 output → action (from accumulated L5 spikes)
-    Action action = decode_m1_action(l5_accum);
+    // B4. Decode action from M1 L5 + BG D1 combined signal
+    Action action = decode_action(l5_accum, d1_accum);
 
-    // 4. Execute action in GridWorld
+    // --- Phase C: Act in world + store reward ---
     StepResult result = world_.act(action);
 
-    // 5. Inject reward to VTA
-    inject_reward(result.reward);
+    // Store reward as pending (will be processed at START of next agent_step)
+    // Only trigger Phase A for significant rewards (food/danger), not step penalties
+    pending_reward_ = result.reward * config_.reward_scale;
+    has_pending_reward_ = (std::abs(result.reward) > 0.05f);
 
-    // 6. Update state
+    // Update state
     last_action_ = action;
     last_reward_ = result.reward;
     agent_step_count_++;
@@ -266,32 +313,56 @@ void ClosedLoopAgent::inject_observation() {
 // Action decoding: M1 L5 fired → winner-take-all over 4 directions
 // =============================================================================
 
-Action ClosedLoopAgent::decode_m1_action(const std::vector<int>& l5_accum) const {
-    // M1 L5 pyramidal neurons are divided into 4 groups:
+Action ClosedLoopAgent::decode_action(const std::vector<int>& l5_accum,
+                                       const std::vector<int>& d1_accum) const {
+    // Combined action selection from M1 L5 (motor execution) + BG D1 (learned preference)
     //   Group 0: UP,   Group 1: DOWN,  Group 2: LEFT,  Group 3: RIGHT
-    // Count accumulated spikes in each group, pick winner
+    //
+    // Score = M1_score + bg_weight * D1_score
+    // M1 provides exploration (noise-driven), BG provides learned bias
+    // As BG learns, D1 subgroups for rewarded actions fire more → action preference shifts
 
+    // M1 L5 scores
     size_t l5_size = l5_accum.size();
-    if (l5_size < 4) return Action::STAY;
-
-    size_t group_size = l5_size / 4;
-    int counts[4] = {0, 0, 0, 0};
-
-    for (size_t g = 0; g < 4; ++g) {
-        size_t start = g * group_size;
-        size_t end = (g < 3) ? (g + 1) * group_size : l5_size;
-        for (size_t i = start; i < end; ++i) {
-            counts[g] += l5_accum[i];
+    float m1_scores[4] = {0, 0, 0, 0};
+    if (l5_size >= 4) {
+        size_t group_size = l5_size / 4;
+        for (size_t g = 0; g < 4; ++g) {
+            size_t start = g * group_size;
+            size_t end = (g < 3) ? (g + 1) * group_size : l5_size;
+            for (size_t i = start; i < end; ++i) {
+                m1_scores[g] += static_cast<float>(l5_accum[i]);
+            }
         }
     }
 
-    // Winner-take-all
-    int max_count = *std::max_element(counts, counts + 4);
-    if (max_count == 0) return Action::STAY;  // All silent
+    // BG D1 scores (learned action preference)
+    size_t d1_size = d1_accum.size();
+    float d1_scores[4] = {0, 0, 0, 0};
+    if (d1_size >= 4) {
+        size_t d1_group = d1_size / 4;
+        for (size_t g = 0; g < 4; ++g) {
+            size_t start = g * d1_group;
+            size_t end = (g < 3) ? (g + 1) * d1_group : d1_size;
+            for (size_t i = start; i < end; ++i) {
+                d1_scores[g] += static_cast<float>(d1_accum[i]);
+            }
+        }
+    }
 
-    // Find winner (with tie-breaking: prefer first)
+    // Combined score: M1 exploration + BG learned preference
+    float bg_weight = 2.0f;  // BG contribution weight (increases effective learning signal)
+    float scores[4];
     for (int g = 0; g < 4; ++g) {
-        if (counts[g] == max_count) {
+        scores[g] = m1_scores[g] + bg_weight * d1_scores[g];
+    }
+
+    // Winner-take-all
+    float max_score = *std::max_element(scores, scores + 4);
+    if (max_score <= 0.0f) return Action::STAY;
+
+    for (int g = 0; g < 4; ++g) {
+        if (scores[g] >= max_score - 0.001f) {
             return static_cast<Action>(g);
         }
     }
@@ -304,7 +375,7 @@ Action ClosedLoopAgent::decode_m1_action(const std::vector<int>& l5_accum) const
 
 void ClosedLoopAgent::inject_reward(float reward) {
     if (vta_ && std::abs(reward) > 0.001f) {
-        vta_->inject_reward(reward * config_.reward_scale);
+        vta_->inject_reward(reward);
     }
 }
 

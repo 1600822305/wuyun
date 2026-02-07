@@ -46,6 +46,7 @@ struct AgentConfig {
 
     // Action decoding
     size_t brain_steps_per_action = 10;  // 每个环境步的脑步数 (积累M1活动)
+    size_t reward_processing_steps = 5;  // 奖励处理步数 (DA传播到BG)
 
     // Reward scaling
     float reward_scale = 1.0f;  // reward → VTA inject_reward multiplier
@@ -137,6 +138,8 @@ private:
     int    agent_step_count_ = 0;
     Action last_action_      = Action::STAY;
     float  last_reward_      = 0.0f;
+    float  pending_reward_   = 0.0f;  // Reward to inject at start of next step
+    bool   has_pending_reward_ = false;
 
     // Reward history (ring buffer)
     std::vector<float> reward_history_;
@@ -147,7 +150,8 @@ private:
     std::mt19937 motor_rng_{12345};
 
     void build_brain();
-    Action decode_m1_action(const std::vector<int>& l5_accum) const;
+    Action decode_action(const std::vector<int>& l5_accum,
+                         const std::vector<int>& d1_accum) const;
     void inject_observation();
     void inject_reward(float reward);
 };

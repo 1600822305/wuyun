@@ -237,5 +237,13 @@ if(MSVC)
 endif()
 add_test(NAME closed_loop_tests COMMAND test_closed_loop)
 
+# Step 13-B+ Learning curve tests
+add_executable(test_learning_curve test_learning_curve.cpp)
+target_link_libraries(test_learning_curve PRIVATE wuyun_core)
+if(MSVC)
+    target_compile_options(test_learning_curve PRIVATE /utf-8)
+endif()
+add_test(NAME learning_curve_tests COMMAND test_learning_curve)
+
 # Register as CTest
 add_test(NAME neuron_tests COMMAND test_neuron)

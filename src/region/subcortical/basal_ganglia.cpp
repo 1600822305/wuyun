@@ -157,9 +157,13 @@ void BasalGanglia::build_input_maps(size_t n_input_neurons) {
     if (config_.da_stdp_enabled) {
         ctx_d1_w_.resize(n_input_neurons);
         ctx_d2_w_.resize(n_input_neurons);
+        elig_d1_.resize(n_input_neurons);
+        elig_d2_.resize(n_input_neurons);
         for (size_t i = 0; i < n_input_neurons; ++i) {
             ctx_d1_w_[i].assign(ctx_to_d1_map_[i].size(), 1.0f);
             ctx_d2_w_[i].assign(ctx_to_d2_map_[i].size(), 1.0f);
+            elig_d1_[i].assign(ctx_to_d1_map_[i].size(), 0.0f);
+            elig_d2_[i].assign(ctx_to_d2_map_[i].size(), 0.0f);
         }
         input_active_.assign(n_input_neurons, 0);
     }
@@ -179,8 +183,16 @@ void BasalGanglia::step(int32_t t, float dt) {
         da_level_ = std::clamp(0.1f + da_spike_accum_ * 0.05f, 0.0f, 1.0f);
     }
 
-    float da_exc_d1 = da_level_ * 30.0f;   // DA enhances D1
-    float da_exc_d2 = (1.0f - da_level_) * 20.0f;  // DA suppresses D2
+    // MSN up-state drive + symmetric DA modulation
+    // At baseline DA (0.1): D1 = D2 = up + base (balanced, near threshold)
+    // DA > baseline: D1↑ D2↓ (reward → reinforce Go, suppress NoGo)
+    // DA < baseline: D1↓ D2↑ (punishment → suppress Go, reinforce NoGo)
+    float up = config_.msn_up_state_drive;
+    float da_delta = da_level_ - config_.da_stdp_baseline;  // RPE-like
+    float da_base = 15.0f;   // Symmetric baseline DA contribution
+    float da_gain = 50.0f;   // DA modulation strength
+    float da_exc_d1 = up + da_base + da_delta * da_gain;   // Go: DA↑ → more
+    float da_exc_d2 = up + da_base - da_delta * da_gain;   // NoGo: DA↑ → less
     for (size_t i = 0; i < d1_msn_.size(); ++i) d1_msn_.inject_basal(i, da_exc_d1);
     for (size_t i = 0; i < d2_msn_.size(); ++i) d2_msn_.inject_basal(i, da_exc_d2);
 
@@ -246,6 +258,7 @@ void BasalGanglia::receive_spikes(const std::vector<SpikeEvent>& events) {
         }
 
         // Cortical spikes → route through pre-built random sparse maps
+        // MSN up-state drive (40) + PSP (15) = 55 > threshold (50)
         float base_current = is_burst(static_cast<SpikeType>(evt.spike_type)) ? 25.0f : 15.0f;
         size_t src = evt.neuron_id % input_map_size_;
 
@@ -315,39 +328,66 @@ void BasalGanglia::aggregate_state() {
 }
 
 void BasalGanglia::apply_da_stdp(int32_t t) {
-    // DA reward prediction error (RPE-like)
+    // Three-factor learning with eligibility traces:
+    //   1. Co-activation (pre=cortex, post=D1/D2) increments eligibility trace
+    //   2. DA signal (RPE) modulates weight change proportional to trace
+    //   3. Trace decays exponentially (bridges action→reward delay)
+    //
+    // D1 (Go):  DA>baseline → strengthen (reinforce action)
+    // D2 (NoGo): DA>baseline → weaken (reduce inhibition of rewarded action)
+    // Biological basis: D1(Gs) vs D2(Gi) receptor asymmetry
+
     float da_error = da_level_ - config_.da_stdp_baseline;
     float lr = config_.da_stdp_lr;
+    float elig_decay = config_.da_stdp_elig_decay;
 
-    // Three-factor rule:
-    //   D1 (Go):  input active + D1 fired + DA>baseline → strengthen (reinforce Go)
-    //             input active + D1 fired + DA<baseline → weaken
-    //   D2 (NoGo): OPPOSITE sign — DA>baseline weakens D2, DA<baseline strengthens
-    //   This is the biological D1(Gs) vs D2(Gi) receptor asymmetry
-
+    // Phase 1: Update eligibility traces from co-activation
     for (size_t src = 0; src < input_active_.size(); ++src) {
         if (!input_active_[src]) continue;
 
-        // D1 pathway: DA+ = reinforce Go
         for (size_t idx = 0; idx < ctx_to_d1_map_[src].size(); ++idx) {
             uint32_t tgt = ctx_to_d1_map_[src][idx];
             if (d1_msn_.fired()[tgt]) {
-                // Co-active: pre(cortex) + post(D1) + DA modulation
-                ctx_d1_w_[src][idx] += lr * da_error;
-                ctx_d1_w_[src][idx] = std::clamp(ctx_d1_w_[src][idx],
-                    config_.da_stdp_w_min, config_.da_stdp_w_max);
+                elig_d1_[src][idx] += 1.0f;
             }
         }
-
-        // D2 pathway: DA+ = weaken NoGo (opposite sign!)
         for (size_t idx = 0; idx < ctx_to_d2_map_[src].size(); ++idx) {
             uint32_t tgt = ctx_to_d2_map_[src][idx];
             if (d2_msn_.fired()[tgt]) {
-                // D2: reverse sign — DA reward weakens NoGo
-                ctx_d2_w_[src][idx] -= lr * da_error;
-                ctx_d2_w_[src][idx] = std::clamp(ctx_d2_w_[src][idx],
-                    config_.da_stdp_w_min, config_.da_stdp_w_max);
+                elig_d2_[src][idx] += 1.0f;
             }
+        }
+    }
+
+    // Phase 2: Apply weight changes = lr * da_error * eligibility_trace
+    // Only apply when DA deviates from baseline (RPE ≠ 0)
+    if (std::abs(da_error) > 0.001f) {
+        for (size_t src = 0; src < elig_d1_.size(); ++src) {
+            for (size_t idx = 0; idx < elig_d1_[src].size(); ++idx) {
+                if (elig_d1_[src][idx] > 0.001f) {
+                    ctx_d1_w_[src][idx] += lr * da_error * elig_d1_[src][idx];
+                    ctx_d1_w_[src][idx] = std::clamp(ctx_d1_w_[src][idx],
+                        config_.da_stdp_w_min, config_.da_stdp_w_max);
+                }
+            }
+            for (size_t idx = 0; idx < elig_d2_[src].size(); ++idx) {
+                if (elig_d2_[src][idx] > 0.001f) {
+                    // D2: reverse sign
+                    ctx_d2_w_[src][idx] -= lr * da_error * elig_d2_[src][idx];
+                    ctx_d2_w_[src][idx] = std::clamp(ctx_d2_w_[src][idx],
+                        config_.da_stdp_w_min, config_.da_stdp_w_max);
+                }
+            }
+        }
+    }
+
+    // Phase 3: Decay all eligibility traces
+    for (size_t src = 0; src < elig_d1_.size(); ++src) {
+        for (size_t idx = 0; idx < elig_d1_[src].size(); ++idx) {
+            elig_d1_[src][idx] *= elig_decay;
+        }
+        for (size_t idx = 0; idx < elig_d2_[src].size(); ++idx) {
+            elig_d2_[src][idx] *= elig_decay;
         }
     }
 
