@@ -76,6 +76,8 @@ public:
     /** 启用 STDP (长时程可塑性) */
     void enable_stdp(const STDPParams& params);
     bool has_stdp() const { return stdp_enabled_; }
+    STDPParams& stdp_params() { return stdp_params_; }
+    const STDPParams& stdp_params() const { return stdp_params_; }
 
     /**
      * 应用 STDP 权重更新 (在 step 后调用)

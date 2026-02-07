@@ -131,6 +131,33 @@ public:
     /** Get DG activation sparsity (fraction of DG neurons active) */
     float dg_sparsity() const;
 
+    // --- Spatial memory closed-loop interface ---
+
+    /** Inject spatial position as grid-cell-like pattern to EC.
+     *  Biology: EC grid cells fire at periodic spatial locations,
+     *  creating a unique population code for each position.
+     *  (Hafting et al. 2005, Moser & Moser 2008) */
+    void inject_spatial_context(int x, int y, int world_w, int world_h);
+
+    /** Boost CA3 encoding during reward events (DA-modulated LTP).
+     *  Biology: VTA DA release into hippocampus during salient events
+     *  enhances CA3 recurrent STDP, creating stronger memory traces
+     *  for reward-associated locations. (Lisman & Grace 2005) */
+    void inject_reward_tag(float reward_magnitude);
+
+    /** Get subiculum retrieval output (for dlPFC biasing).
+     *  Returns a vector of Sub firing rates, used as top-down memory
+     *  signal to bias decision-making toward remembered locations.
+     *  Biology: Sub is the main hippocampal output, projecting to
+     *  mPFC/dlPFC for memory-guided decision making. */
+    float retrieval_strength() const;
+
+    /** Get directional bias from hippocampal retrieval.
+     *  Computes which Sub neuron groups are most active,
+     *  mapping to spatial directions. Returns bias[4] = {UP,DOWN,LEFT,RIGHT}.
+     *  Zero if no strong retrieval. */
+    void get_retrieval_bias(float bias[4]) const;
+
     // --- Sleep / SWR replay interface ---
 
     /** Enable sleep replay mode (SWR generation via CA3 noise → pattern completion) */
@@ -246,6 +273,18 @@ private:
     std::unique_ptr<SynapticScaler> homeo_ca1_;
 
     void apply_homeostatic_scaling();
+
+    // --- Spatial memory state ---
+    float reward_tag_strength_ = 0.0f;   // Current reward-tag boost (decays)
+    static constexpr float REWARD_TAG_DECAY = 0.90f;
+    float ca3_encoding_boost_  = 0.0f;   // Extra CA3 drive during reward events
+
+    // Grid cell spatial encoding parameters
+    // Each EC neuron has a preferred spatial phase (pre-computed)
+    std::vector<float> ec_grid_phase_x_;  // [n_ec] preferred x-phase
+    std::vector<float> ec_grid_phase_y_;  // [n_ec] preferred y-phase
+    std::vector<float> ec_grid_freq_;     // [n_ec] spatial frequency
+    void init_grid_cell_tuning();
 
     // --- Aggregate firing state ---
     std::vector<uint8_t> fired_all_;

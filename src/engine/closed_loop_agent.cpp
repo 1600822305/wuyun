@@ -174,6 +174,10 @@ void ClosedLoopAgent::build_brain() {
     if (!config_.fast_eval) {
         engine_.add_projection("dlPFC", "Hippocampus", 3);
         engine_.add_projection("V1", "Hippocampus", 3);
+        // Hippocampus → dlPFC (memory retrieval → decision bias)
+        // Biology: Sub → EC → mPFC/dlPFC, the main hippocampal output pathway
+        // for memory-guided decision making (Preston & Eichenbaum 2013)
+        engine_.add_projection("Hippocampus", "dlPFC", 3);
     }
 
     // VTA DA → BG (reward signal)
@@ -276,6 +280,13 @@ StepResult ClosedLoopAgent::agent_step() {
     if (has_pending_reward_) {
         inject_reward(pending_reward_);
 
+        // Hippocampal reward tagging: encode current location with reward value
+        // Biology: VTA DA → hippocampus enhances LTP at active CA3 synapses
+        // (Lisman & Grace 2005: DA gates hippocampal memory formation)
+        if (hipp_ && std::abs(pending_reward_) > 0.01f) {
+            hipp_->inject_reward_tag(std::abs(pending_reward_));
+        }
+
         // LHb activation for negative rewards (punishment/danger)
         // Biology: aversive stimuli → LHb burst → RMTg GABA → VTA DA pause
         //          This creates a strong DA dip below tonic baseline,
@@ -316,6 +327,15 @@ StepResult ClosedLoopAgent::agent_step() {
 
     // B1. Inject new visual observation
     inject_observation();
+
+    // B1b. Inject spatial position to hippocampus (grid cell activation)
+    // Biology: EC grid cells encode agent position → DG → CA3 place cells
+    // This creates a position-dependent activation pattern that CA3 stores via STDP
+    if (hipp_) {
+        hipp_->inject_spatial_context(
+            world_.agent_x(), world_.agent_y(),
+            static_cast<int>(world_.width()), static_cast<int>(world_.height()));
+    }
 
     // =====================================================================
     // Biologically correct motor architecture:
@@ -384,6 +404,15 @@ StepResult ClosedLoopAgent::agent_step() {
         }
         // DA neuromodulatory broadcast: VTA → BG (volume transmission, every step)
         bg_->set_da_level(vta_->da_output());
+
+        // Hippocampal spatial memory → dlPFC: handled via SpikeBus projection
+        // (Hippocampus → dlPFC added in build_brain)
+        // When agent revisits a familiar location:
+        //   EC grid cells fire position-specific pattern →
+        //   CA3 pattern completion (if STDP encoded this place) →
+        //   CA1 → Sub fires → SpikeBus → dlPFC receives memory signal →
+        //   dlPFC→BG pathway naturally biases action selection
+        // No direct BG injection needed — the cortical pathway handles it.
 
         // (1) M1 L5 exploration: attractor direction + background activity
         //     Attractor group: strong drive (cortical attractor settled on this direction)

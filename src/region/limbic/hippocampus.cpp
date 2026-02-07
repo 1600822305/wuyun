@@ -93,6 +93,7 @@ Hippocampus::Hippocampus(const HippocampusConfig& config)
     , spike_type_all_(n_neurons_, 0)
 {
     build_synapses();
+    init_grid_cell_tuning();
 }
 
 // =============================================================================
@@ -344,8 +345,21 @@ void Hippocampus::step(int32_t t, float dt) {
     // Online plasticity (after all neurons stepped)
     // ========================================
     // CA3 recurrent STDP: co-active CA3 neurons strengthen mutual connections
+    // Reward-tagged encoding: boost STDP learning rate during reward events
+    // Biology: VTA DA → hippocampus enhances LTP at active CA3 synapses
+    // (Lisman & Grace 2005: DA gates hippocampal memory formation)
     if (config_.ca3_stdp_enabled) {
-        syn_ca3_to_ca3_.apply_stdp(ca3_.fired(), ca3_.fired(), t);
+        if (reward_tag_strength_ > 0.01f) {
+            // Temporarily boost STDP a_plus for stronger encoding
+            float saved_a_plus = syn_ca3_to_ca3_.stdp_params().a_plus;
+            float boosted = saved_a_plus * (1.0f + reward_tag_strength_ * 3.0f);
+            syn_ca3_to_ca3_.stdp_params().a_plus = boosted;
+            syn_ca3_to_ca3_.apply_stdp(ca3_.fired(), ca3_.fired(), t);
+            syn_ca3_to_ca3_.stdp_params().a_plus = saved_a_plus;
+        } else {
+            syn_ca3_to_ca3_.apply_stdp(ca3_.fired(), ca3_.fired(), t);
+        }
+        reward_tag_strength_ *= REWARD_TAG_DECAY;
     }
 
     // ========================================
@@ -561,6 +575,129 @@ void Hippocampus::apply_homeostatic_scaling() {
     // CA1 inputs: CA3→CA1 Schaffer + EC→CA1 direct
     scale_syn(*homeo_ca1_, syn_ca3_to_ca1_);
     scale_syn(*homeo_ca1_, syn_ec_to_ca1_);
+}
+
+// =============================================================================
+// Spatial memory closed-loop
+// =============================================================================
+
+void Hippocampus::init_grid_cell_tuning() {
+    // Initialize grid cell tuning parameters for each EC neuron.
+    // Biology: EC grid cells fire at vertices of a hexagonal lattice,
+    // with different neurons having different spatial frequencies,
+    // phases, and orientations. Together they form a unique population
+    // code for each spatial location. (Hafting et al. 2005)
+    //
+    // Simplified model: each EC neuron has a 2D cosine tuning curve
+    // with a random spatial phase and one of several spatial frequencies.
+    // Multiple frequencies ensure each position has a unique code.
+
+    size_t n = config_.n_ec;
+    ec_grid_phase_x_.resize(n);
+    ec_grid_phase_y_.resize(n);
+    ec_grid_freq_.resize(n);
+
+    std::mt19937 rng(7777);
+    std::uniform_real_distribution<float> phase_dist(0.0f, 6.2832f);  // 0 to 2π
+
+    // 3-4 different spatial frequencies (like real grid cell modules)
+    const float freqs[] = {1.0f, 1.5f, 2.0f, 3.0f};
+    const size_t n_freqs = 4;
+
+    for (size_t i = 0; i < n; ++i) {
+        ec_grid_phase_x_[i] = phase_dist(rng);
+        ec_grid_phase_y_[i] = phase_dist(rng);
+        ec_grid_freq_[i] = freqs[i % n_freqs];
+    }
+}
+
+void Hippocampus::inject_spatial_context(int x, int y, int world_w, int world_h) {
+    // Convert (x,y) position to grid-cell-like activation pattern in EC.
+    // Each EC neuron fires proportional to cos(freq * pos + phase).
+    // The population pattern is unique for each (x,y) location.
+    //
+    // Biology: grid cells provide a metric spatial framework that
+    // the hippocampus uses to form place-specific memories.
+
+    if (ec_grid_phase_x_.empty()) return;
+
+    // Normalize position to [0, 2π] range
+    float norm_x = static_cast<float>(x) / static_cast<float>(std::max(world_w, 1)) * 6.2832f;
+    float norm_y = static_cast<float>(y) / static_cast<float>(std::max(world_h, 1)) * 6.2832f;
+
+    for (size_t i = 0; i < ec_.size() && i < ec_grid_freq_.size(); ++i) {
+        float freq = ec_grid_freq_[i];
+        // 2D grid cell response: product of two cosine tuning curves
+        float resp_x = std::cos(freq * norm_x + ec_grid_phase_x_[i]);
+        float resp_y = std::cos(freq * norm_y + ec_grid_phase_y_[i]);
+        // Response: 0 to 1 range (rectified product)
+        float response = std::max(0.0f, resp_x * resp_y);
+        // Inject as current: strong enough to drive EC grid cells to fire
+        // when response > ~0.3 (selective activation)
+        float current = response * 25.0f;  // 25 pA max drive
+        if (current > 2.0f) {
+            ec_.inject_basal(i, current);
+        }
+    }
+}
+
+void Hippocampus::inject_reward_tag(float reward_magnitude) {
+    // Tag current hippocampal state with reward signal.
+    // This boosts CA3 STDP and injects extra drive to CA3,
+    // creating a stronger memory trace for reward-associated locations.
+    //
+    // Biology: DA from VTA → hippocampus enhances LTP.
+    // ACh from medial septum also gates memory encoding.
+
+    reward_tag_strength_ = std::min(reward_magnitude, 2.0f);
+
+    // Also inject extra drive to CA3 during reward events
+    // to ensure the current place cells fire strongly for STDP
+    ca3_encoding_boost_ = reward_magnitude * 15.0f;
+    for (size_t i = 0; i < ca3_.size(); ++i) {
+        if (ca3_.fired()[i]) {
+            // Only boost already-active CA3 neurons (maintain selectivity)
+            ca3_.inject_basal(i, ca3_encoding_boost_);
+        }
+    }
+}
+
+float Hippocampus::retrieval_strength() const {
+    // Compute overall Sub firing rate as a proxy for retrieval confidence.
+    // High Sub firing = strong memory retrieval = confident spatial guidance.
+    size_t n_fired = 0;
+    for (size_t i = 0; i < sub_.size(); ++i) {
+        if (sub_.fired()[i]) ++n_fired;
+    }
+    return static_cast<float>(n_fired) / static_cast<float>(std::max(sub_.size(), (size_t)1));
+}
+
+void Hippocampus::get_retrieval_bias(float bias[4]) const {
+    // Map Sub output to directional bias (UP, DOWN, LEFT, RIGHT).
+    // Sub neurons are divided into 4 groups, each representing a direction.
+    // The group with the most active neurons biases action selection.
+    //
+    // Biology: Subiculum has spatial firing fields and projects to PFC.
+    // Different Sub populations encode different spatial contexts,
+    // which PFC reads as spatial navigation signals.
+    //
+    // This is a simplified mapping — in reality, the spatial information
+    // is distributed across the population and decoded by dlPFC.
+
+    bias[0] = bias[1] = bias[2] = bias[3] = 0.0f;
+
+    if (sub_.size() < 4) return;
+
+    size_t group_size = sub_.size() / 4;
+    for (size_t g = 0; g < 4; ++g) {
+        size_t start = g * group_size;
+        size_t end = (g < 3) ? (g + 1) * group_size : sub_.size();
+        int fired_count = 0;
+        for (size_t i = start; i < end; ++i) {
+            if (sub_.fired()[i]) ++fired_count;
+        }
+        bias[g] = static_cast<float>(fired_count) / static_cast<float>(end - start);
+    }
 }
 
 } // namespace wuyun
