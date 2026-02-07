@@ -299,4 +299,90 @@ inline NeuronParams DOPAMINE_NEURON_PARAMS() {
     return p;
 }
 
+// =============================================================================
+// 海马特化神经元
+// =============================================================================
+
+// 海马位置细胞 CA1/CA3 (place cell, 双区室, theta调制)
+inline NeuronParams PLACE_CELL_PARAMS() {
+    NeuronParams p;
+    p.somatic.v_rest = -65.0f; p.somatic.v_threshold = -50.0f;
+    p.somatic.v_reset = -60.0f; p.somatic.tau_m = 20.0f;
+    p.somatic.r_s = 1.0f; p.somatic.a = 0.01f;
+    p.somatic.b = 5.0f; p.somatic.tau_w = 200.0f;
+    p.somatic.refractory_period = 3;
+    p.kappa = 0.3f; p.kappa_backward = 0.1f;  // 双区室: theta相位进动
+    p.burst_spike_count = 3; p.burst_isi = 2;
+    return p;
+}
+
+// 内嗅皮层网格细胞 (grid cell, 双区室, 弱耦合)
+inline NeuronParams GRID_CELL_PARAMS() {
+    NeuronParams p;
+    p.somatic.v_rest = -65.0f; p.somatic.v_threshold = -50.0f;
+    p.somatic.v_reset = -60.0f; p.somatic.tau_m = 20.0f;
+    p.somatic.r_s = 1.0f; p.somatic.a = 0.01f;
+    p.somatic.b = 4.0f; p.somatic.tau_w = 200.0f;
+    p.somatic.refractory_period = 3;
+    p.kappa = 0.2f; p.kappa_backward = 0.1f;
+    p.burst_spike_count = 2; p.burst_isi = 3;
+    return p;
+}
+
+// 头朝向细胞 (head direction cell, 弱耦合, 持续发放)
+inline NeuronParams HD_CELL_PARAMS() {
+    NeuronParams p;
+    p.somatic.v_rest = -60.0f; p.somatic.v_threshold = -50.0f;
+    p.somatic.v_reset = -55.0f; p.somatic.tau_m = 15.0f;
+    p.somatic.r_s = 1.0f; p.somatic.a = 0.0f;
+    p.somatic.b = 1.0f; p.somatic.tau_w = 100.0f;
+    p.somatic.refractory_period = 2;
+    p.kappa = 0.1f; p.kappa_backward = 0.05f;
+    p.burst_spike_count = 1; p.burst_isi = 1;
+    return p;
+}
+
+// 海马苔藓细胞 DG hilus (mossy cell, 单区室, 高兴奋性)
+inline NeuronParams MOSSY_CELL_PARAMS() {
+    NeuronParams p;
+    p.somatic.v_rest = -60.0f; p.somatic.v_threshold = -50.0f;
+    p.somatic.v_reset = -55.0f; p.somatic.tau_m = 15.0f;
+    p.somatic.r_s = 1.2f; p.somatic.a = 0.01f;
+    p.somatic.b = 3.0f; p.somatic.tau_w = 150.0f;
+    p.somatic.refractory_period = 2;
+    p.kappa = 0.0f; p.kappa_backward = 0.0f;
+    p.burst_spike_count = 2; p.burst_isi = 2;
+    return p;
+}
+
+// =============================================================================
+// 抑制性特化神经元
+// =============================================================================
+
+// 枝形烛台细胞 Chandelier (PV+, 靶向轴突起始段 AIS, 最强单突触抑制)
+inline NeuronParams CHANDELIER_PARAMS() {
+    NeuronParams p;
+    p.somatic.v_rest = -65.0f; p.somatic.v_threshold = -45.0f;
+    p.somatic.v_reset = -60.0f; p.somatic.tau_m = 10.0f;
+    p.somatic.r_s = 0.8f; p.somatic.a = 0.1f;
+    p.somatic.b = 0.0f; p.somatic.tau_w = 50.0f;
+    p.somatic.refractory_period = 1;
+    p.kappa = 0.0f; p.kappa_backward = 0.0f;
+    p.burst_spike_count = 1; p.burst_isi = 1;
+    return p;
+}
+
+// 神经胶质形态细胞 NGF (neurogliaform, 慢GABA_B体积释放)
+inline NeuronParams NGF_PARAMS() {
+    NeuronParams p;
+    p.somatic.v_rest = -65.0f; p.somatic.v_threshold = -50.0f;
+    p.somatic.v_reset = -60.0f; p.somatic.tau_m = 25.0f;  // 慢
+    p.somatic.r_s = 0.7f; p.somatic.a = 0.02f;
+    p.somatic.b = 1.0f; p.somatic.tau_w = 300.0f;  // 非常慢适应
+    p.somatic.refractory_period = 3;
+    p.kappa = 0.0f; p.kappa_backward = 0.0f;
+    p.burst_spike_count = 1; p.burst_isi = 1;
+    return p;
+}
+
 } // namespace wuyun

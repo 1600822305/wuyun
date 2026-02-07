@@ -7,9 +7,13 @@ set(WUYUN_CORE_SOURCES
     core/spike_queue.cpp
     core/neuromodulator.cpp
     core/spike_bus.cpp
+    core/oscillation.cpp
+    core/gap_junction.cpp
     plasticity/stdp.cpp
     plasticity/stp.cpp
     plasticity/da_stdp.cpp
+    plasticity/istdp.cpp
+    plasticity/homeostatic.cpp
     circuit/cortical_column.cpp
 )
 
