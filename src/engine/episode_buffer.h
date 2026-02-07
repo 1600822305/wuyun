@@ -25,6 +25,7 @@ namespace wuyun {
 /** 单个 brain step 的皮层 spike 快照 */
 struct SpikeSnapshot {
     std::vector<SpikeEvent> cortical_events;  // dlPFC → BG 的 spike events
+    std::vector<SpikeEvent> sensory_events;   // V1 → dlPFC 的 spike events (皮层巩固用)
     int action_group = -1;                     // 当前探索方向 (efference copy)
 };
 
@@ -56,9 +57,11 @@ public:
 
     /** 记录一个 brain step 的 spike 快照 */
     void record_step(const std::vector<SpikeEvent>& cortical_events,
-                     int action_group) {
+                     int action_group,
+                     const std::vector<SpikeEvent>& sensory_events = {}) {
         SpikeSnapshot snap;
         snap.cortical_events = cortical_events;
+        snap.sensory_events = sensory_events;
         snap.action_group = action_group;
         current_.steps.push_back(std::move(snap));
     }

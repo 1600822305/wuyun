@@ -1843,8 +1843,54 @@ enable_predictive_coding = false  // 默认不启用
 
 ### 系统状态
 
+---
+
+## Step 15-C: 皮层巩固尝试 (Awake SWR → 皮层 STDP)
+
+> 日期: 2026-02-08
+> 目标: 让 SWR 重放同时巩固 V1→dlPFC 皮层表征 (学习回路第⑨步)
+
+### 实现
+
+- `SpikeSnapshot::sensory_events` — 录制 V1 spikes
+- `CorticalRegion::replay_cortical_step()` — 轻量回放步 (PSP→L4 + column step + STDP, 不提交 spikes)
+- `capture_dlpfc_spikes()` 同时录制 V1 fired patterns
+- `run_awake_replay()` 回放时 V1 spikes → dlPFC receive_spikes → replay_cortical_step
+
+### 实验结果
+
+| 方案 | improvement | late safety | 问题 |
+|------|:-----------:|:-----------:|------|
+| **BG-only (基线)** | **+0.120** | **0.667** | — |
+| replay_cortical_step | +0.034 (-72%) | 0.527 | L4 fires, L23 无 WM 支撑 → LTD 主导 |
+| PSP priming only | +0.053 (-56%) | 0.600 | PSP 残留污染下一步真实视觉输入 |
+
+### 结论
+
+**Awake SWR 期间的皮层巩固不可行**:
+1. 回放时 L4 被 V1 spikes 驱动但 L23 缺乏 WM/attention 辅助 → STDP LTD 主导 → 削弱已学表征
+2. 即使仅注入 PSP (不步进), 残留电流也污染下一步的在线视觉处理
+
+**生物学解释**: awake SWR 主要巩固纹状体动作值 (Jadhav 2012)。
+皮层表征巩固发生在 **NREM 睡眠** 期间: 慢波 up/down 状态控制全脑同步重激活,
+不干扰在线处理。未来实现 NREM 睡眠巩固时可直接使用已建基础设施。
+
+### 保留的基础设施 (NREM 巩固就绪)
+
+```
+SpikeSnapshot::sensory_events      — V1 spikes 录制 ✅
+CorticalRegion::replay_cortical_step() — 轻量回放方法 ✅
+capture_dlpfc_spikes() 同时录制 V1 — 双通道录制 ✅
+→ 未来 NREM 睡眠巩固可直接调用, 无需额外开发
+```
+
+### 回归测试: 29/29 CTest 全通过, 基线完全恢复
+
+### 系统状态
+
 ```
 48区域 · 自适应神经元数 · ~109投射 · 179测试 · 29 CTest suites
-新增: 可配置视野 (vision_radius), 脑区自动缩放, 大环境PC验证
-PC 在大环境有效: improvement +0.121, danger -40%
+新增: V1 spike 录制, replay_cortical_step 基础设施 (deferred to NREM)
+学习维持: improvement +0.120, late safety 0.667 (与 Step 14 一致)
+学习回路: ①-⑧ 完整, ⑨皮层巩固需NREM, ⑩PC就绪
 ```

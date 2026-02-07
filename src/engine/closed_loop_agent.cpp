@@ -531,23 +531,44 @@ float ClosedLoopAgent::food_rate(size_t window) const {
 void ClosedLoopAgent::capture_dlpfc_spikes(int action_group) {
     if (!dlpfc_ || !bg_) return;
 
-    // Capture dlPFC fired neurons as SpikeEvents (same format BG expects)
+    // Capture dlPFC fired neurons as SpikeEvents (for BG replay)
     const auto& fired = dlpfc_->fired();
     const auto& stypes = dlpfc_->spike_type();
     uint32_t rid = dlpfc_->region_id();
 
-    std::vector<SpikeEvent> events;
+    std::vector<SpikeEvent> cortical_events;
     for (size_t i = 0; i < fired.size(); ++i) {
         if (fired[i]) {
             SpikeEvent evt;
             evt.region_id  = rid;
             evt.neuron_id  = static_cast<uint32_t>(i);
             evt.spike_type = stypes[i];
-            evt.timestamp  = 0;  // Not used in replay
-            events.push_back(evt);
+            evt.timestamp  = 0;
+            cortical_events.push_back(evt);
         }
     }
-    replay_buffer_.record_step(events, action_group);
+
+    // Also capture V1 fired neurons (for cortical consolidation)
+    // Biology: SWR replay reactivates both sensory (V1) and association (dlPFC)
+    // cortex representations, strengthening V1→dlPFC feature pathways
+    std::vector<SpikeEvent> sensory_events;
+    if (v1_) {
+        const auto& v1_fired = v1_->fired();
+        const auto& v1_stypes = v1_->spike_type();
+        uint32_t v1_rid = v1_->region_id();
+        for (size_t i = 0; i < v1_fired.size(); ++i) {
+            if (v1_fired[i]) {
+                SpikeEvent evt;
+                evt.region_id  = v1_rid;
+                evt.neuron_id  = static_cast<uint32_t>(i);
+                evt.spike_type = v1_stypes[i];
+                evt.timestamp  = 0;
+                sensory_events.push_back(evt);
+            }
+        }
+    }
+
+    replay_buffer_.record_step(cortical_events, action_group, sensory_events);
 }
 
 void ClosedLoopAgent::run_awake_replay(float reward) {
@@ -598,15 +619,24 @@ void ClosedLoopAgent::run_awake_replay(float reward) {
         for (size_t i = start_step; i < ep.steps.size(); ++i) {
             const SpikeSnapshot& snap = ep.steps[i];
 
+            // --- BG consolidation (existing): dlPFC spikes → BG DA-STDP ---
             if (!snap.cortical_events.empty()) {
                 bg_->receive_spikes(snap.cortical_events);
             }
             if (snap.action_group >= 0) {
                 bg_->mark_motor_efference(snap.action_group);
             }
-
-            // Lightweight: only D1/D2 + DA-STDP, no GPi/GPe/STN
             bg_->replay_learning_step(0, 1.0f);
+
+            // --- Cortical consolidation: DEFERRED ---
+            // V1 spikes are recorded in sensory_events (infrastructure ready)
+            // but NOT injected into dlPFC during awake replay because:
+            // 1. Full replay_cortical_step → LTD dominates (L4 fires, L23 doesn't)
+            // 2. PSP priming → residual contaminates next real visual input
+            // Proper cortical consolidation requires NREM sleep replay where
+            // the entire brain state is controlled (slow-wave up/down states).
+            // For awake SWR, BG-only replay is biologically correct:
+            // awake SWR primarily consolidates striatal action values.
         }
     }
 

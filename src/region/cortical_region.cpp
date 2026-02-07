@@ -149,6 +149,29 @@ void CorticalRegion::step(int32_t t, float dt) {
     aggregate_firing_state();
 }
 
+void CorticalRegion::replay_cortical_step(int32_t t, float dt) {
+    // Lightweight replay step for cortical STDP consolidation.
+    // Only: PSP buffer → L4 injection → column step (neurons + STDP)
+    // Skip: WM, homeostatic, attention, predictive coding, spike submission
+    // Biology: SWR replay reactivates V1→dlPFC spike patterns,
+    //          triggering STDP on L4→L23, L23 recurrent, L23→L5 synapses
+    //          to consolidate "food direction" representations.
+
+    // Inject PSP buffer into L4 (same as normal step, but no attention/NE gain)
+    auto& l4 = column_.l4();
+    for (size_t i = 0; i < psp_buffer_.size(); ++i) {
+        if (psp_buffer_[i] > 0.5f) {
+            l4.inject_basal(i, psp_buffer_[i]);
+        }
+        psp_buffer_[i] *= PSP_DECAY;
+    }
+
+    // Step the cortical column (neurons fire + STDP updates)
+    column_.step(t, dt);
+
+    // Do NOT aggregate/submit spikes — replay should not propagate further
+}
+
 void CorticalRegion::add_topographic_input(uint32_t source_region_id, size_t source_n_neurons) {
     topo_sources_[source_region_id] = source_n_neurons;
 }

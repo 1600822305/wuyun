@@ -85,6 +85,14 @@ public:
     /** DA对工作记忆的增益 */
     float wm_da_gain() const { return wm_da_gain_; }
 
+    // --- SWR Replay: cortical consolidation ---
+
+    /** Lightweight replay step for cortical STDP consolidation.
+     *  Injects PSP buffer into L4, steps column (neurons+STDP),
+     *  but does NOT submit spikes, update WM, or homeostatic.
+     *  Biology: SWR replay strengthens V1→dlPFC representations. */
+    void replay_cortical_step(int32_t t, float dt);
+
     // --- 拓扑输入映射 ---
 
     /** 注册拓扑输入源: 该源的spikes使用比例映射(preserves spatial structure)
