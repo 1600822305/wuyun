@@ -534,31 +534,36 @@ static void test_ablation() {
     printf("  %-25s | food | danger | safety | Δ safety\n", "Config");
     printf("  %-25s-|------|--------|--------|----------\n", "-------------------------");
 
+    // 3 seeds 取平均, 减少随机波动
+    uint32_t seeds[] = {42, 77, 123};
+    int n_seeds = 3;
+
     for (int i = 0; i < n_configs; ++i) {
-        AgentConfig cfg;
-        cfg.enable_da_stdp = true;
-        cfg.world_config.seed = 42;
-        configs[i].modify(cfg);
+        int food_total = 0, danger_total = 0;
+        for (int si = 0; si < n_seeds; ++si) {
+            AgentConfig cfg;
+            cfg.enable_da_stdp = true;
+            cfg.world_config.seed = seeds[si];
+            configs[i].modify(cfg);
 
-        ClosedLoopAgent agent(cfg);
-
-        // 500 warmup + 500 test
-        for (int s = 0; s < 500; ++s) agent.agent_step();
-        int food = 0, danger = 0;
-        for (int s = 0; s < 500; ++s) {
-            auto r = agent.agent_step();
-            if (r.got_food) food++;
-            if (r.hit_danger) danger++;
+            ClosedLoopAgent agent(cfg);
+            for (int s = 0; s < 500; ++s) agent.agent_step();
+            for (int s = 0; s < 500; ++s) {
+                auto r = agent.agent_step();
+                if (r.got_food) food_total++;
+                if (r.hit_danger) danger_total++;
+            }
         }
-        float safety = (food + danger > 0) ? (float)food / (food + danger) : 0.5f;
+        float safety = (food_total + danger_total > 0)
+            ? (float)food_total / (food_total + danger_total) : 0.5f;
 
         if (i == 0) baseline_safety = safety;
         float delta = safety - baseline_safety;
 
         printf("  %-25s | %4d | %6d |  %.2f  | %+.2f %s\n",
-               configs[i].name, food, danger, safety, delta,
-               (i > 0 && delta > 0.03f) ? "(有害,应关)" :
-               (i > 0 && delta < -0.03f) ? "(有用,保留)" : "");
+               configs[i].name, food_total, danger_total, safety, delta,
+               (i > 0 && delta > 0.03f) ? "(有害)" :
+               (i > 0 && delta < -0.03f) ? "(有用)" : "(中性)");
     }
 
     // 结论
