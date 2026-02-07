@@ -41,6 +41,14 @@ public:
     /** 注入注意力信号到 VIP */
     void inject_attention(float vip_current);
 
+    // --- 注意力接口 ---
+
+    /** 设置顶下注意力增益 (PFC→感觉区选择性放大)
+     *  gain=1.0 正常; >1.0 注意; <1.0 忽略
+     *  效果: (1) L4 PSP乘以gain (2) VIP驱动→SST去抑制→L2/3 burst增强 */
+    void set_attention_gain(float gain) { attention_gain_ = gain; }
+    float attention_gain() const { return attention_gain_; }
+
     /** 获取内部皮层柱 */
     CorticalColumn&       column()       { return column_; }
     const CorticalColumn& column() const { return column_; }
@@ -103,6 +111,10 @@ private:
     float pc_error_smooth_      = 0.0f;       // 指数平滑的预测误差
     static constexpr float PC_ERROR_SMOOTH = 0.1f;  // 平滑率
     static constexpr float PC_PRED_DECAY   = 0.7f;  // 预测缓冲衰减
+
+    // --- 注意力状态 ---
+    float attention_gain_ = 1.0f;            // 顶下注意力增益
+    static constexpr float VIP_ATT_DRIVE = 15.0f;  // VIP驱动强度 per unit gain above 1.0
 
     // --- 工作记忆状态 ---
     bool wm_enabled_ = false;

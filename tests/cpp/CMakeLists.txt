@@ -133,6 +133,14 @@ if(MSVC)
 endif()
 add_test(NAME learning_tests COMMAND test_learning)
 
+# Step 12 attention mechanism tests
+add_executable(test_attention test_attention.cpp)
+target_link_libraries(test_attention PRIVATE wuyun_core)
+if(MSVC)
+    target_compile_options(test_attention PRIVATE /utf-8)
+endif()
+add_test(NAME attention_tests COMMAND test_attention)
+
 # Step 11 cognitive tasks (trained Go/NoGo, DMTS, Papez, emotional memory)
 add_executable(test_cognitive_tasks test_cognitive_tasks.cpp)
 target_link_libraries(test_cognitive_tasks PRIVATE wuyun_core)

@@ -172,7 +172,10 @@ PYBIND11_MODULE(pywuyun, m) {
         .def("enable_working_memory", &CorticalRegion::enable_working_memory)
         .def("working_memory_enabled", &CorticalRegion::working_memory_enabled)
         .def("wm_persistence", &CorticalRegion::wm_persistence)
-        .def("wm_da_gain", &CorticalRegion::wm_da_gain);
+        .def("wm_da_gain", &CorticalRegion::wm_da_gain)
+        .def("set_attention_gain", &CorticalRegion::set_attention_gain,
+             py::arg("gain"), "Set top-down attention gain (1.0=normal, >1.0=attend, <1.0=ignore)")
+        .def("attention_gain", &CorticalRegion::attention_gain);
 
     // =========================================================================
     // ThalamicConfig + ThalamicRelay

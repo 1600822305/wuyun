@@ -53,11 +53,20 @@ void CorticalRegion::step(int32_t t, float dt) {
         }
     }
 
+    // === Top-down attention: PSP gain + VIP disinhibition ===
+    float att_gain = attention_gain_;
+    if (att_gain > 1.01f) {
+        // VIP activation → SST inhibition → L2/3 apical disinhibition
+        // Letzkus/Pi (2013) disinhibitory attention circuit
+        float vip_drive = (att_gain - 1.0f) * VIP_ATT_DRIVE;
+        column_.inject_attention(vip_drive);
+    }
+
     // Inject decaying PSP buffer into L4 basal (feedforward sensory input)
     auto& l4 = column_.l4();
     for (size_t i = 0; i < psp_buffer_.size(); ++i) {
         if (psp_buffer_[i] > 0.5f) {
-            float current = psp_buffer_[i];
+            float current = psp_buffer_[i] * att_gain;  // Attention gain on feedforward
             if (pc_enabled_) current *= pc_precision_sensory_;
             else current *= ne_gain;
             l4.inject_basal(i, current);
