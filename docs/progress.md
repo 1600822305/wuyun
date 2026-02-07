@@ -712,6 +712,45 @@
 - **47区域** | **5498神经元** | **~98投射** | 4调质 | 4学习 | 预测编码 | 工作记忆 | 注意力 | **内驱力**
 - **128 测试全通过** (121+7), 零回归
 
+### GNW: 全局工作空间理论 ✅ (2026-02-07)
+> 目标: Baars/Dehaene 意识访问模型 — 竞争→点火→广播
+
+**GlobalWorkspace 类 (engine/global_workspace.h/cpp):**
+30个workspace整合神经元 + 竞争/点火/广播机制:
+- **竞争**: 多个皮层区域L5输出→GW, per-region salience累积 (指数衰减防锁定)
+- **点火**: 赢者salience超阈值 → ignition (全局点火事件)
+- **广播**: 点火后workspace神经元爆发活动→ILN/CeM→全皮层L2/3
+- **间隔控制**: min_ignition_gap防止连续点火 (意识是离散采样)
+
+**9条竞争投射 + 2条广播投射 (→~109条总投射):**
+竞争输入: V1/IT/PPC/dlPFC/ACC/OFC/Insula/A1/S1 → GW
+广播输出: GW → ILN (板内核群) + CeM (中央内侧核)
+
+**可查询状态:**
+- `is_ignited()` — 当前是否在点火状态
+- `conscious_content_name()` — 当前意识内容 (赢者区域名)
+- `ignition_count()` — 累计点火次数
+- `winning_salience()` — 当前最高salience值
+- `salience_map()` — 全部区域salience
+
+**7项测试全部通过:**
+1. 基础点火: step=66 → ignition, count=19
+2. 竞争门控: V1(强)胜 A1(弱), content="V1"
+3. 广播持续: 广播中=60 > 广播后=0
+4. 竞争衰减: peak=24.7 → decayed=0.6 (98%衰减)
+5. 点火间隔: gap=50, 200步→4次点火
+6. 无输入不点火: ignitions=0
+7. 全系统: GW=180, ignitions=10, content="V1"
+
+**生物学对应:**
+- Baars (1988) A Cognitive Theory of Consciousness
+- Dehaene & Changeux (2011) Experimental and theoretical approaches to conscious processing
+- Dehaene, Kerszberg & Changeux (1998) Neuronal model of a global workspace
+
+**系统状态:**
+- **48区域** | **5528神经元** | **~109投射** | 4调质 | 4学习 | 预测编码 | 工作记忆 | 注意力 | 内驱力 | **意识(GNW)**
+- **135 测试全通过** (128+7), 零回归
+
 ### Step 6 剩余 (低优先级):
 **6a. 调质系统扩展:**
 - ⬜ 5-HT细分: DR (MB-05) + MnR (MB-08)

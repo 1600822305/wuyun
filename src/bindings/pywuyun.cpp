@@ -23,6 +23,7 @@
 #include "region/limbic/septal_nucleus.h"
 #include "region/limbic/mammillary_body.h"
 #include "region/limbic/hypothalamus.h"
+#include "engine/global_workspace.h"
 #include "region/subcortical/cerebellum.h"
 
 namespace py = pybind11;
@@ -472,6 +473,9 @@ PYBIND11_MODULE(pywuyun, m) {
             // Hypothalamus (internal drive system)
             eng.add_region(std::make_unique<Hypothalamus>(HypothalamusConfig{}));
 
+            // Global Workspace (consciousness)
+            eng.add_region(std::make_unique<GlobalWorkspace>(GWConfig{}));
+
             // ============================================================
             // PROJECTIONS (~90 anatomical connections)
             // ============================================================
@@ -609,6 +613,19 @@ PYBIND11_MODULE(pywuyun, m) {
 
             // --- Septal → Hippocampus ---
             eng.add_projection("SeptalNucleus", "Hippocampus", 1);
+
+            // --- Global Workspace broadcast ---
+            eng.add_projection("V1", "GW", 2);     // Visual→GW competition
+            eng.add_projection("IT", "GW", 2);     // Object→GW
+            eng.add_projection("PPC", "GW", 2);    // Spatial→GW
+            eng.add_projection("dlPFC", "GW", 2);  // Executive→GW
+            eng.add_projection("ACC", "GW", 2);    // Conflict→GW
+            eng.add_projection("OFC", "GW", 2);    // Value→GW
+            eng.add_projection("Insula", "GW", 2); // Interoception→GW
+            eng.add_projection("A1", "GW", 2);     // Auditory→GW
+            eng.add_projection("S1", "GW", 2);     // Somatosensory→GW
+            eng.add_projection("GW", "ILN", 1);    // GW→ILN broadcast hub
+            eng.add_projection("GW", "CeM", 1);    // GW→CeM arousal
 
             // --- Hypothalamus drives ---
             eng.add_projection("Hypothalamus", "LC", 2);    // Orexin→LC (wake→arousal)

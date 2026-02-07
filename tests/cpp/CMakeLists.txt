@@ -133,6 +133,14 @@ if(MSVC)
 endif()
 add_test(NAME learning_tests COMMAND test_learning)
 
+# GNW global workspace tests
+add_executable(test_global_workspace test_global_workspace.cpp)
+target_link_libraries(test_global_workspace PRIVATE wuyun_core)
+if(MSVC)
+    target_compile_options(test_global_workspace PRIVATE /utf-8)
+endif()
+add_test(NAME global_workspace_tests COMMAND test_global_workspace)
+
 # Step 6 hypothalamus drive tests
 add_executable(test_hypothalamus test_hypothalamus.cpp)
 target_link_libraries(test_hypothalamus PRIVATE wuyun_core)
