@@ -89,6 +89,13 @@ struct HippocampusConfig {
     float ca3_stdp_a_minus = -0.06f; // LTD (slightly stronger for competition)
     float ca3_stdp_tau     = 20.0f;  // Time window (ms)
     float ca3_stdp_w_max   = 2.0f;   // Max weight (higher than initial 0.3)
+
+    // --- Sleep / SWR (Sharp-Wave Ripple) replay ---
+    float swr_noise_amp     = 12.0f;  // Subthreshold noise injected into CA3 during sleep
+    size_t swr_duration     = 5;      // Steps per SWR burst event
+    size_t swr_refractory   = 25;     // Min steps between SWR events
+    float swr_ca3_threshold = 0.15f;  // CA3 firing fraction to detect SWR onset
+    float swr_boost         = 20.0f;  // Extra CA3 drive during active SWR (amplify replay)
 };
 
 class Hippocampus : public BrainRegion {
@@ -121,6 +128,22 @@ public:
 
     /** Get DG activation sparsity (fraction of DG neurons active) */
     float dg_sparsity() const;
+
+    // --- Sleep / SWR replay interface ---
+
+    /** Enable sleep replay mode (SWR generation via CA3 noise → pattern completion) */
+    void enable_sleep_replay()  { sleep_replay_ = true; }
+    void disable_sleep_replay() { sleep_replay_ = false; in_swr_ = false; }
+    bool sleep_replay_enabled() const { return sleep_replay_; }
+
+    /** Is a sharp-wave ripple currently active? */
+    bool is_swr() const { return in_swr_; }
+
+    /** Total SWR events since construction */
+    uint32_t swr_count() const { return swr_count_; }
+
+    /** CA3 firing fraction during last SWR (replay strength proxy) */
+    float last_replay_strength() const { return last_replay_strength_; }
 
 private:
     void build_synapses();
@@ -167,6 +190,16 @@ private:
     // --- PSP buffer for cross-region input ---
     static constexpr float PSP_DECAY = 0.7f;
     std::vector<float> psp_ec_;
+
+    // --- Sleep / SWR state ---
+    bool     sleep_replay_       = false;
+    bool     in_swr_             = false;
+    uint32_t swr_count_          = 0;
+    int32_t  swr_timer_          = 0;     // Countdown during active SWR
+    int32_t  swr_refractory_cd_  = 0;     // Refractory countdown between SWRs
+    float    last_replay_strength_ = 0.0f;
+
+    void try_generate_swr(int32_t t);
 
     // --- Aggregate firing state ---
     std::vector<uint8_t> fired_all_;

@@ -23,6 +23,22 @@ void CorticalRegion::step(int32_t t, float dt) {
     oscillation_.step(dt);
     neuromod_.step(dt);
 
+    // === Sleep slow oscillation (~1Hz up/down states) ===
+    if (sleep_mode_) {
+        slow_wave_phase_ += SLOW_WAVE_FREQ;
+        if (slow_wave_phase_ >= 1.0f) slow_wave_phase_ -= 1.0f;
+
+        // Down state: inject strong inhibition to suppress all firing
+        if (slow_wave_phase_ >= UP_DUTY_CYCLE) {
+            auto& l4  = column_.l4();
+            auto& l23 = column_.l23();
+            auto& l5  = column_.l5();
+            for (size_t i = 0; i < l4.size(); ++i)  l4.inject_basal(i, DOWN_STATE_INH);
+            for (size_t i = 0; i < l23.size(); ++i) l23.inject_basal(i, DOWN_STATE_INH);
+            for (size_t i = 0; i < l5.size(); ++i)  l5.inject_basal(i, DOWN_STATE_INH);
+        }
+    }
+
     // NE gain modulation: neuromod system's gain affects all incoming PSP
     float ne_gain = neuromod_.compute_effect().gain;  // 0.5 ~ 2.0
 

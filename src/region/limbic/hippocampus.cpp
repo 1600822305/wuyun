@@ -210,6 +210,11 @@ void Hippocampus::step(int32_t t, float dt) {
     oscillation_.step(dt);
     neuromod_.step(dt);
 
+    // === Sleep SWR generation (before normal processing) ===
+    if (sleep_replay_) {
+        try_generate_swr(t);
+    }
+
     // Inject PSP buffer into EC (cross-region input with temporal decay)
     for (size_t i = 0; i < psp_ec_.size(); ++i) {
         if (psp_ec_[i] > 0.5f) ec_.inject_basal(i, psp_ec_[i]);
@@ -402,6 +407,65 @@ void Hippocampus::aggregate_state() {
     copy_pop(dg_inh_);
     copy_pop(ca3_inh_);
     copy_pop(ca1_inh_);
+}
+
+// =============================================================================
+// Sleep SWR generation
+// =============================================================================
+
+void Hippocampus::try_generate_swr(int32_t t) {
+    // Decrement refractory
+    if (swr_refractory_cd_ > 0) {
+        --swr_refractory_cd_;
+    }
+
+    if (in_swr_) {
+        // Active SWR: boost CA3 to sustain pattern completion burst
+        for (size_t i = 0; i < ca3_.size(); ++i) {
+            if (ca3_.fired()[i]) {
+                ca3_.inject_basal(i, config_.swr_boost);
+            }
+        }
+        --swr_timer_;
+        if (swr_timer_ <= 0) {
+            in_swr_ = false;
+            swr_refractory_cd_ = static_cast<int32_t>(config_.swr_refractory);
+        }
+        // Track replay strength = fraction of CA3 active
+        size_t ca3_active = 0;
+        for (size_t i = 0; i < ca3_.size(); ++i) {
+            if (ca3_.fired()[i]) ++ca3_active;
+        }
+        last_replay_strength_ = static_cast<float>(ca3_active) / static_cast<float>(ca3_.size());
+        return;
+    }
+
+    // Not in SWR + not refractory: inject noise into CA3
+    if (swr_refractory_cd_ <= 0) {
+        // Stochastic noise → CA3: bias + jitter
+        // Bias ensures enough drive for place cells (threshold ~15),
+        // jitter provides randomness for pattern selection
+        static std::mt19937 rng(9999);
+        float bias = config_.swr_noise_amp * 0.6f;
+        float jitter = config_.swr_noise_amp * 0.4f;
+        std::uniform_real_distribution<float> dist(0.0f, jitter);
+        for (size_t i = 0; i < ca3_.size(); ++i) {
+            ca3_.inject_basal(i, bias + dist(rng));
+        }
+
+        // Detect SWR onset: CA3 firing fraction exceeds threshold
+        size_t ca3_active = 0;
+        for (size_t i = 0; i < ca3_.size(); ++i) {
+            if (ca3_.fired()[i]) ++ca3_active;
+        }
+        float frac = static_cast<float>(ca3_active) / static_cast<float>(ca3_.size());
+        if (frac >= config_.swr_ca3_threshold) {
+            in_swr_ = true;
+            swr_timer_ = static_cast<int32_t>(config_.swr_duration);
+            ++swr_count_;
+            last_replay_strength_ = frac;
+        }
+    }
 }
 
 } // namespace wuyun

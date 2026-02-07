@@ -84,6 +84,18 @@ public:
     /** DA对工作记忆的增益 */
     float wm_da_gain() const { return wm_da_gain_; }
 
+    // --- 睡眠慢波接口 ---
+
+    /** 设置睡眠模式 (NREM慢波 up/down 状态交替) */
+    void set_sleep_mode(bool sleep) { sleep_mode_ = sleep; slow_wave_phase_ = 0.0f; }
+    bool is_sleep_mode() const { return sleep_mode_; }
+
+    /** 当前是否处于 up state (慢波上升期, 神经元可兴奋) */
+    bool is_up_state() const { return sleep_mode_ && slow_wave_phase_ < UP_DUTY_CYCLE; }
+
+    /** 慢波相位 (0~1, 0~UP_DUTY=up, UP_DUTY~1=down) */
+    float slow_wave_phase() const { return slow_wave_phase_; }
+
 private:
     CorticalColumn column_;
     ColumnOutput   last_output_;
@@ -124,6 +136,13 @@ private:
     static constexpr float WM_DECAY         = 0.85f; // 循环衰减 (慢于PSP)
     static constexpr float WM_DA_SENSITIVITY= 2.0f;  // DA效应强度
     static constexpr float WM_FAN_OUT       = 5.0f;  // 循环扩散范围
+
+    // --- 睡眠慢波状态 ---
+    bool  sleep_mode_       = false;
+    float slow_wave_phase_  = 0.0f;
+    static constexpr float SLOW_WAVE_FREQ  = 0.001f;  // ~1Hz at 1000 steps/sec
+    static constexpr float UP_DUTY_CYCLE   = 0.4f;    // 40% up, 60% down
+    static constexpr float DOWN_STATE_INH  = -8.0f;   // Inhibitory current during down state
 };
 
 } // namespace wuyun

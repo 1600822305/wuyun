@@ -189,5 +189,13 @@ if(MSVC)
 endif()
 add_test(NAME working_memory_tests COMMAND test_working_memory)
 
+# Step 8 sleep/hippocampal replay tests
+add_executable(test_sleep_replay test_sleep_replay.cpp)
+target_link_libraries(test_sleep_replay PRIVATE wuyun_core)
+if(MSVC)
+    target_compile_options(test_sleep_replay PRIVATE /utf-8)
+endif()
+add_test(NAME sleep_replay_tests COMMAND test_sleep_replay)
+
 # Register as CTest
 add_test(NAME neuron_tests COMMAND test_neuron)

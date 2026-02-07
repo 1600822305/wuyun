@@ -177,7 +177,11 @@ PYBIND11_MODULE(pywuyun, m) {
         .def("wm_da_gain", &CorticalRegion::wm_da_gain)
         .def("set_attention_gain", &CorticalRegion::set_attention_gain,
              py::arg("gain"), "Set top-down attention gain (1.0=normal, >1.0=attend, <1.0=ignore)")
-        .def("attention_gain", &CorticalRegion::attention_gain);
+        .def("attention_gain", &CorticalRegion::attention_gain)
+        .def("set_sleep_mode", &CorticalRegion::set_sleep_mode)
+        .def("is_sleep_mode", &CorticalRegion::is_sleep_mode)
+        .def("is_up_state", &CorticalRegion::is_up_state)
+        .def("slow_wave_phase", &CorticalRegion::slow_wave_phase);
 
     // =========================================================================
     // ThalamicConfig + ThalamicRelay
@@ -246,7 +250,14 @@ PYBIND11_MODULE(pywuyun, m) {
         .def_readwrite("name", &HippocampusConfig::name);
 
     py::class_<Hippocampus, BrainRegion>(m, "Hippocampus", "Hippocampus")
-        .def(py::init<const HippocampusConfig&>(), py::arg("config"));
+        .def(py::init<const HippocampusConfig&>(), py::arg("config"))
+        .def("enable_sleep_replay", &Hippocampus::enable_sleep_replay)
+        .def("disable_sleep_replay", &Hippocampus::disable_sleep_replay)
+        .def("sleep_replay_enabled", &Hippocampus::sleep_replay_enabled)
+        .def("is_swr", &Hippocampus::is_swr)
+        .def("swr_count", &Hippocampus::swr_count)
+        .def("last_replay_strength", &Hippocampus::last_replay_strength)
+        .def("dg_sparsity", &Hippocampus::dg_sparsity);
 
     // =========================================================================
     // Amygdala
