@@ -152,6 +152,17 @@ void BasalGanglia::build_input_maps(size_t n_input_neurons) {
                 ctx_to_stn_map_[i].push_back(static_cast<uint32_t>(j));
         }
     }
+
+    // Initialize DA-STDP per-connection weights (all start at 1.0)
+    if (config_.da_stdp_enabled) {
+        ctx_d1_w_.resize(n_input_neurons);
+        ctx_d2_w_.resize(n_input_neurons);
+        for (size_t i = 0; i < n_input_neurons; ++i) {
+            ctx_d1_w_[i].assign(ctx_to_d1_map_[i].size(), 1.0f);
+            ctx_d2_w_[i].assign(ctx_to_d2_map_[i].size(), 1.0f);
+        }
+        input_active_.assign(n_input_neurons, 0);
+    }
 }
 
 void BasalGanglia::step(int32_t t, float dt) {
@@ -218,6 +229,11 @@ void BasalGanglia::step(int32_t t, float dt) {
     stn_.step(t, dt);
     gpi_.step(t, dt);
 
+    // DA-STDP: update cortical→MSN weights based on co-activation + DA
+    if (config_.da_stdp_enabled) {
+        apply_da_stdp(t);
+    }
+
     aggregate_state();
 }
 
@@ -230,17 +246,26 @@ void BasalGanglia::receive_spikes(const std::vector<SpikeEvent>& events) {
         }
 
         // Cortical spikes → route through pre-built random sparse maps
-        float current = is_burst(static_cast<SpikeType>(evt.spike_type)) ? 25.0f : 15.0f;
+        float base_current = is_burst(static_cast<SpikeType>(evt.spike_type)) ? 25.0f : 15.0f;
         size_t src = evt.neuron_id % input_map_size_;
 
-        for (uint32_t tgt : ctx_to_d1_map_[src]) {
-            psp_d1_[tgt] += current;
+        // Mark input as active for DA-STDP
+        if (config_.da_stdp_enabled && src < input_active_.size()) {
+            input_active_[src] = 1;
         }
-        for (uint32_t tgt : ctx_to_d2_map_[src]) {
-            psp_d2_[tgt] += current;
+
+        for (size_t idx = 0; idx < ctx_to_d1_map_[src].size(); ++idx) {
+            uint32_t tgt = ctx_to_d1_map_[src][idx];
+            float w = (config_.da_stdp_enabled && src < ctx_d1_w_.size()) ? ctx_d1_w_[src][idx] : 1.0f;
+            psp_d1_[tgt] += base_current * w;
+        }
+        for (size_t idx = 0; idx < ctx_to_d2_map_[src].size(); ++idx) {
+            uint32_t tgt = ctx_to_d2_map_[src][idx];
+            float w = (config_.da_stdp_enabled && src < ctx_d2_w_.size()) ? ctx_d2_w_[src][idx] : 1.0f;
+            psp_d2_[tgt] += base_current * w;
         }
         for (uint32_t tgt : ctx_to_stn_map_[src]) {
-            psp_stn_[tgt] += current * 0.5f;
+            psp_stn_[tgt] += base_current * 0.5f;
         }
     }
 }
@@ -287,6 +312,47 @@ void BasalGanglia::aggregate_state() {
     copy(gpi_);
     copy(gpe_);
     copy(stn_);
+}
+
+void BasalGanglia::apply_da_stdp(int32_t t) {
+    // DA reward prediction error (RPE-like)
+    float da_error = da_level_ - config_.da_stdp_baseline;
+    float lr = config_.da_stdp_lr;
+
+    // Three-factor rule:
+    //   D1 (Go):  input active + D1 fired + DA>baseline → strengthen (reinforce Go)
+    //             input active + D1 fired + DA<baseline → weaken
+    //   D2 (NoGo): OPPOSITE sign — DA>baseline weakens D2, DA<baseline strengthens
+    //   This is the biological D1(Gs) vs D2(Gi) receptor asymmetry
+
+    for (size_t src = 0; src < input_active_.size(); ++src) {
+        if (!input_active_[src]) continue;
+
+        // D1 pathway: DA+ = reinforce Go
+        for (size_t idx = 0; idx < ctx_to_d1_map_[src].size(); ++idx) {
+            uint32_t tgt = ctx_to_d1_map_[src][idx];
+            if (d1_msn_.fired()[tgt]) {
+                // Co-active: pre(cortex) + post(D1) + DA modulation
+                ctx_d1_w_[src][idx] += lr * da_error;
+                ctx_d1_w_[src][idx] = std::clamp(ctx_d1_w_[src][idx],
+                    config_.da_stdp_w_min, config_.da_stdp_w_max);
+            }
+        }
+
+        // D2 pathway: DA+ = weaken NoGo (opposite sign!)
+        for (size_t idx = 0; idx < ctx_to_d2_map_[src].size(); ++idx) {
+            uint32_t tgt = ctx_to_d2_map_[src][idx];
+            if (d2_msn_.fired()[tgt]) {
+                // D2: reverse sign — DA reward weakens NoGo
+                ctx_d2_w_[src][idx] -= lr * da_error;
+                ctx_d2_w_[src][idx] = std::clamp(ctx_d2_w_[src][idx],
+                    config_.da_stdp_w_min, config_.da_stdp_w_max);
+            }
+        }
+    }
+
+    // Clear input activity flags for next step
+    std::fill(input_active_.begin(), input_active_.end(), 0);
 }
 
 } // namespace wuyun

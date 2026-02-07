@@ -44,6 +44,13 @@ struct BasalGangliaConfig {
     float w_d2_inh   = 0.6f;
     float w_gpe_inh  = 0.5f;
     float w_stn_exc  = 0.7f;   // STN→GPi 强兴奋 (刹车)
+
+    // --- DA-STDP (three-factor reinforcement learning) ---
+    bool  da_stdp_enabled  = false;   // Enable DA-STDP on cortical→MSN
+    float da_stdp_lr       = 0.005f;  // Learning rate
+    float da_stdp_baseline = 0.1f;    // DA baseline (above=reward, below=punishment)
+    float da_stdp_w_min    = 0.1f;    // Min connection weight
+    float da_stdp_w_max    = 3.0f;    // Max connection weight
 };
 
 class BasalGanglia : public BrainRegion {
@@ -119,6 +126,13 @@ private:
 
     std::vector<uint8_t> fired_all_;
     std::vector<int8_t>  spike_type_all_;
+
+    // --- DA-STDP online learning ---
+    // Per-connection weights (parallel to ctx_to_d1/d2_map_)
+    std::vector<std::vector<float>> ctx_d1_w_;  // [src][idx]
+    std::vector<std::vector<float>> ctx_d2_w_;  // [src][idx]
+    std::vector<uint8_t> input_active_;  // flags: which input slots fired this step
+    void apply_da_stdp(int32_t t);
 };
 
 } // namespace wuyun
