@@ -31,9 +31,9 @@ ClosedLoopAgent::ClosedLoopAgent(const AgentConfig& config)
     vcfg.input_width  = config_.vision_width;
     vcfg.input_height = config_.vision_height;
     vcfg.n_lgn_neurons = lgn_->n_neurons();
-    vcfg.gain = 200.0f;     // Strong: food pixel response ~0.3 → I=5+60=65, V_ss=0 (fires fast)
-    vcfg.baseline = 5.0f;   // Empty pixels: V_ss=-60 (below threshold, no firing)
-    vcfg.noise_amp = 2.0f;  // Slight noise for stochastic variation
+    vcfg.gain = config_.lgn_gain;
+    vcfg.baseline = config_.lgn_baseline;
+    vcfg.noise_amp = config_.lgn_noise_amp;
     visual_encoder_ = VisualInput(vcfg);
 }
 
@@ -77,17 +77,18 @@ void ClosedLoopAgent::build_brain() {
     // V1: primary visual cortex — STDP learns visual feature selectivity
     // Scale with vision size: more pixels → more V1 neurons for feature extraction
     float vis_scale = static_cast<float>(n_vis_pixels) / 9.0f;  // 1.0 for 3×3, ~2.8 for 5×5
-    size_t v1_l4  = static_cast<size_t>(30 * vis_scale);
-    size_t v1_l23 = static_cast<size_t>(60 * vis_scale);
-    size_t v1_l5  = static_cast<size_t>(30 * vis_scale);
-    size_t v1_l6  = static_cast<size_t>(25 * vis_scale);
-    size_t v1_pv  = static_cast<size_t>(10 * vis_scale);
-    size_t v1_sst = static_cast<size_t>(6 * vis_scale);
+    float v1f = config_.v1_size_factor;
+    size_t v1_l4  = static_cast<size_t>(30 * vis_scale * v1f);
+    size_t v1_l23 = static_cast<size_t>(60 * vis_scale * v1f);
+    size_t v1_l5  = static_cast<size_t>(30 * vis_scale * v1f);
+    size_t v1_l6  = static_cast<size_t>(25 * vis_scale * v1f);
+    size_t v1_pv  = static_cast<size_t>(10 * vis_scale * v1f);
+    size_t v1_sst = static_cast<size_t>(6 * vis_scale * v1f);
     add_ctx("V1", v1_l4, v1_l23, v1_l5, v1_l6, v1_pv, v1_sst, 3, ctx_stdp);
     // dlPFC: decision making + working memory — NO STDP (representation stability
     //        needed for BG DA-STDP to learn stable action associations)
     // Slight scale for larger V1 input (sqrt to prevent over-scaling)
-    float dlpfc_scale = std::sqrt(vis_scale);
+    float dlpfc_scale = std::sqrt(vis_scale) * config_.dlpfc_size_factor;
     size_t dl_l4  = static_cast<size_t>(20 * dlpfc_scale);
     size_t dl_l23 = static_cast<size_t>(50 * dlpfc_scale);
     size_t dl_l5  = static_cast<size_t>(30 * dlpfc_scale);
@@ -101,11 +102,12 @@ void ClosedLoopAgent::build_brain() {
     // --- Basal Ganglia: action selection ---
     BasalGangliaConfig bg_cfg;
     bg_cfg.name = "BG";
-    bg_cfg.n_d1_msn = 30 * s;
-    bg_cfg.n_d2_msn = 30 * s;
-    bg_cfg.n_gpi = 10 * s;
-    bg_cfg.n_gpe = 10 * s;
-    bg_cfg.n_stn = 8 * s;
+    float bgf = config_.bg_size_factor;
+    bg_cfg.n_d1_msn = static_cast<size_t>(30 * bgf) * s;
+    bg_cfg.n_d2_msn = static_cast<size_t>(30 * bgf) * s;
+    bg_cfg.n_gpi = static_cast<size_t>(10 * bgf) * s;
+    bg_cfg.n_gpe = static_cast<size_t>(10 * bgf) * s;
+    bg_cfg.n_stn = static_cast<size_t>(8 * bgf) * s;
     bg_cfg.da_stdp_enabled = config_.enable_da_stdp;
     bg_cfg.da_stdp_lr = config_.da_stdp_lr;
     engine_.add_region(std::make_unique<BasalGanglia>(bg_cfg));
@@ -206,8 +208,8 @@ void ClosedLoopAgent::build_brain() {
     // --- Enable homeostatic plasticity ---
     if (config_.enable_homeostatic) {
         HomeostaticParams hp;
-        hp.target_rate = 5.0f;
-        hp.eta = 0.001f;
+        hp.target_rate = config_.homeostatic_target_rate;
+        hp.eta = config_.homeostatic_eta;
         hp.scale_interval = 100;
         v1_->enable_homeostatic(hp);
         dlpfc_->enable_homeostatic(hp);
@@ -292,7 +294,7 @@ StepResult ClosedLoopAgent::agent_step() {
     // BG D1 subgroup parameters (for bias injection into M1)
     size_t d1_size = bg_->d1().size();
     size_t d1_group = (d1_size >= 4) ? d1_size / 4 : d1_size;
-    float bg_to_m1_gain = 8.0f;  // BG Go signal → M1 drive strength
+    float bg_to_m1_gain = config_.bg_to_m1_gain;
 
     // Motor exploration: cortical attractor dynamics + NE-modulated arousal
     // Biology: LC-NE system scales exploration based on learning progress
@@ -308,7 +310,7 @@ StepResult ClosedLoopAgent::agent_step() {
         }
         float food_rate = static_cast<float>(food_count) / static_cast<float>(std::max(total, 1));
         // More food found → reduce exploration (exploit). Scale: 1.0→0.7 as food_rate 0→0.1
-        noise_scale = std::max(0.7f, 1.0f - food_rate * 3.0f);
+        noise_scale = std::max(config_.ne_floor, 1.0f - food_rate * config_.ne_food_scale);
     }
     float effective_noise = config_.exploration_noise * noise_scale;
 
@@ -317,9 +319,9 @@ StepResult ClosedLoopAgent::agent_step() {
         std::uniform_int_distribution<int> group_pick(0, 3);
         attractor_group = group_pick(motor_rng_);
     }
-    float attractor_drive = effective_noise * 0.6f;   // Strong: selected direction
-    float attractor_jitter = effective_noise * 0.4f;  // Variability
-    float background_drive = effective_noise * 0.1f;  // Weak: other directions
+    float attractor_drive = effective_noise * config_.attractor_drive_ratio;
+    float attractor_jitter = effective_noise * (1.0f - config_.attractor_drive_ratio);
+    float background_drive = effective_noise * config_.background_drive_ratio;
 
     for (size_t i = 0; i < config_.brain_steps_per_action; ++i) {
         // Inject observation EVERY brain step to provide sustained drive to LGN.

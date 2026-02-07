@@ -35,6 +35,8 @@ set(WUYUN_CORE_SOURCES
     engine/sleep_cycle.cpp
     engine/grid_world.cpp
     engine/closed_loop_agent.cpp
+    genome/genome.cpp
+    genome/evolution.cpp
 )
 
 add_library(wuyun_core STATIC ${WUYUN_CORE_SOURCES})

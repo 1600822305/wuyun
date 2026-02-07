@@ -1,0 +1,29 @@
+{
+  "generation": 4,
+  "fitness": 1.164169,
+  "genes": {
+    "da_stdp_lr": 0.011851,
+    "reward_scale": 4.319149,
+    "cortical_a_plus": 0.001000,
+    "cortical_a_minus": 0.011075,
+    "cortical_w_max": 1.637989,
+    "exploration_noise": 62.966579,
+    "bg_to_m1_gain": 13.516583,
+    "attractor_ratio": 0.502599,
+    "background_ratio": 0.180335,
+    "replay_passes": 9.824027,
+    "replay_da_scale": 1.000000,
+    "lgn_gain": 184.674942,
+    "lgn_baseline": 7.911706,
+    "lgn_noise": 1.771040,
+    "homeostatic_target": 1.614724,
+    "homeostatic_eta": 0.004960,
+    "v1_size": 1.461636,
+    "dlpfc_size": 2.309507,
+    "bg_size": 0.906333,
+    "brain_steps": 16.963680,
+    "reward_steps": 7.585387,
+    "ne_food_scale": 4.661333,
+    "ne_floor": 0.438609
+  }
+}

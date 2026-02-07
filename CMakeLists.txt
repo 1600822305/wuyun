@@ -17,6 +17,13 @@ option(WUYUN_BUILD_PYTHON "Build pybind11 Python bindings" OFF)
 # Core C++ library
 add_subdirectory(src)
 
+# Evolution runner (Step 16: Genome Layer v1)
+add_executable(run_evolution tools/run_evolution.cpp)
+target_link_libraries(run_evolution PRIVATE wuyun_core)
+if(MSVC)
+    target_compile_options(run_evolution PRIVATE /utf-8)
+endif()
+
 # Quick scratch pad (类似 python -c 的快速实验)
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tools/scratch.cpp")
     add_executable(scratch tools/scratch.cpp)

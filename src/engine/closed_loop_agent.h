@@ -50,20 +50,43 @@ struct AgentConfig {
     size_t reward_processing_steps = 5;  // 奖励处理步数 (DA传播到BG)
 
     // Reward scaling
-    float reward_scale = 1.0f;  // reward → VTA inject_reward multiplier
+    float reward_scale = 1.5f;  // reward → VTA inject_reward multiplier
 
     // Exploration
-    float exploration_noise = 55.0f;  // M1 L5 noise amplitude (motor exploration, needs >50 for 10-step firing)
+    float exploration_noise = 55.0f;  // M1 L5 noise amplitude
     size_t exploration_anneal_steps = 0;  // Steps over which noise reduces (0=no anneal, let BG override)
 
     // Learning
     bool enable_da_stdp     = true;   // BG DA-STDP
-    float da_stdp_lr        = 0.005f; // DA-STDP learning rate (0.005×0.5×50=0.125 per food event)
+    float da_stdp_lr        = 0.03f;  // DA-STDP learning rate
     bool enable_homeostatic = true;   // Homeostatic plasticity
     bool enable_cortical_stdp = true; // V1+dlPFC online STDP (experience-dependent representation)
     float cortical_stdp_a_plus  = 0.005f;  // LTP (half of default 0.01, slower online learning)
     float cortical_stdp_a_minus = -0.006f; // LTD (slightly stronger → competitive selectivity)
     float cortical_stdp_w_max   = 1.5f;    // Max synaptic weight
+
+    // Visual encoding (LGN)
+    float lgn_gain           = 200.0f;  // pixel → current gain
+    float lgn_baseline       = 5.0f;    // baseline current (spontaneous)
+    float lgn_noise_amp      = 2.0f;    // stochastic noise
+
+    // Motor / BG-M1 coupling
+    float bg_to_m1_gain      = 8.0f;    // BG Go signal → M1 drive strength
+    float attractor_drive_ratio  = 0.6f;  // noise × this = attractor drive
+    float background_drive_ratio = 0.1f;  // noise × this = background drive
+
+    // NE exploration modulation
+    float ne_food_scale      = 3.0f;    // food_rate × this → noise reduction
+    float ne_floor           = 0.7f;    // min noise_scale (ensures M1 fires)
+
+    // Homeostatic plasticity
+    float homeostatic_target_rate = 5.0f;
+    float homeostatic_eta    = 0.001f;
+
+    // Brain size factors (multiplied on base neuron counts)
+    float v1_size_factor     = 1.0f;
+    float dlpfc_size_factor  = 1.0f;
+    float bg_size_factor     = 1.0f;
 
     // Predictive coding (dlPFC → V1 attentional feedback)
     // Infrastructure ready but disabled by default: doesn't help in 3x3 visual field.
