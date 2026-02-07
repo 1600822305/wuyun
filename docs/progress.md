@@ -374,6 +374,37 @@
 - 16区域 | 2424神经元 | 20投射 | 4种调质 | **4种学习规则**
 - **74 测试全通过** (9+6+6+5+7+7+5+4+4+4+5+6+6), 零回归
 
+### Step 5c+5d: 决策皮层 + 背侧视觉 ✅ (2026-02-07)
+> 目标: 价值决策三角 (OFC/vmPFC/ACC) + 双流视觉 (what+where)
+
+**Step 5c 决策皮层 (3个, 复用 CorticalRegion):**
+- ✅ `OFC` (151n) — 眶额皮层, 价值评估 (IT→OFC, Amyg→OFC)
+- ✅ `vmPFC` (140n) — 腹内侧前额叶, 情绪决策 (OFC→vmPFC→BG, vmPFC→Amyg)
+- ✅ `ACC` (135n) — 前扣带回, 冲突监控 (ACC→dlPFC, ACC→LC_NE)
+
+**Step 5d 背侧视觉通路 (2个, 复用 CorticalRegion):**
+- ✅ `MT/V5` (185n) — 中颞区, 运动方向感知 (V1→MT, V2→MT)
+- ✅ `PPC` (174n) — 后顶叶, 空间注意/视觉运动整合 (MT→PPC→dlPFC/M1)
+- 双流架构: 腹侧(V1→V2→V4→IT, what) + 背侧(V1→V2→MT→PPC, where)
+- 跨流: PPC↔IT (空间引导识别 / 物体引导注意)
+
+**新增投射 (16条):**
+- 决策: IT→OFC, OFC→vmPFC, vmPFC→BG, vmPFC→Amyg, Amyg→OFC
+- 冲突: ACC→dlPFC, ACC→LC, dlPFC→ACC
+- 背侧: V1→MT, V2→MT, MT→PPC, PPC→MT(fb)
+- 跨流: PPC→IT, IT→PPC
+- 空间运动: PPC→dlPFC, PPC→M1
+
+**验证结果:**
+- **决策通路**: IT→OFC=1432 → vmPFC=1387 → BG=1307
+- **双流视觉**: 腹侧IT=1637, 背侧MT=2164→PPC=2353
+- **ACC冲突**: NE基线0.200→冲突0.204 (ACC→LC)
+- **21区域全系统**: OFC=3412, vmPFC=2573, ACC=2456, MT=4837, PPC=4130, M1=3921
+
+**系统状态:**
+- 21区域 | 3239神经元 | 36投射 | 4调质 | 4种学习
+- **80 测试全通过** (9+6+6+5+7+7+5+4+4+4+5+6+6+6), 零回归
+
 ### Step 4 剩余 (低优先级):
 - ⬜ 前下托 + HATA (H-06~07)
 - ⬜ 隔核 theta 起搏 (SP-01~02)
