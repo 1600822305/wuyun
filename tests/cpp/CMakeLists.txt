@@ -61,6 +61,14 @@ if(MSVC)
 endif()
 add_test(NAME integrated_brain_tests COMMAND test_integrated_brain)
 
+# Neuromodulator broadcast tests
+add_executable(test_neuromod_broadcast test_neuromod_broadcast.cpp)
+target_link_libraries(test_neuromod_broadcast PRIVATE wuyun_core)
+if(MSVC)
+    target_compile_options(test_neuromod_broadcast PRIVATE /utf-8)
+endif()
+add_test(NAME neuromod_broadcast_tests COMMAND test_neuromod_broadcast)
+
 # E2E learning demo (Step 4.9)
 add_executable(test_e2e_learning test_e2e_learning.cpp)
 target_link_libraries(test_e2e_learning PRIVATE wuyun_core)

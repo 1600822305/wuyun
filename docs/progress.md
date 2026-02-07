@@ -293,6 +293,28 @@
 - 额外收获: dlPFC→Hipp通路也打通 (dlPFC=6937→Hipp=18791, CA1=660)
 - **57 测试全通过**, 零回归
 
+### Step 5.0: 神经调质广播系统 ✅ (2026-02-07)
+> 目标: 补全 4 大调质系统的全脑广播
+
+**新增区域 (3个):**
+- ✅ `LC_NE` (蓝斑核, 15 NE神经元) — 增益调节/警觉, inject_arousal()
+- ✅ `DRN_5HT` (背侧缝核, 20 5-HT神经元) — 折扣/耐心, inject_wellbeing()
+- ✅ `NBM_ACh` (基底核, 15 ACh神经元) — 学习模式/注意力, inject_surprise()
+
+**广播机制:**
+- ✅ `SimulationEngine::register_neuromod_source()` 注册调质源
+- ✅ `collect_and_broadcast_neuromod()` 每步: 收集4源输出 → 设置全局tonic → 广播到所有区域
+- ✅ 所有调质区域输出用指数平滑 (0.1率, 避免同步发放振荡)
+
+**效应接入:**
+- ✅ `CorticalRegion` NE增益调制: PSP × gain, gain = 0.5 + 1.5×NE
+- ✅ **Yerkes-Dodson倒U型涌现**: NE=0.1→213, NE=0.5→361, NE=0.9→333
+  (高NE增益也放大PV抑制 → 活动反降, 无任何硬编码!)
+
+**系统状态:**
+- 12区域 | 1641神经元 | 14投射 | 4种调质广播
+- **62 测试全通过** (9+6+6+5+7+7+5+4+4+4+5), 零回归
+
 ### Step 4 剩余 (低优先级):
 - ⬜ 前下托 + HATA (H-06~07)
 - ⬜ 隔核 theta 起搏 (SP-01~02)

@@ -1,4 +1,8 @@
 #include "engine/simulation_engine.h"
+#include "region/vta_da.h"
+#include "region/lc_ne.h"
+#include "region/drn_5ht.h"
+#include "region/nbm_ach.h"
 #include <algorithm>
 
 namespace wuyun {
@@ -49,15 +53,18 @@ void SimulationEngine::step(float dt) {
         region->step(t_, dt);
     }
 
-    // 3. Each region submits outgoing spikes
+    // 3. Collect neuromodulator levels and broadcast to all regions
+    collect_and_broadcast_neuromod();
+
+    // 4. Each region submits outgoing spikes
     for (auto& region : regions_) {
         region->submit_spikes(bus_, t_);
     }
 
-    // 4. Advance bus (clear expired slots)
+    // 5. Advance bus (clear expired slots)
     bus_.advance(t_);
 
-    // 5. Callback
+    // 6. Callback
     if (callback_) {
         callback_(t_, *this);
     }
@@ -76,6 +83,57 @@ SimStats SimulationEngine::stats() const {
         }
     }
     return s;
+}
+
+void SimulationEngine::register_neuromod_source(const std::string& region_name,
+                                                  NeuromodType type) {
+    auto* r = find_region(region_name);
+    if (r) {
+        neuromod_sources_.push_back({r, type});
+    }
+}
+
+void SimulationEngine::collect_and_broadcast_neuromod() {
+    if (neuromod_sources_.empty()) return;
+
+    // Collect output levels from registered source regions
+    for (const auto& src : neuromod_sources_) {
+        float level = 0.0f;
+        switch (src.type) {
+            case NeuromodType::DA: {
+                auto* vta = dynamic_cast<VTA_DA*>(src.region);
+                if (vta) level = vta->da_output();
+                break;
+            }
+            case NeuromodType::NE: {
+                auto* lc = dynamic_cast<LC_NE*>(src.region);
+                if (lc) level = lc->ne_output();
+                break;
+            }
+            case NeuromodType::SHT: {
+                auto* drn = dynamic_cast<DRN_5HT*>(src.region);
+                if (drn) level = drn->sht_output();
+                break;
+            }
+            case NeuromodType::ACh: {
+                auto* nbm = dynamic_cast<NBM_ACh*>(src.region);
+                if (nbm) level = nbm->ach_output();
+                break;
+            }
+        }
+
+        switch (src.type) {
+            case NeuromodType::DA:  global_neuromod_.da  = level; break;
+            case NeuromodType::NE:  global_neuromod_.ne  = level; break;
+            case NeuromodType::SHT: global_neuromod_.sht = level; break;
+            case NeuromodType::ACh: global_neuromod_.ach = level; break;
+        }
+    }
+
+    // Broadcast to all regions' NeuromodulatorSystem
+    for (auto& region : regions_) {
+        region->neuromod().set_tonic(global_neuromod_);
+    }
 }
 
 } // namespace wuyun

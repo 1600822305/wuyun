@@ -17,6 +17,7 @@
  */
 
 #include "core/spike_bus.h"
+#include "core/neuromodulator.h"
 #include "region/brain_region.h"
 #include <vector>
 #include <memory>
@@ -71,6 +72,15 @@ public:
     /** 设置每步回调 */
     void set_callback(StepCallback cb) { callback_ = std::move(cb); }
 
+    // --- 神经调质广播 ---
+
+    /** 注册神经调质源区域 (DA=VTA, NE=LC, 5-HT=DRN, ACh=NBM) */
+    enum class NeuromodType { DA, NE, SHT, ACh };
+    void register_neuromod_source(const std::string& region_name, NeuromodType type);
+
+    /** 获取全局神经调质水平 */
+    const NeuromodulatorLevels& global_neuromod() const { return global_neuromod_; }
+
     // --- 访问器 ---
     int32_t    current_time() const { return t_; }
     SimStats   stats()        const;
@@ -85,6 +95,16 @@ private:
     std::vector<std::unique_ptr<BrainRegion>> regions_;
     int32_t t_ = 0;
     StepCallback callback_;
+
+    // 神经调质广播系统
+    NeuromodulatorLevels global_neuromod_;
+    struct NeuromodSource {
+        BrainRegion* region = nullptr;
+        NeuromodType type;
+    };
+    std::vector<NeuromodSource> neuromod_sources_;
+
+    void collect_and_broadcast_neuromod();
 };
 
 } // namespace wuyun

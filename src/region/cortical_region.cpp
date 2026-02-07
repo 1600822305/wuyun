@@ -22,11 +22,14 @@ void CorticalRegion::step(int32_t t, float dt) {
     oscillation_.step(dt);
     neuromod_.step(dt);
 
+    // NE gain modulation: neuromod system's gain affects all incoming PSP
+    float ne_gain = neuromod_.compute_effect().gain;  // 0.5 ~ 2.0
+
     // Inject decaying PSP buffer into L4 basal (simulates synaptic time constant)
     auto& l4 = column_.l4();
     for (size_t i = 0; i < psp_buffer_.size(); ++i) {
         if (psp_buffer_[i] > 0.5f) {
-            l4.inject_basal(i, psp_buffer_[i]);
+            l4.inject_basal(i, psp_buffer_[i] * ne_gain);
         }
         psp_buffer_[i] *= PSP_DECAY;  // Exponential decay
     }
