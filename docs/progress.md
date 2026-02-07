@@ -465,6 +465,32 @@
 - 21区域 | 3239神经元 | 36投射 | 4调质 | 4学习 | 预测编码 | **Python可视化**
 - **86 测试全通过**, 零回归
 
+### Step 9: 认知任务演示 ✅ (2026-02-07)
+> 目标: 经典认知范式验证涌现行为，暴露系统能力边界
+
+**Task 1: Go/NoGo (BG动作选择 + ACC冲突监控)**
+- ✅ ACC冲突检测涌现: NoGo ACC=1383 > Go ACC=1205 (1.15x)
+- ⚠️ M1运动相同 (2006=2006): 无训练D1/D2权重→相同输入=相同输出
+- 启示: 需要DA-STDP在线训练才能区分Go/NoGo运动响应
+
+**Task 2: 情绪处理 (Amygdala威胁 + PFC消退 + VTA DA)**
+- ✅ 威胁检测: CS+US Amyg=2644 > CS Amyg=2354
+- ✅ DA调制: CS+US VTA=404 > CS VTA=356
+- ✅ 海马上下文编码: 5584 spikes
+- ⚠️ PFC消退失败: 级联激活掩盖ITC→CeA局部抑制 (单元测试96%有效)
+- 启示: 需要选择性PFC→ITC连接，避免全系统级联
+
+**Task 3: Stroop冲突 (ACC→LC-NE→dlPFC) — 全部通过!**
+- ✅ ACC冲突检测: Incong=1416 > Cong=1205
+- ✅ dlPFC执行控制: Incong=2450 > Cong=2420
+- ✅ NE唤醒: Incong=0.263 > Cong=0.254
+- 完整通路涌现: ACC检测冲突→LC-NE升高→dlPFC控制增强
+
+**系统能力边界总结:**
+- ✅ 已验证: ACC冲突检测, 威胁→Amyg→VTA DA, NE增益调制, Stroop全通路
+- ⚠️ 需改进: BG需训练权重(工作记忆), PFC消退需选择性连接(注意力)
+- 生成: 4张可视化图 (go_nogo/fear/stroop/summary)
+
 ### Step 4 剩余 (低优先级):
 - ⬜ 前下托 + HATA (H-06~07)
 - ⬜ 隔核 theta 起搏 (SP-01~02)
