@@ -1,5 +1,6 @@
 #include "region/cortical_region.h"
 #include <algorithm>
+#include <random>
 
 namespace wuyun {
 
@@ -36,6 +37,23 @@ void CorticalRegion::step(int32_t t, float dt) {
             for (size_t i = 0; i < l4.size(); ++i)  l4.inject_basal(i, DOWN_STATE_INH);
             for (size_t i = 0; i < l23.size(); ++i) l23.inject_basal(i, DOWN_STATE_INH);
             for (size_t i = 0; i < l5.size(); ++i)  l5.inject_basal(i, DOWN_STATE_INH);
+        }
+    }
+
+    // === REM sleep: desynchronized noise + motor atonia ===
+    if (rem_mode_) {
+        static std::mt19937 rem_rng(33333);
+        float bias = REM_NOISE_AMP * 0.6f;       // ~15 baseline
+        float jitter_range = REM_NOISE_AMP * 0.4f; // ~10 jitter
+        std::uniform_real_distribution<float> noise(-jitter_range, jitter_range);
+        auto& l23 = column_.l23();
+        auto& l5  = column_.l5();
+        for (size_t i = 0; i < l23.size(); ++i) l23.inject_basal(i, bias + noise(rem_rng));
+        for (size_t i = 0; i < l5.size(); ++i)  l5.inject_basal(i, bias + noise(rem_rng));
+
+        // Motor atonia: suppress L5 output (prevents acting out dreams)
+        if (motor_atonia_) {
+            for (size_t i = 0; i < l5.size(); ++i) l5.inject_basal(i, ATONIA_INH);
         }
     }
 
@@ -234,6 +252,23 @@ float CorticalRegion::wm_persistence() const {
         if (v > 1.0f) active++;
     }
     return static_cast<float>(active) / static_cast<float>(wm_recurrent_buf_.size());
+}
+
+void CorticalRegion::set_rem_mode(bool rem) {
+    rem_mode_ = rem;
+    sleep_mode_ = false;  // REM and NREM are mutually exclusive
+    slow_wave_phase_ = 0.0f;
+}
+
+void CorticalRegion::inject_pgo_wave(float amplitude) {
+    // PGO (ponto-geniculo-occipital) wave: burst of random L4 activation
+    // Simulates dream imagery generation in visual cortex
+    static std::mt19937 pgo_rng(55555);
+    std::uniform_real_distribution<float> dist(0.0f, amplitude);
+    auto& l4 = column_.l4();
+    for (size_t i = 0; i < l4.size(); ++i) {
+        l4.inject_basal(i, dist(pgo_rng));
+    }
 }
 
 } // namespace wuyun

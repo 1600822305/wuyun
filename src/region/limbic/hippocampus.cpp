@@ -210,9 +210,14 @@ void Hippocampus::step(int32_t t, float dt) {
     oscillation_.step(dt);
     neuromod_.step(dt);
 
-    // === Sleep SWR generation (before normal processing) ===
+    // === Sleep SWR generation (NREM, before normal processing) ===
     if (sleep_replay_) {
         try_generate_swr(t);
+    }
+
+    // === REM theta oscillation + creative recombination ===
+    if (rem_theta_) {
+        try_rem_theta(t);
     }
 
     // Inject PSP buffer into EC (cross-region input with temporal decay)
@@ -465,6 +470,48 @@ void Hippocampus::try_generate_swr(int32_t t) {
             ++swr_count_;
             last_replay_strength_ = frac;
         }
+    }
+}
+
+// =============================================================================
+// REM theta oscillation + creative recombination
+// =============================================================================
+
+void Hippocampus::try_rem_theta(int32_t t) {
+    // Advance theta phase (~6Hz)
+    rem_theta_phase_ += REM_THETA_FREQ;
+    if (rem_theta_phase_ >= 1.0f) rem_theta_phase_ -= 1.0f;
+
+    // Theta-modulated drive to CA3 and CA1
+    // Peak of theta → stronger CA3 drive (encoding phase)
+    // Trough of theta → stronger CA1 drive (retrieval phase)
+    float theta_val = std::sin(rem_theta_phase_ * 6.2831853f);  // -1 to +1
+    float ca3_drive = REM_THETA_AMP * (0.5f + 0.5f * theta_val);   // 0 to AMP
+    float ca1_drive = REM_THETA_AMP * (0.5f - 0.5f * theta_val);   // AMP to 0
+
+    static std::mt19937 rem_rng(88888);
+    std::uniform_real_distribution<float> jitter(0.0f, 3.0f);
+
+    for (size_t i = 0; i < ca3_.size(); ++i) {
+        ca3_.inject_basal(i, ca3_drive + jitter(rem_rng));
+    }
+    for (size_t i = 0; i < ca1_.size(); ++i) {
+        ca1_.inject_basal(i, ca1_drive + jitter(rem_rng));
+    }
+
+    // Creative recombination: occasionally inject random pattern into CA3
+    // This activates different memory traces than what was encoded,
+    // potentially creating novel associations (dream content)
+    std::uniform_real_distribution<float> prob(0.0f, 1.0f);
+    if (prob(rem_rng) < REM_RECOMB_PROB) {
+        std::uniform_int_distribution<size_t> idx_dist(0, ca3_.size() - 1);
+        size_t n_activate = ca3_.size() / 5;  // 20% random subset
+        float recomb_amp = REM_THETA_AMP * 1.5f;
+        for (size_t k = 0; k < n_activate; ++k) {
+            size_t idx = idx_dist(rem_rng);
+            ca3_.inject_basal(idx, recomb_amp);
+        }
+        ++rem_recomb_count_;
     }
 }
 

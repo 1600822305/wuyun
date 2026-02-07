@@ -32,6 +32,7 @@ set(WUYUN_CORE_SOURCES
     engine/simulation_engine.cpp
     engine/global_workspace.cpp
     engine/sensory_input.cpp
+    engine/sleep_cycle.cpp
 )
 
 add_library(wuyun_core STATIC ${WUYUN_CORE_SOURCES})

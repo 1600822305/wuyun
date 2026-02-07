@@ -213,5 +213,13 @@ if(MSVC)
 endif()
 add_test(NAME scale_emergent_tests COMMAND test_scale_emergent)
 
+# Step 11 REM sleep + dream tests
+add_executable(test_rem_sleep test_rem_sleep.cpp)
+target_link_libraries(test_rem_sleep PRIVATE wuyun_core)
+if(MSVC)
+    target_compile_options(test_rem_sleep PRIVATE /utf-8)
+endif()
+add_test(NAME rem_sleep_tests COMMAND test_rem_sleep)
+
 # Register as CTest
 add_test(NAME neuron_tests COMMAND test_neuron)

@@ -145,6 +145,19 @@ public:
     /** CA3 firing fraction during last SWR (replay strength proxy) */
     float last_replay_strength() const { return last_replay_strength_; }
 
+    // --- REM theta / creative recombination interface ---
+
+    /** Enable REM theta mode (theta oscillation + creative recombination) */
+    void enable_rem_theta()  { rem_theta_ = true; sleep_replay_ = false; }
+    void disable_rem_theta() { rem_theta_ = false; }
+    bool rem_theta_enabled() const { return rem_theta_; }
+
+    /** REM theta phase [0, 1) */
+    float rem_theta_phase() const { return rem_theta_phase_; }
+
+    /** Number of creative recombination events during REM */
+    uint32_t rem_recombination_count() const { return rem_recomb_count_; }
+
 private:
     void build_synapses();
     void aggregate_state();
@@ -200,6 +213,16 @@ private:
     float    last_replay_strength_ = 0.0f;
 
     void try_generate_swr(int32_t t);
+
+    // --- REM theta state ---
+    bool     rem_theta_          = false;
+    float    rem_theta_phase_    = 0.0f;
+    uint32_t rem_recomb_count_   = 0;
+    static constexpr float REM_THETA_FREQ = 0.006f;  // ~6Hz theta
+    static constexpr float REM_THETA_AMP  = 10.0f;   // Theta modulation amplitude
+    static constexpr float REM_RECOMB_PROB = 0.01f;  // Creative recombination probability/step
+
+    void try_rem_theta(int32_t t);
 
     // --- Aggregate firing state ---
     std::vector<uint8_t> fired_all_;

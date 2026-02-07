@@ -25,6 +25,7 @@
 #include "region/limbic/hypothalamus.h"
 #include "engine/global_workspace.h"
 #include "engine/sensory_input.h"
+#include "engine/sleep_cycle.h"
 #include "region/subcortical/cerebellum.h"
 
 namespace py = pybind11;
@@ -182,7 +183,15 @@ PYBIND11_MODULE(pywuyun, m) {
         .def("set_sleep_mode", &CorticalRegion::set_sleep_mode)
         .def("is_sleep_mode", &CorticalRegion::is_sleep_mode)
         .def("is_up_state", &CorticalRegion::is_up_state)
-        .def("slow_wave_phase", &CorticalRegion::slow_wave_phase);
+        .def("slow_wave_phase", &CorticalRegion::slow_wave_phase)
+        .def("set_rem_mode", &CorticalRegion::set_rem_mode,
+             py::arg("rem"), "Set REM mode (desynchronized + PGO + motor atonia)")
+        .def("is_rem_mode", &CorticalRegion::is_rem_mode)
+        .def("inject_pgo_wave", &CorticalRegion::inject_pgo_wave,
+             py::arg("amplitude"), "Inject PGO wave (dream imagery burst)")
+        .def("set_motor_atonia", &CorticalRegion::set_motor_atonia,
+             py::arg("atonia"), "Set motor atonia (REM muscle paralysis)")
+        .def("is_motor_atonia", &CorticalRegion::is_motor_atonia);
 
     // =========================================================================
     // ThalamicConfig + ThalamicRelay
@@ -258,7 +267,12 @@ PYBIND11_MODULE(pywuyun, m) {
         .def("is_swr", &Hippocampus::is_swr)
         .def("swr_count", &Hippocampus::swr_count)
         .def("last_replay_strength", &Hippocampus::last_replay_strength)
-        .def("dg_sparsity", &Hippocampus::dg_sparsity);
+        .def("dg_sparsity", &Hippocampus::dg_sparsity)
+        .def("enable_rem_theta", &Hippocampus::enable_rem_theta)
+        .def("disable_rem_theta", &Hippocampus::disable_rem_theta)
+        .def("rem_theta_enabled", &Hippocampus::rem_theta_enabled)
+        .def("rem_theta_phase", &Hippocampus::rem_theta_phase)
+        .def("rem_recombination_count", &Hippocampus::rem_recombination_count);
 
     // =========================================================================
     // Amygdala
@@ -829,7 +843,55 @@ PYBIND11_MODULE(pywuyun, m) {
         .value("ACh", SimulationEngine::NeuromodType::ACh);
 
     // =========================================================================
+    // SleepStage enum
+    // =========================================================================
+    py::enum_<SleepStage>(m, "SleepStage")
+        .value("AWAKE", SleepStage::AWAKE)
+        .value("NREM",  SleepStage::NREM)
+        .value("REM",   SleepStage::REM);
+
+    // =========================================================================
+    // SleepCycleConfig
+    // =========================================================================
+    py::class_<SleepCycleConfig>(m, "SleepCycleConfig")
+        .def(py::init<>())
+        .def_readwrite("nrem_duration",     &SleepCycleConfig::nrem_duration)
+        .def_readwrite("rem_duration",      &SleepCycleConfig::rem_duration)
+        .def_readwrite("nrem_growth",       &SleepCycleConfig::nrem_growth)
+        .def_readwrite("rem_growth",        &SleepCycleConfig::rem_growth)
+        .def_readwrite("max_rem_duration",  &SleepCycleConfig::max_rem_duration)
+        .def_readwrite("min_nrem_duration", &SleepCycleConfig::min_nrem_duration)
+        .def_readwrite("rem_theta_freq",    &SleepCycleConfig::rem_theta_freq)
+        .def_readwrite("rem_pgo_prob",      &SleepCycleConfig::rem_pgo_prob)
+        .def_readwrite("rem_pgo_amplitude", &SleepCycleConfig::rem_pgo_amplitude)
+        .def_readwrite("rem_motor_inhibit", &SleepCycleConfig::rem_motor_inhibit)
+        .def_readwrite("rem_cortex_noise",  &SleepCycleConfig::rem_cortex_noise)
+        .def_readwrite("rem_theta_amp",     &SleepCycleConfig::rem_theta_amp);
+
+    // =========================================================================
+    // SleepCycleManager
+    // =========================================================================
+    py::class_<SleepCycleManager>(m, "SleepCycleManager",
+        "Sleep cycle manager — AWAKE → NREM → REM → NREM cycling")
+        .def(py::init<const SleepCycleConfig&>(),
+             py::arg("config") = SleepCycleConfig{})
+        .def("step",        &SleepCycleManager::step)
+        .def("enter_sleep", &SleepCycleManager::enter_sleep)
+        .def("wake_up",     &SleepCycleManager::wake_up)
+        .def("stage",       &SleepCycleManager::stage)
+        .def("is_sleeping", &SleepCycleManager::is_sleeping)
+        .def("is_nrem",     &SleepCycleManager::is_nrem)
+        .def("is_rem",      &SleepCycleManager::is_rem)
+        .def("cycle_count", &SleepCycleManager::cycle_count)
+        .def("stage_timer", &SleepCycleManager::stage_timer)
+        .def("total_sleep_steps", &SleepCycleManager::total_sleep_steps)
+        .def("rem_theta_phase",   &SleepCycleManager::rem_theta_phase)
+        .def("pgo_active",        &SleepCycleManager::pgo_active)
+        .def("current_nrem_duration", &SleepCycleManager::current_nrem_duration)
+        .def("current_rem_duration",  &SleepCycleManager::current_rem_duration);
+
+    // =========================================================================
     // Module-level convenience
     // =========================================================================
-    m.def("version", []() { return "0.4.0"; });
+    m.def("version", []() { return "0.5.0"; });
 }

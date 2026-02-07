@@ -87,7 +87,7 @@ public:
     // --- 睡眠慢波接口 ---
 
     /** 设置睡眠模式 (NREM慢波 up/down 状态交替) */
-    void set_sleep_mode(bool sleep) { sleep_mode_ = sleep; slow_wave_phase_ = 0.0f; }
+    void set_sleep_mode(bool sleep) { sleep_mode_ = sleep; rem_mode_ = false; slow_wave_phase_ = 0.0f; }
     bool is_sleep_mode() const { return sleep_mode_; }
 
     /** 当前是否处于 up state (慢波上升期, 神经元可兴奋) */
@@ -95,6 +95,19 @@ public:
 
     /** 慢波相位 (0~1, 0~UP_DUTY=up, UP_DUTY~1=down) */
     float slow_wave_phase() const { return slow_wave_phase_; }
+
+    // --- REM睡眠接口 ---
+
+    /** 设置REM模式 (去同步化 + PGO波 + 运动抑制) */
+    void set_rem_mode(bool rem);
+    bool is_rem_mode() const { return rem_mode_; }
+
+    /** 注入PGO波 (梦境视觉激活, 由SleepCycleManager触发) */
+    void inject_pgo_wave(float amplitude);
+
+    /** 设置运动抑制 (REM肌肉弛缓, 用于M1等运动区) */
+    void set_motor_atonia(bool atonia) { motor_atonia_ = atonia; }
+    bool is_motor_atonia() const { return motor_atonia_; }
 
 private:
     CorticalColumn column_;
@@ -143,6 +156,12 @@ private:
     static constexpr float SLOW_WAVE_FREQ  = 0.001f;  // ~1Hz at 1000 steps/sec
     static constexpr float UP_DUTY_CYCLE   = 0.4f;    // 40% up, 60% down
     static constexpr float DOWN_STATE_INH  = -8.0f;   // Inhibitory current during down state
+
+    // --- REM睡眠状态 ---
+    bool  rem_mode_         = false;
+    bool  motor_atonia_     = false;
+    static constexpr float REM_NOISE_AMP   = 30.0f;   // 去同步化噪声幅度 (bias=18+jitter=12)
+    static constexpr float ATONIA_INH      = -20.0f;  // 运动抑制电流
 };
 
 } // namespace wuyun
