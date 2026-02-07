@@ -133,6 +133,14 @@ if(MSVC)
 endif()
 add_test(NAME learning_tests COMMAND test_learning)
 
+# Step 5 full brain system tests
+add_executable(test_full_brain test_full_brain.cpp)
+target_link_libraries(test_full_brain PRIVATE wuyun_core)
+if(MSVC)
+    target_compile_options(test_full_brain PRIVATE /utf-8)
+endif()
+add_test(NAME full_brain_tests COMMAND test_full_brain)
+
 # Step 12 attention mechanism tests
 add_executable(test_attention test_attention.cpp)
 target_link_libraries(test_attention PRIVATE wuyun_core)

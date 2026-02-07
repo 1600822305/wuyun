@@ -379,26 +379,65 @@ PYBIND11_MODULE(pywuyun, m) {
                 eng.add_region(std::make_unique<CorticalRegion>(name, c));
             };
 
-            add_ctx("V1",    50, 100, 50, 40, 15, 10, 5);
-            add_ctx("V2",    40,  80, 40, 30, 12,  8, 4);
-            add_ctx("V4",    30,  60, 30, 25, 10,  6, 3);
-            add_ctx("IT",    20,  50, 25, 20,  8,  5, 2);
-            add_ctx("MT",    35,  70, 35, 25, 10,  7, 3);
-            add_ctx("PPC",   30,  65, 35, 25, 10,  6, 3);
-            add_ctx("OFC",   25,  60, 30, 20,  8,  5, 3);
-            add_ctx("vmPFC", 20,  55, 30, 20,  8,  5, 2);
-            add_ctx("ACC",   20,  50, 30, 20,  8,  5, 2);
-            add_ctx("dlPFC", 30,  80, 40, 30, 10,  8, 4);
-            add_ctx("M1",    30,  60, 40, 20, 10,  6, 3);
+            // === Visual cortex (ventral what + dorsal where) ===
+            add_ctx("V1",    50, 100, 50, 40, 15, 10, 5);  // Primary visual
+            add_ctx("V2",    40,  80, 40, 30, 12,  8, 4);  // Secondary visual
+            add_ctx("V4",    30,  60, 30, 25, 10,  6, 3);  // Color/form
+            add_ctx("IT",    20,  50, 25, 20,  8,  5, 2);  // Object recognition
+            add_ctx("MT",    35,  70, 35, 25, 10,  7, 3);  // Motion
+            add_ctx("PPC",   30,  65, 35, 25, 10,  6, 3);  // Spatial/action
+
+            // === Somatosensory cortex ===
+            add_ctx("S1",    40,  80, 40, 30, 12,  8, 4);  // Primary somatosensory
+            add_ctx("S2",    25,  50, 25, 20,  8,  5, 2);  // Secondary somatosensory
+
+            // === Auditory cortex ===
+            add_ctx("A1",    35,  70, 35, 25, 10,  7, 3);  // Primary auditory
+
+            // === Chemical senses ===
+            add_ctx("Gustatory", 15, 35, 18, 12, 5, 3, 2); // Taste (anterior insula)
+            add_ctx("Piriform",  15, 35, 18, 12, 5, 3, 2); // Olfactory cortex
+
+            // === Prefrontal / Decision ===
+            add_ctx("OFC",   25,  60, 30, 20,  8,  5, 3);  // Orbitofrontal (value)
+            add_ctx("vmPFC", 20,  55, 30, 20,  8,  5, 2);  // Ventromedial PFC
+            add_ctx("ACC",   20,  50, 30, 20,  8,  5, 2);  // Anterior cingulate
+            add_ctx("dlPFC", 30,  80, 40, 30, 10,  8, 4);  // Dorsolateral PFC
+            add_ctx("FEF",   20,  45, 25, 18,  7,  4, 2);  // Frontal eye fields
+
+            // === Motor cortex ===
+            add_ctx("PMC",   25,  55, 35, 20,  8,  5, 3);  // Premotor cortex
+            add_ctx("SMA",   20,  45, 30, 18,  7,  4, 2);  // Supplementary motor
+            add_ctx("M1",    30,  60, 40, 20, 10,  6, 3);  // Primary motor
+
+            // === Association cortex ===
+            add_ctx("PCC",   18,  45, 25, 18,  6,  4, 2);  // Posterior cingulate
+            add_ctx("Insula",20,  50, 25, 18,  8,  5, 2);  // Interoception
+            add_ctx("TPJ",   20,  50, 25, 18,  7,  5, 2);  // Theory of mind
+            add_ctx("Broca", 20,  50, 30, 20,  8,  5, 2);  // Speech production
+            add_ctx("Wernicke",18, 45, 25, 18, 7,  4, 2);  // Speech comprehension
 
             BasalGangliaConfig bg;
             bg.name = "BG"; bg.n_d1_msn = 50; bg.n_d2_msn = 50;
             bg.n_gpi = 15; bg.n_gpe = 15; bg.n_stn = 10;
             eng.add_region(std::make_unique<BasalGanglia>(bg));
 
-            ThalamicConfig mt;
-            mt.name = "MotorThal"; mt.n_relay = 30; mt.n_trn = 10;
-            eng.add_region(std::make_unique<ThalamicRelay>(mt));
+            // === Thalamic nuclei ===
+            auto add_thal = [&](const std::string& name, size_t relay, size_t trn) {
+                ThalamicConfig tc;
+                tc.name = name; tc.n_relay = relay; tc.n_trn = trn;
+                eng.add_region(std::make_unique<ThalamicRelay>(tc));
+            };
+            add_thal("MotorThal", 30, 10);   // VA/VL motor relay
+            add_thal("VPL",  25,  8);         // Somatosensory relay (body)
+            add_thal("MGN",  20,  6);         // Auditory relay
+            add_thal("MD",   25,  8);         // Mediodorsal → PFC
+            add_thal("VA",   20,  6);         // Ventral anterior → motor planning
+            add_thal("LP",   18,  6);         // Lateral posterior → PPC
+            add_thal("LD",   15,  5);         // Lateral dorsal → cingulate/hipp
+            add_thal("Pulvinar", 30, 10);     // Visual attention/association
+            add_thal("CeM",  15,  5);         // Centromedian → arousal
+            add_thal("ILN",  12,  4);         // Intralaminar (CL/CM/Pf) → consciousness
 
             eng.add_region(std::make_unique<VTA_DA>(VTAConfig{}));
 
@@ -427,39 +466,128 @@ PYBIND11_MODULE(pywuyun, m) {
             eng.add_region(std::make_unique<MammillaryBody>(MammillaryConfig{}));
 
             // Anterior Thalamic Nucleus (Papez circuit)
-            ThalamicConfig atn;
-            atn.name = "ATN"; atn.n_relay = 20; atn.n_trn = 8;
-            eng.add_region(std::make_unique<ThalamicRelay>(atn));
+            add_thal("ATN", 20, 8);
 
-            // Projections
+            // ============================================================
+            // PROJECTIONS (~90 anatomical connections)
+            // ============================================================
+
+            // --- Visual hierarchy (ventral what) ---
             eng.add_projection("LGN", "V1", 2);
             eng.add_projection("V1", "V2", 2);
             eng.add_projection("V2", "V4", 2);
             eng.add_projection("V4", "IT", 2);
-            eng.add_projection("V2", "V1", 3);
+            eng.add_projection("V2", "V1", 3);   // feedback
             eng.add_projection("V4", "V2", 3);
             eng.add_projection("IT", "V4", 3);
+
+            // --- Visual hierarchy (dorsal where) ---
             eng.add_projection("V1", "MT", 2);
             eng.add_projection("V2", "MT", 2);
             eng.add_projection("MT", "PPC", 2);
             eng.add_projection("PPC", "MT", 3);
-            eng.add_projection("PPC", "IT", 3);
-            eng.add_projection("IT", "PPC", 3);
+            eng.add_projection("PPC", "IT", 3);   // dorsal→ventral
+            eng.add_projection("IT", "PPC", 3);   // ventral→dorsal
+            eng.add_projection("MT", "FEF", 2);   // motion→saccade
+            eng.add_projection("FEF", "V4", 3);   // attention feedback
+            eng.add_projection("FEF", "MT", 3);
+
+            // --- Pulvinar visual attention hub ---
+            eng.add_projection("V1", "Pulvinar", 2);
+            eng.add_projection("Pulvinar", "V2", 2);
+            eng.add_projection("Pulvinar", "V4", 2);
+            eng.add_projection("Pulvinar", "MT", 2);
+            eng.add_projection("Pulvinar", "PPC", 2);
+            eng.add_projection("FEF", "Pulvinar", 2); // top-down attention
+
+            // --- Somatosensory ---
+            eng.add_projection("VPL", "S1", 2);    // thalamocortical
+            eng.add_projection("S1", "S2", 2);
+            eng.add_projection("S2", "S1", 3);     // feedback
+            eng.add_projection("S1", "M1", 2);     // sensorimotor
+            eng.add_projection("S2", "PPC", 2);    // multimodal
+            eng.add_projection("S1", "Insula", 2); // interoception
+
+            // --- Auditory ---
+            eng.add_projection("MGN", "A1", 2);    // thalamocortical
+            eng.add_projection("A1", "Wernicke", 2); // speech comprehension
+            eng.add_projection("A1", "TPJ", 2);    // social/voice
+
+            // --- Chemical senses ---
+            eng.add_projection("Gustatory", "Insula", 2);  // taste→interoception
+            eng.add_projection("Gustatory", "OFC", 2);     // taste→value
+            eng.add_projection("Piriform", "Amygdala", 2); // smell→emotion
+            eng.add_projection("Piriform", "OFC", 2);      // smell→value
+            eng.add_projection("Piriform", "Hippocampus", 2); // smell→memory
+
+            // --- Prefrontal / Decision ---
             eng.add_projection("IT", "OFC", 3);
             eng.add_projection("OFC", "vmPFC", 2);
             eng.add_projection("vmPFC", "BG", 2);
             eng.add_projection("vmPFC", "Amygdala", 3);
             eng.add_projection("ACC", "dlPFC", 2);
-            eng.add_projection("ACC", "LC", 2);
+            eng.add_projection("ACC", "LC", 2);     // conflict→arousal
             eng.add_projection("dlPFC", "ACC", 2);
             eng.add_projection("IT", "dlPFC", 3);
             eng.add_projection("PPC", "dlPFC", 3);
-            eng.add_projection("PPC", "M1", 3);
+            eng.add_projection("dlPFC", "FEF", 2);  // executive→saccade
+            eng.add_projection("Insula", "ACC", 2); // interoception→conflict
+            eng.add_projection("Insula", "Amygdala", 2); // interoception→emotion
+            eng.add_projection("OFC", "Insula", 2); // value→interoception
+
+            // --- MD thalamus → PFC reciprocal ---
+            eng.add_projection("MD", "dlPFC", 2);
+            eng.add_projection("MD", "OFC", 2);
+            eng.add_projection("MD", "ACC", 2);
+            eng.add_projection("dlPFC", "MD", 3);
+
+            // --- Motor hierarchy ---
+            eng.add_projection("PPC", "PMC", 2);    // spatial→premotor
+            eng.add_projection("dlPFC", "PMC", 2);  // executive→premotor
+            eng.add_projection("PMC", "M1", 2);     // premotor→primary
+            eng.add_projection("SMA", "M1", 2);     // supplementary→primary
+            eng.add_projection("SMA", "PMC", 2);    // SMA→PMC
+            eng.add_projection("dlPFC", "SMA", 2);  // executive→SMA
+            eng.add_projection("BG", "VA", 2);      // BG→VA motor planning
+            eng.add_projection("VA", "PMC", 2);     // VA→premotor
+            eng.add_projection("VA", "SMA", 2);     // VA→SMA
             eng.add_projection("dlPFC", "BG", 2);
             eng.add_projection("BG", "MotorThal", 2);
             eng.add_projection("MotorThal", "M1", 2);
             eng.add_projection("M1", "Cerebellum", 2);
             eng.add_projection("Cerebellum", "MotorThal", 2);
+            eng.add_projection("PPC", "M1", 3);     // visuomotor
+
+            // --- Language ---
+            eng.add_projection("Wernicke", "Broca", 2); // arcuate fasciculus
+            eng.add_projection("Broca", "PMC", 2);      // speech→motor
+            eng.add_projection("Broca", "dlPFC", 2);    // syntax→executive
+            eng.add_projection("Wernicke", "TPJ", 2);   // comprehension→social
+            eng.add_projection("Wernicke", "IT", 3);    // semantic
+            eng.add_projection("dlPFC", "Broca", 2);    // executive→speech
+
+            // --- Default mode / Social ---
+            eng.add_projection("PCC", "vmPFC", 2);  // DMN core
+            eng.add_projection("vmPFC", "PCC", 2);
+            eng.add_projection("PCC", "Hippocampus", 2); // episodic memory
+            eng.add_projection("TPJ", "PCC", 2);   // social→DMN
+            eng.add_projection("PCC", "TPJ", 2);
+            eng.add_projection("TPJ", "dlPFC", 2);  // social→executive
+
+            // --- LP / LD thalamic connections ---
+            eng.add_projection("LP", "PPC", 2);     // association→parietal
+            eng.add_projection("PPC", "LP", 3);
+            eng.add_projection("LD", "PCC", 2);     // limbic→cingulate
+            eng.add_projection("LD", "Hippocampus", 2);
+
+            // --- CeM / ILN arousal/consciousness ---
+            eng.add_projection("CeM", "BG", 2);    // arousal→striatum
+            eng.add_projection("CeM", "ACC", 2);   // arousal→conflict
+            eng.add_projection("ILN", "dlPFC", 2);  // consciousness→PFC
+            eng.add_projection("ILN", "ACC", 2);    // consciousness→ACC
+            eng.add_projection("ACC", "CeM", 2);   // salience→arousal
+
+            // --- Limbic connections (existing + new) ---
             eng.add_projection("V1", "Amygdala", 2);
             eng.add_projection("dlPFC", "Amygdala", 2);
             eng.add_projection("Amygdala", "OFC", 2);
@@ -467,14 +595,15 @@ PYBIND11_MODULE(pywuyun, m) {
             eng.add_projection("Hippocampus", "dlPFC", 3);
             eng.add_projection("Amygdala", "VTA", 2);
             eng.add_projection("Amygdala", "Hippocampus", 2);
+            eng.add_projection("Amygdala", "Insula", 2); // emotion→interoception
             eng.add_projection("VTA", "BG", 1);
 
-            // Papez circuit: Hipp(Sub) -> MB -> ATN -> ACC -> EC -> Hipp
+            // --- Papez circuit ---
             eng.add_projection("Hippocampus", "MammillaryBody", 2);
             eng.add_projection("MammillaryBody", "ATN", 2);
             eng.add_projection("ATN", "ACC", 2);
 
-            // Septal -> Hippocampus (theta pacing + ACh)
+            // --- Septal → Hippocampus ---
             eng.add_projection("SeptalNucleus", "Hippocampus", 1);
 
             // Neuromod sources
@@ -491,7 +620,7 @@ PYBIND11_MODULE(pywuyun, m) {
             auto* amyg_ptr = dynamic_cast<Amygdala*>(eng.find_region("Amygdala"));
             auto* pfc_ptr = eng.find_region("dlPFC");
             if (amyg_ptr && pfc_ptr) amyg_ptr->set_pfc_source_region(pfc_ptr->region_id());
-        }, "Build standard 21-region brain with all projections and neuromodulators");
+        }, "Build standard brain with all regions, projections and neuromodulators");
 
     // =========================================================================
     // NeuromodType enum

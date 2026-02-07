@@ -631,17 +631,43 @@
 - **24区域** | ~3400神经元 | **40投射** | 4调质 | 4学习 | 预测编码 | 工作记忆 | **注意力**
 - **113 测试全通过** (106+7), 零回归
 
-### Step 5: 扩展皮层 + 丘脑高级核群
-> 目标: 完整的感觉层级 + 联合皮层 + 丘脑全部16核
-**5a. 感觉皮层层级:**
-- ⬜ V2/V4/IT/S1/S2/味觉/嗅觉 (S-03~09)
-**5b. 联合皮层:**
-- ⬜ OFC/vmPFC/ACC/PCC/PPC/TPJ/Broca/Wernicke/FEF/岛叶 (A-02~12)
-- ⬜ PMC/SMA/FEF (M-02~04)
-**5c. 丘脑联合/高级核群:**
-- ⬜ 运动中继: VA/VAmc (T-05~06), MD (T-09)
-- ⬜ 联合核群: LD/LP/Pulvinar (T-11~13)
-- ⬜ 板内核群: CeM + CL/CM/Pf (T-14~15) — 觉醒/意识
+### Step 5: 扩展皮层 + 丘脑高级核群 ✅ (2026-02-07)
+> 目标: 完整的感觉层级 + 联合皮层 + 丘脑全核群
+
+**新增13个皮层区:**
+- **感觉**: S1 (体感), S2 (二级体感), A1 (听觉), Gustatory (味觉), Piriform (嗅觉)
+- **联合**: PCC (后扣带), Insula (岛叶), TPJ (颞顶联合), Broca (语言产出), Wernicke (语言理解)
+- **运动**: PMC (前运动), SMA (辅助运动), FEF (额眼区)
+
+**新增9个丘脑核:**
+- VPL (体感中继), MGN (听觉中继), MD (背内侧→PFC), VA (腹前→运动计划)
+- LP (外侧后→PPC), LD (外侧背→扣带/海马), Pulvinar (视觉注意枢纽)
+- CeM (中央内侧→觉醒), ILN (板内核群CL/CM/Pf→意识)
+
+**~90条解剖学投射 (原40→90):**
+- 视觉: LGN→V1→V2→V4→IT + V1→MT→PPC + Pulvinar hub
+- 体感: VPL→S1→S2→PPC + S1→M1 + S1→Insula
+- 听觉: MGN→A1→Wernicke + A1→TPJ
+- 化学感觉: Gustatory→Insula/OFC, Piriform→Amygdala/OFC/Hippocampus
+- 语言: A1→Wernicke→Broca→PMC (弓状束) + 语义/执行连接
+- 运动: dlPFC→SMA/PMC→M1 + BG→VA→PMC/SMA + 小脑
+- DMN: PCC↔vmPFC + TPJ↔PCC + PCC→Hippocampus
+- 丘脑: MD↔PFC, LP↔PPC, LD→PCC/Hipp, CeM/ILN→觉醒/意识
+- FEF↔Pulvinar top-down注意力
+
+**8项通路测试全部通过:**
+1. 全系统构建: 46区域, 5409神经元
+2. 体感通路: VPL→S1=2897 → S2=1544 → PPC=2125
+3. 听觉→语言: MGN→A1=566 → Wernicke=695 → Broca=1840
+4. 运动层级: dlPFC→PMC=2539, SMA=1849, M1=2908
+5. DMN: PCC=1628, vmPFC=1973, TPJ=1795
+6. Pulvinar: 843→V2=4607, V4=2830
+7. MD↔PFC: MD=586→dlPFC=3480, OFC=2530, ACC=1920
+8. 全链路: V1=8194→IT=2397→dlPFC=4647→BG=4059→M1=3921
+
+**系统状态:**
+- **46区域** | **5409神经元** | **~90投射** | 4调质 | 4学习 | 预测编码 | 工作记忆 | 注意力
+- **121 测试全通过** (113+8), 零回归
 
 ### Step 6: 调质系统 + 内驱力 + 小脑
 > 目标: 全局调制 + 内部状态 + 运动/认知预测
