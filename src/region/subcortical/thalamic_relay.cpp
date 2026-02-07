@@ -81,6 +81,22 @@ void ThalamicRelay::step(int32_t t, float dt) {
     oscillation_.step(dt);
     neuromod_.step(dt);
 
+    // v30: Context-dependent gating via neuromodulator levels
+    // Biology (2024 Nature): higher-order thalamic nuclei selectively convey
+    // state information to cortex. NE/ACh levels control TRN excitability:
+    //   High NE (alertness) → TRN less excitable → more signal passes through
+    //   High ACh (attention) → TRN less excitable → focused relay
+    //   Low NE/ACh (drowsy) → TRN more excitable → gates most signals
+    float ne = neuromod_.tonic().ne;
+    float ach = neuromod_.tonic().ach;
+    // TRN gate: high neuromod → less TRN drive → relay opens
+    // Range: ne=0.2,ach=0.2 → gate=2.4 (normal), ne=0.5,ach=0.5 → gate=1 (wide open)
+    float trn_gate_drive = 3.0f * (1.0f - 0.5f * ne - 0.5f * ach);
+    if (trn_gate_drive < 0.5f) trn_gate_drive = 0.5f;
+    for (size_t i = 0; i < trn_.size(); ++i) {
+        trn_.inject_basal(i, trn_gate_drive);
+    }
+
     // 1. Relay → TRN (excitatory drive)
     syn_relay_to_trn_.deliver_spikes(relay_.fired(), relay_.spike_type());
     const auto& i_trn = syn_relay_to_trn_.step_and_compute(trn_.v_soma(), dt);
