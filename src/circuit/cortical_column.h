@@ -28,9 +28,11 @@
 #include "core/types.h"
 #include "core/population.h"
 #include "core/synapse_group.h"
+#include "plasticity/homeostatic.h"
 #include <vector>
 #include <cstddef>
 #include <string>
+#include <memory>
 
 namespace wuyun {
 
@@ -131,6 +133,16 @@ public:
     void enable_stdp();
     bool has_stdp() const { return stdp_active_; }
 
+    /** Enable homeostatic plasticity (synaptic scaling on feedforward excitatory synapses) */
+    void enable_homeostatic(const HomeostaticParams& params = {});
+    bool has_homeostatic() const { return homeo_active_; }
+
+    /** Mean firing rate of each excitatory population (for diagnostics) */
+    float l4_mean_rate()  const { return homeo_l4_  ? homeo_l4_->mean_rate()  : 0.0f; }
+    float l23_mean_rate() const { return homeo_l23_ ? homeo_l23_->mean_rate() : 0.0f; }
+    float l5_mean_rate()  const { return homeo_l5_  ? homeo_l5_->mean_rate()  : 0.0f; }
+    float l6_mean_rate()  const { return homeo_l6_  ? homeo_l6_->mean_rate()  : 0.0f; }
+
     // --- External input injection ---
 
     /** Feedforward input -> L4 stellate basal dendrites */
@@ -218,6 +230,17 @@ private:
 
     // === STDP state ===
     bool stdp_active_ = false;
+
+    // === Homeostatic plasticity state ===
+    bool homeo_active_ = false;
+    uint32_t homeo_step_count_ = 0;
+    uint32_t homeo_interval_ = 100;
+    std::unique_ptr<SynapticScaler> homeo_l4_;
+    std::unique_ptr<SynapticScaler> homeo_l23_;
+    std::unique_ptr<SynapticScaler> homeo_l5_;
+    std::unique_ptr<SynapticScaler> homeo_l6_;
+
+    void apply_homeostatic_scaling();
 };
 
 } // namespace wuyun

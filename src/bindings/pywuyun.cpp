@@ -26,6 +26,7 @@
 #include "engine/global_workspace.h"
 #include "engine/sensory_input.h"
 #include "engine/sleep_cycle.h"
+#include "plasticity/homeostatic.h"
 #include "region/subcortical/cerebellum.h"
 
 namespace py = pybind11;
@@ -191,7 +192,15 @@ PYBIND11_MODULE(pywuyun, m) {
              py::arg("amplitude"), "Inject PGO wave (dream imagery burst)")
         .def("set_motor_atonia", &CorticalRegion::set_motor_atonia,
              py::arg("atonia"), "Set motor atonia (REM muscle paralysis)")
-        .def("is_motor_atonia", &CorticalRegion::is_motor_atonia);
+        .def("is_motor_atonia", &CorticalRegion::is_motor_atonia)
+        .def("enable_homeostatic", &CorticalRegion::enable_homeostatic,
+             py::arg("params") = HomeostaticParams{},
+             "Enable homeostatic plasticity (synaptic scaling for E/I balance)")
+        .def("homeostatic_enabled", &CorticalRegion::homeostatic_enabled)
+        .def("l4_mean_rate", &CorticalRegion::l4_mean_rate)
+        .def("l23_mean_rate", &CorticalRegion::l23_mean_rate)
+        .def("l5_mean_rate", &CorticalRegion::l5_mean_rate)
+        .def("l6_mean_rate", &CorticalRegion::l6_mean_rate);
 
     // =========================================================================
     // ThalamicConfig + ThalamicRelay
@@ -272,7 +281,14 @@ PYBIND11_MODULE(pywuyun, m) {
         .def("disable_rem_theta", &Hippocampus::disable_rem_theta)
         .def("rem_theta_enabled", &Hippocampus::rem_theta_enabled)
         .def("rem_theta_phase", &Hippocampus::rem_theta_phase)
-        .def("rem_recombination_count", &Hippocampus::rem_recombination_count);
+        .def("rem_recombination_count", &Hippocampus::rem_recombination_count)
+        .def("enable_homeostatic", &Hippocampus::enable_homeostatic,
+             py::arg("params") = HomeostaticParams{},
+             "Enable homeostatic plasticity on feedforward excitatory synapses")
+        .def("homeostatic_enabled", &Hippocampus::homeostatic_enabled)
+        .def("dg_mean_rate", &Hippocampus::dg_mean_rate)
+        .def("ca3_mean_rate", &Hippocampus::ca3_mean_rate)
+        .def("ca1_mean_rate", &Hippocampus::ca1_mean_rate);
 
     // =========================================================================
     // Amygdala
@@ -841,6 +857,19 @@ PYBIND11_MODULE(pywuyun, m) {
         .value("NE",  SimulationEngine::NeuromodType::NE)
         .value("SHT", SimulationEngine::NeuromodType::SHT)
         .value("ACh", SimulationEngine::NeuromodType::ACh);
+
+    // =========================================================================
+    // HomeostaticParams
+    // =========================================================================
+    py::class_<HomeostaticParams>(m, "HomeostaticParams",
+        "Parameters for homeostatic synaptic scaling")
+        .def(py::init<>())
+        .def_readwrite("target_rate",    &HomeostaticParams::target_rate)
+        .def_readwrite("eta",            &HomeostaticParams::eta)
+        .def_readwrite("tau_rate",       &HomeostaticParams::tau_rate)
+        .def_readwrite("w_min",          &HomeostaticParams::w_min)
+        .def_readwrite("w_max",          &HomeostaticParams::w_max)
+        .def_readwrite("scale_interval", &HomeostaticParams::scale_interval);
 
     // =========================================================================
     // SleepStage enum

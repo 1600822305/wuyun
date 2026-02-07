@@ -320,6 +320,24 @@ ColumnOutput CorticalColumn::step(int t, float dt) {
     }
 
     // ================================================================
+    // STEP 2.6: Homeostatic plasticity (synaptic scaling)
+    // ================================================================
+    if (homeo_active_) {
+        // Update rate estimates every step
+        homeo_l4_->update_rates(l4_stellate_.fired().data(), dt);
+        homeo_l23_->update_rates(l23_pyramidal_.fired().data(), dt);
+        homeo_l5_->update_rates(l5_pyramidal_.fired().data(), dt);
+        homeo_l6_->update_rates(l6_pyramidal_.fired().data(), dt);
+
+        // Apply scaling periodically
+        ++homeo_step_count_;
+        if (homeo_step_count_ >= homeo_interval_) {
+            homeo_step_count_ = 0;
+            apply_homeostatic_scaling();
+        }
+    }
+
+    // ================================================================
     // STEP 3: Classify output
     // ================================================================
     ColumnOutput out;
@@ -423,6 +441,44 @@ void CorticalColumn::enable_stdp() {
     syn_l23_to_l5_.enable_stdp(params);
 
     stdp_active_ = true;
+}
+
+// =============================================================================
+// Enable homeostatic plasticity
+// =============================================================================
+
+void CorticalColumn::enable_homeostatic(const HomeostaticParams& params) {
+    homeo_l4_  = std::make_unique<SynapticScaler>(config_.n_l4_stellate, params);
+    homeo_l23_ = std::make_unique<SynapticScaler>(config_.n_l23_pyramidal, params);
+    homeo_l5_  = std::make_unique<SynapticScaler>(config_.n_l5_pyramidal, params);
+    homeo_l6_  = std::make_unique<SynapticScaler>(config_.n_l6_pyramidal, params);
+    homeo_interval_ = params.scale_interval;
+    homeo_step_count_ = 0;
+    homeo_active_ = true;
+}
+
+void CorticalColumn::apply_homeostatic_scaling() {
+    // Scale feedforward excitatory AMPA synapses only.
+    // Do NOT scale recurrent synapses (they store learned patterns).
+    // Do NOT scale inhibitory synapses (separate regulation).
+
+    auto scale_syn = [](SynapticScaler& scaler, SynapseGroup& syn) {
+        if (syn.n_synapses() == 0) return;
+        scaler.apply_scaling(syn.weights().data(), syn.n_synapses(),
+                             syn.col_idx().data());
+    };
+
+    // L4 inputs: L6→L4 prediction loop
+    scale_syn(*homeo_l4_, syn_l6_to_l4_);
+
+    // L2/3 inputs: L4→L2/3 feedforward (main pathway)
+    scale_syn(*homeo_l23_, syn_l4_to_l23_);
+
+    // L5 inputs: L2/3→L5 feedforward
+    scale_syn(*homeo_l5_, syn_l23_to_l5_);
+
+    // L6 inputs: L5→L6 feedforward
+    scale_syn(*homeo_l6_, syn_l5_to_l6_);
 }
 
 } // namespace wuyun

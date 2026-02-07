@@ -348,6 +348,21 @@ void Hippocampus::step(int32_t t, float dt) {
         syn_ca3_to_ca3_.apply_stdp(ca3_.fired(), ca3_.fired(), t);
     }
 
+    // ========================================
+    // Homeostatic plasticity (synaptic scaling)
+    // ========================================
+    if (homeo_active_) {
+        homeo_dg_->update_rates(dg_.fired().data(), dt);
+        homeo_ca3_->update_rates(ca3_.fired().data(), dt);
+        homeo_ca1_->update_rates(ca1_.fired().data(), dt);
+
+        ++homeo_step_count_;
+        if (homeo_step_count_ >= homeo_interval_) {
+            homeo_step_count_ = 0;
+            apply_homeostatic_scaling();
+        }
+    }
+
     aggregate_state();
 }
 
@@ -513,6 +528,39 @@ void Hippocampus::try_rem_theta(int32_t t) {
         }
         ++rem_recomb_count_;
     }
+}
+
+// =============================================================================
+// Homeostatic plasticity
+// =============================================================================
+
+void Hippocampus::enable_homeostatic(const HomeostaticParams& params) {
+    homeo_dg_  = std::make_unique<SynapticScaler>(config_.n_dg, params);
+    homeo_ca3_ = std::make_unique<SynapticScaler>(config_.n_ca3, params);
+    homeo_ca1_ = std::make_unique<SynapticScaler>(config_.n_ca1, params);
+    homeo_interval_ = params.scale_interval;
+    homeo_step_count_ = 0;
+    homeo_active_ = true;
+}
+
+void Hippocampus::apply_homeostatic_scaling() {
+    // Scale feedforward excitatory synapses only.
+    // Do NOT scale CA3 recurrent (stores memories!).
+    auto scale_syn = [](SynapticScaler& scaler, SynapseGroup& syn) {
+        if (syn.n_synapses() == 0) return;
+        scaler.apply_scaling(syn.weights().data(), syn.n_synapses(),
+                             syn.col_idx().data());
+    };
+
+    // DG inputs: EC→DG perforant path
+    scale_syn(*homeo_dg_, syn_ec_to_dg_);
+
+    // CA3 inputs: DG→CA3 mossy fiber (NOT CA3→CA3 recurrent!)
+    scale_syn(*homeo_ca3_, syn_dg_to_ca3_);
+
+    // CA1 inputs: CA3→CA1 Schaffer + EC→CA1 direct
+    scale_syn(*homeo_ca1_, syn_ca3_to_ca1_);
+    scale_syn(*homeo_ca1_, syn_ec_to_ca1_);
 }
 
 } // namespace wuyun

@@ -11,7 +11,7 @@ SynapticScaler::SynapticScaler(size_t n_neurons, const HomeostaticParams& params
     , rates_(n_neurons, params.target_rate)  // Initialize at target
 {}
 
-void SynapticScaler::update_rates(const bool* fired, float dt) {
+void SynapticScaler::update_rates(const uint8_t* fired, float dt) {
     // Exponential moving average of firing rate
     // rate += (spike/dt_s - rate) * dt / tau_rate
     float dt_s = dt * 0.001f;  // ms → s
@@ -21,6 +21,13 @@ void SynapticScaler::update_rates(const bool* fired, float dt) {
         float instant_rate = fired[i] ? (1.0f / dt_s) : 0.0f;
         rates_[i] += alpha * (instant_rate - rates_[i]);
     }
+}
+
+float SynapticScaler::mean_rate() const {
+    if (n_ == 0) return 0.0f;
+    float sum = 0.0f;
+    for (size_t i = 0; i < n_; ++i) sum += rates_[i];
+    return sum / static_cast<float>(n_);
 }
 
 void SynapticScaler::apply_scaling(float* weights, size_t n_synapses,

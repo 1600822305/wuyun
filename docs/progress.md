@@ -956,6 +956,69 @@ C++ 工程骨架 + 基础验证  ← Step 1: CMake + core/ + pybind11
      ↓
 REM睡眠+梦境              ← Step 11: theta + PGO + 创造性重组
 
+稳态可塑性集成              ← Step 13-A: SynapticScaler + E/I平衡
+
 技术栈: C++17 核心引擎 + pybind11 → Python 实验/可视化
 Python 原型 (wuyun/) → _archived/ 算法参考
+```
+
+---
+
+## Step 13-A: 稳态可塑性集成 (Homeostatic Plasticity Integration)
+
+**目标**: 解决 scale-up 时 E/I 失衡导致的网络崩溃问题
+
+### 实现
+
+**SynapticScaler 改进** (`plasticity/homeostatic.h/cpp`):
+- `update_rates(const uint8_t*)`: 改签名匹配 `NeuronPopulation::fired()`
+- `mean_rate()`: 新增群体平均发放率查询
+- `HomeostaticParams::scale_interval`: 新增缩放间隔参数 (默认100步)
+
+**CorticalColumn 集成** (`circuit/cortical_column.h/cpp`):
+- `enable_homeostatic(HomeostaticParams)`: 为4个兴奋性群体(L4/L2/3/L5/L6)各创建一个 SynapticScaler
+- 每步 `update_rates()`, 每 `scale_interval` 步 `apply_scaling()`
+- **只缩放前馈兴奋性AMPA突触**, 不缩放循环突触(保护已学习模式)和抑制性突触
+- 缩放目标: L6→L4, L4→L2/3, L2/3→L5, L5→L6
+
+**CorticalRegion 接口** (`region/cortical_region.h`):
+- `enable_homeostatic()` / `homeostatic_enabled()`
+- `l4_mean_rate()` / `l23_mean_rate()` / `l5_mean_rate()` / `l6_mean_rate()`
+
+**Hippocampus 集成** (`region/limbic/hippocampus.h/cpp`):
+- 3个 SynapticScaler: DG, CA3, CA1
+- 缩放: EC→DG (穿通纤维), DG→CA3 (苔藓纤维), CA3→CA1 (Schaffer侧支), EC→CA1 (直接通路)
+- **不缩放 CA3→CA3 循环突触** (保护自联想记忆!)
+- `dg_mean_rate()` / `ca3_mean_rate()` / `ca1_mean_rate()`
+
+**pybind11 绑定** (`bindings/pywuyun.cpp`):
+- `HomeostaticParams` 全字段绑定
+- CorticalRegion/Hippocampus 的 `enable_homeostatic()` + 发放率查询
+
+### 测试结果 (7/7 通过)
+
+| 测试 | 内容 | 结果 |
+|------|------|------|
+| 1 | SynapticScaler 发放率追踪 | 持续发放=993.5Hz, 沉默=0.07Hz ✅ |
+| 2 | 过度活跃→权重降低 | 0.50→0.01 ✅ |
+| 3 | 活动不足→权重增大 | 0.50→0.54 ✅ |
+| 4 | CorticalRegion 集成 | L4=8.26, L2/3=7.22, L5=6.28 ✅ |
+| 5 | Hippocampus 集成 | DG=2.83, CA3=2.83, CA1=2.83 ✅ |
+| 6 | 多区域稳态 | V1+dlPFC+Hipp 协同工作 ✅ |
+| 7 | **Scale=3 WM恢复** | **persistence=0.425, spikes=5433** ✅ |
+
+### 关键成果
+
+**Scale=3 工作记忆从 0 恢复到 0.425** — 稳态可塑性成功解决了大规模网络 E/I 失衡问题。
+
+### 回归测试: 27/27 CTest 全通过 (0 失败)
+
+### 系统状态
+
+```
+48区域 · ~5528+神经元 · ~109投射 · 168测试 · 27 CTest suites
+完整功能: 感觉输入 · 视听编码 · 层级处理 · 双流视觉 · 语言
+          5种学习(STDP/STP/DA-STDP/CA3-STDP/稳态) · 预测编码 · 工作记忆
+          注意力 · GNW意识 · 内驱力 · NREM巩固 · REM梦境 · 睡眠周期管理
+          4种调质广播 · 稳态可塑性 · 规模可扩展(E/I自平衡)
 ```

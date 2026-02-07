@@ -221,5 +221,13 @@ if(MSVC)
 endif()
 add_test(NAME rem_sleep_tests COMMAND test_rem_sleep)
 
+# Step 13-A Homeostatic plasticity integration tests
+add_executable(test_homeostatic test_homeostatic.cpp)
+target_link_libraries(test_homeostatic PRIVATE wuyun_core)
+if(MSVC)
+    target_compile_options(test_homeostatic PRIVATE /utf-8)
+endif()
+add_test(NAME homeostatic_tests COMMAND test_homeostatic)
+
 # Register as CTest
 add_test(NAME neuron_tests COMMAND test_neuron)

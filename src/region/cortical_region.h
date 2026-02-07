@@ -84,6 +84,18 @@ public:
     /** DA对工作记忆的增益 */
     float wm_da_gain() const { return wm_da_gain_; }
 
+    // --- 稳态可塑性接口 ---
+
+    /** 启用稳态可塑性 (突触缩放, 维持E/I平衡) */
+    void enable_homeostatic(const HomeostaticParams& params = {}) { column_.enable_homeostatic(params); }
+    bool homeostatic_enabled() const { return column_.has_homeostatic(); }
+
+    /** 各层平均发放率 (诊断) */
+    float l4_mean_rate()  const { return column_.l4_mean_rate(); }
+    float l23_mean_rate() const { return column_.l23_mean_rate(); }
+    float l5_mean_rate()  const { return column_.l5_mean_rate(); }
+    float l6_mean_rate()  const { return column_.l6_mean_rate(); }
+
     // --- 睡眠慢波接口 ---
 
     /** 设置睡眠模式 (NREM慢波 up/down 状态交替) */

@@ -21,11 +21,12 @@
 namespace wuyun {
 
 struct HomeostaticParams {
-    float target_rate   = 5.0f;    // 目标发放率 (Hz)
-    float eta           = 0.001f;  // 缩放学习率 (非常慢)
-    float tau_rate      = 5000.0f; // 发放率估计时间常数 (ms)
-    float w_min         = 0.01f;   // 权重下限 (不允许降到0)
-    float w_max         = 2.0f;    // 权重上限
+    float target_rate      = 5.0f;    // 目标发放率 (Hz)
+    float eta              = 0.001f;  // 缩放学习率 (非常慢)
+    float tau_rate         = 5000.0f; // 发放率估计时间常数 (ms)
+    float w_min            = 0.01f;   // 权重下限 (不允许降到0)
+    float w_max            = 2.0f;    // 权重上限
+    uint32_t scale_interval = 100;    // 每 N 步执行一次缩放
 };
 
 /**
@@ -47,7 +48,7 @@ public:
      * @param fired  发放标志数组 (size = n_neurons)
      * @param dt     时间步长 (ms)
      */
-    void update_rates(const bool* fired, float dt = 1.0f);
+    void update_rates(const uint8_t* fired, float dt = 1.0f);
 
     /**
      * 对一组突触权重应用缩放
@@ -60,7 +61,9 @@ public:
 
     // 访问器
     float rate(size_t idx) const { return rates_[idx]; }
+    float mean_rate() const;
     size_t size() const { return n_; }
+    const HomeostaticParams& params() const { return params_; }
 
 private:
     size_t n_;

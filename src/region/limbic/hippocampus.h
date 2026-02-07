@@ -23,6 +23,8 @@
 #include "region/brain_region.h"
 #include "core/population.h"
 #include "core/synapse_group.h"
+#include "plasticity/homeostatic.h"
+#include <memory>
 
 namespace wuyun {
 
@@ -145,6 +147,17 @@ public:
     /** CA3 firing fraction during last SWR (replay strength proxy) */
     float last_replay_strength() const { return last_replay_strength_; }
 
+    // --- Homeostatic plasticity interface ---
+
+    /** Enable homeostatic plasticity on feedforward excitatory synapses */
+    void enable_homeostatic(const HomeostaticParams& params = {});
+    bool homeostatic_enabled() const { return homeo_active_; }
+
+    /** Mean firing rates per subregion (diagnostics) */
+    float dg_mean_rate()  const { return homeo_dg_  ? homeo_dg_->mean_rate()  : 0.0f; }
+    float ca3_mean_rate() const { return homeo_ca3_ ? homeo_ca3_->mean_rate() : 0.0f; }
+    float ca1_mean_rate() const { return homeo_ca1_ ? homeo_ca1_->mean_rate() : 0.0f; }
+
     // --- REM theta / creative recombination interface ---
 
     /** Enable REM theta mode (theta oscillation + creative recombination) */
@@ -223,6 +236,16 @@ private:
     static constexpr float REM_RECOMB_PROB = 0.01f;  // Creative recombination probability/step
 
     void try_rem_theta(int32_t t);
+
+    // --- Homeostatic plasticity state ---
+    bool homeo_active_ = false;
+    uint32_t homeo_step_count_ = 0;
+    uint32_t homeo_interval_ = 100;
+    std::unique_ptr<SynapticScaler> homeo_dg_;
+    std::unique_ptr<SynapticScaler> homeo_ca3_;
+    std::unique_ptr<SynapticScaler> homeo_ca1_;
+
+    void apply_homeostatic_scaling();
 
     // --- Aggregate firing state ---
     std::vector<uint8_t> fired_all_;
