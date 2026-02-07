@@ -77,7 +77,7 @@ void SeptalNucleus::step(int32_t t, float dt) {
 
     // GABA → ACh synapse
     syn_gaba_to_ach_.deliver_spikes(gaba_.fired(), gaba_.spike_type());
-    auto gaba_currents = syn_gaba_to_ach_.step_and_compute(ach_.v_soma(), dt);
+    const auto& gaba_currents = syn_gaba_to_ach_.step_and_compute(ach_.v_soma(), dt);
     for (size_t i = 0; i < ach_.size(); ++i) {
         if (std::abs(gaba_currents[i]) > 0.01f) {
             ach_.inject_basal(i, gaba_currents[i]);

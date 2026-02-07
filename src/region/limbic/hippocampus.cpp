@@ -233,50 +233,50 @@ void Hippocampus::step(int32_t t, float dt) {
 
     // 1. EC → DG (perforant path)
     syn_ec_to_dg_.deliver_spikes(ec_.fired(), ec_.spike_type());
-    auto i_dg_ec = syn_ec_to_dg_.step_and_compute(dg_.v_soma(), dt);
+    const auto& i_dg_ec = syn_ec_to_dg_.step_and_compute(dg_.v_soma(), dt);
     for (size_t i = 0; i < dg_.size(); ++i) dg_.inject_basal(i, i_dg_ec[i]);
 
     // 2a. EC → DG_inh (feedforward inhibition, same timing as EC→DG)
     syn_ec_to_dg_inh_.deliver_spikes(ec_.fired(), ec_.spike_type());
-    auto i_dg_inh_ff = syn_ec_to_dg_inh_.step_and_compute(dg_inh_.v_soma(), dt);
+    const auto& i_dg_inh_ff = syn_ec_to_dg_inh_.step_and_compute(dg_inh_.v_soma(), dt);
     for (size_t i = 0; i < dg_inh_.size(); ++i) dg_inh_.inject_basal(i, i_dg_inh_ff[i]);
 
     // 2b. DG → DG_inh (feedback inhibition)
     syn_dg_to_dg_inh_.deliver_spikes(dg_.fired(), dg_.spike_type());
-    auto i_dg_inh = syn_dg_to_dg_inh_.step_and_compute(dg_inh_.v_soma(), dt);
+    const auto& i_dg_inh = syn_dg_to_dg_inh_.step_and_compute(dg_inh_.v_soma(), dt);
     for (size_t i = 0; i < dg_inh_.size(); ++i) dg_inh_.inject_basal(i, i_dg_inh[i]);
 
     syn_dg_inh_to_dg_.deliver_spikes(dg_inh_.fired(), dg_inh_.spike_type());
-    auto i_dg_fb = syn_dg_inh_to_dg_.step_and_compute(dg_.v_soma(), dt);
+    const auto& i_dg_fb = syn_dg_inh_to_dg_.step_and_compute(dg_.v_soma(), dt);
     for (size_t i = 0; i < dg_.size(); ++i) dg_.inject_basal(i, i_dg_fb[i]);
 
     // 3. DG → CA3 (mossy fiber, sparse but strong)
     syn_dg_to_ca3_.deliver_spikes(dg_.fired(), dg_.spike_type());
-    auto i_ca3_dg = syn_dg_to_ca3_.step_and_compute(ca3_.v_soma(), dt);
+    const auto& i_ca3_dg = syn_dg_to_ca3_.step_and_compute(ca3_.v_soma(), dt);
     for (size_t i = 0; i < ca3_.size(); ++i) ca3_.inject_basal(i, i_ca3_dg[i]);
 
     // 4. CA3 → CA3 recurrent (autoassociative memory recall)
     syn_ca3_to_ca3_.deliver_spikes(ca3_.fired(), ca3_.spike_type());
-    auto i_ca3_rec = syn_ca3_to_ca3_.step_and_compute(ca3_.v_soma(), dt);
+    const auto& i_ca3_rec = syn_ca3_to_ca3_.step_and_compute(ca3_.v_soma(), dt);
     for (size_t i = 0; i < ca3_.size(); ++i) ca3_.inject_basal(i, i_ca3_rec[i]);
 
     // 5. CA3 feedback inhibition
     syn_ca3_to_ca3_inh_.deliver_spikes(ca3_.fired(), ca3_.spike_type());
-    auto i_ca3_inh = syn_ca3_to_ca3_inh_.step_and_compute(ca3_inh_.v_soma(), dt);
+    const auto& i_ca3_inh = syn_ca3_to_ca3_inh_.step_and_compute(ca3_inh_.v_soma(), dt);
     for (size_t i = 0; i < ca3_inh_.size(); ++i) ca3_inh_.inject_basal(i, i_ca3_inh[i]);
 
     syn_ca3_inh_to_ca3_.deliver_spikes(ca3_inh_.fired(), ca3_inh_.spike_type());
-    auto i_ca3_inh_fb = syn_ca3_inh_to_ca3_.step_and_compute(ca3_.v_soma(), dt);
+    const auto& i_ca3_inh_fb = syn_ca3_inh_to_ca3_.step_and_compute(ca3_.v_soma(), dt);
     for (size_t i = 0; i < ca3_.size(); ++i) ca3_.inject_basal(i, i_ca3_inh_fb[i]);
 
     // 6. CA3 → CA1 (Schaffer collateral)
     syn_ca3_to_ca1_.deliver_spikes(ca3_.fired(), ca3_.spike_type());
-    auto i_ca1_ca3 = syn_ca3_to_ca1_.step_and_compute(ca1_.v_soma(), dt);
+    const auto& i_ca1_ca3 = syn_ca3_to_ca1_.step_and_compute(ca1_.v_soma(), dt);
     for (size_t i = 0; i < ca1_.size(); ++i) ca1_.inject_basal(i, i_ca1_ca3[i]);
 
     // 7. EC → CA1 direct path (to apical dendrite)
     syn_ec_to_ca1_.deliver_spikes(ec_.fired(), ec_.spike_type());
-    auto i_ca1_ec = syn_ec_to_ca1_.step_and_compute(ca1_.v_soma(), dt);
+    const auto& i_ca1_ec = syn_ec_to_ca1_.step_and_compute(ca1_.v_soma(), dt);
     for (size_t i = 0; i < ca1_.size(); ++i) {
         if (ca1_.has_apical()) {
             ca1_.inject_apical(i, i_ca1_ec[i]);
@@ -287,43 +287,43 @@ void Hippocampus::step(int32_t t, float dt) {
 
     // 8. CA1 feedback inhibition
     syn_ca1_to_ca1_inh_.deliver_spikes(ca1_.fired(), ca1_.spike_type());
-    auto i_ca1_inh = syn_ca1_to_ca1_inh_.step_and_compute(ca1_inh_.v_soma(), dt);
+    const auto& i_ca1_inh = syn_ca1_to_ca1_inh_.step_and_compute(ca1_inh_.v_soma(), dt);
     for (size_t i = 0; i < ca1_inh_.size(); ++i) ca1_inh_.inject_basal(i, i_ca1_inh[i]);
 
     syn_ca1_inh_to_ca1_.deliver_spikes(ca1_inh_.fired(), ca1_inh_.spike_type());
-    auto i_ca1_inh_fb = syn_ca1_inh_to_ca1_.step_and_compute(ca1_.v_soma(), dt);
+    const auto& i_ca1_inh_fb = syn_ca1_inh_to_ca1_.step_and_compute(ca1_.v_soma(), dt);
     for (size_t i = 0; i < ca1_.size(); ++i) ca1_.inject_basal(i, i_ca1_inh_fb[i]);
 
     // 9. CA1 → Subiculum
     syn_ca1_to_sub_.deliver_spikes(ca1_.fired(), ca1_.spike_type());
-    auto i_sub_ca1 = syn_ca1_to_sub_.step_and_compute(sub_.v_soma(), dt);
+    const auto& i_sub_ca1 = syn_ca1_to_sub_.step_and_compute(sub_.v_soma(), dt);
     for (size_t i = 0; i < sub_.size(); ++i) sub_.inject_basal(i, i_sub_ca1[i]);
 
     // 10. Subiculum → EC (output loop)
     syn_sub_to_ec_.deliver_spikes(sub_.fired(), sub_.spike_type());
-    auto i_ec_sub = syn_sub_to_ec_.step_and_compute(ec_.v_soma(), dt);
+    const auto& i_ec_sub = syn_sub_to_ec_.step_and_compute(ec_.v_soma(), dt);
     for (size_t i = 0; i < ec_.size(); ++i) ec_.inject_basal(i, i_ec_sub[i]);
 
     // 11. CA3 → DG feedback
     syn_ca3_to_dg_fb_.deliver_spikes(ca3_.fired(), ca3_.spike_type());
-    auto i_dg_ca3 = syn_ca3_to_dg_fb_.step_and_compute(dg_.v_soma(), dt);
+    const auto& i_dg_ca3 = syn_ca3_to_dg_fb_.step_and_compute(dg_.v_soma(), dt);
     for (size_t i = 0; i < dg_.size(); ++i) dg_.inject_basal(i, i_dg_ca3[i]);
 
     // 12. Optional: CA1 → Presubiculum → EC
     if (config_.n_presub > 0) {
         syn_ca1_to_presub_.deliver_spikes(ca1_.fired(), ca1_.spike_type());
-        auto i_presub = syn_ca1_to_presub_.step_and_compute(presub_.v_soma(), dt);
+        const auto& i_presub = syn_ca1_to_presub_.step_and_compute(presub_.v_soma(), dt);
         for (size_t i = 0; i < presub_.size(); ++i) presub_.inject_basal(i, i_presub[i]);
 
         syn_presub_to_ec_.deliver_spikes(presub_.fired(), presub_.spike_type());
-        auto i_ec_presub = syn_presub_to_ec_.step_and_compute(ec_.v_soma(), dt);
+        const auto& i_ec_presub = syn_presub_to_ec_.step_and_compute(ec_.v_soma(), dt);
         for (size_t i = 0; i < ec_.size(); ++i) ec_.inject_basal(i, i_ec_presub[i]);
     }
 
     // 13. Optional: CA1 → HATA
     if (config_.n_hata > 0) {
         syn_ca1_to_hata_.deliver_spikes(ca1_.fired(), ca1_.spike_type());
-        auto i_hata = syn_ca1_to_hata_.step_and_compute(hata_.v_soma(), dt);
+        const auto& i_hata = syn_ca1_to_hata_.step_and_compute(hata_.v_soma(), dt);
         for (size_t i = 0; i < hata_.size(); ++i) hata_.inject_basal(i, i_hata[i]);
     }
 

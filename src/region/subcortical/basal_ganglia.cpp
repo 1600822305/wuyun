@@ -367,22 +367,22 @@ void BasalGanglia::step(int32_t t, float dt) {
 
     // 1. D1 → GPi (inhibit GPi = allow action)
     syn_d1_to_gpi_.deliver_spikes(d1_msn_.fired(), d1_msn_.spike_type());
-    auto i_gpi_d1 = syn_d1_to_gpi_.step_and_compute(gpi_.v_soma(), dt);
+    const auto& i_gpi_d1 = syn_d1_to_gpi_.step_and_compute(gpi_.v_soma(), dt);
     for (size_t i = 0; i < gpi_.size(); ++i) gpi_.inject_basal(i, i_gpi_d1[i]);
 
     // 2. D2 → GPe
     syn_d2_to_gpe_.deliver_spikes(d2_msn_.fired(), d2_msn_.spike_type());
-    auto i_gpe_d2 = syn_d2_to_gpe_.step_and_compute(gpe_.v_soma(), dt);
+    const auto& i_gpe_d2 = syn_d2_to_gpe_.step_and_compute(gpe_.v_soma(), dt);
     for (size_t i = 0; i < gpe_.size(); ++i) gpe_.inject_basal(i, i_gpe_d2[i]);
 
     // 3. GPe → STN (inhibit STN)
     syn_gpe_to_stn_.deliver_spikes(gpe_.fired(), gpe_.spike_type());
-    auto i_stn_gpe = syn_gpe_to_stn_.step_and_compute(stn_.v_soma(), dt);
+    const auto& i_stn_gpe = syn_gpe_to_stn_.step_and_compute(stn_.v_soma(), dt);
     for (size_t i = 0; i < stn_.size(); ++i) stn_.inject_basal(i, i_stn_gpe[i]);
 
     // 4. STN → GPi (excite GPi = brake)
     syn_stn_to_gpi_.deliver_spikes(stn_.fired(), stn_.spike_type());
-    auto i_gpi_stn = syn_stn_to_gpi_.step_and_compute(gpi_.v_soma(), dt);
+    const auto& i_gpi_stn = syn_stn_to_gpi_.step_and_compute(gpi_.v_soma(), dt);
     for (size_t i = 0; i < gpi_.size(); ++i) gpi_.inject_basal(i, i_gpi_stn[i]);
 
     // Step all populations

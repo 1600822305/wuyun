@@ -113,7 +113,7 @@ void Hypothalamus::step(int32_t t, float dt) {
     // SCN → VLPO synapse (circadian gate: SCN inhibits VLPO during day)
     // Actually SCN's effect is complex - simplified: SCN excites VLPO at night
     syn_scn_to_vlpo_.deliver_spikes(scn_.fired(), scn_.spike_type());
-    auto scn_cur = syn_scn_to_vlpo_.step_and_compute(vlpo_.v_soma(), dt);
+    const auto& scn_cur = syn_scn_to_vlpo_.step_and_compute(vlpo_.v_soma(), dt);
     for (size_t i = 0; i < vlpo_.size(); ++i) {
         if (std::abs(scn_cur[i]) > 0.01f)
             vlpo_.inject_basal(i, scn_cur[i]);
@@ -137,7 +137,7 @@ void Hypothalamus::step(int32_t t, float dt) {
     // =========================================================
     // VLPO → Orexin (sleep inhibits wake)
     syn_vlpo_to_orexin_.deliver_spikes(vlpo_.fired(), vlpo_.spike_type());
-    auto vlpo_cur = syn_vlpo_to_orexin_.step_and_compute(orexin_.v_soma(), dt);
+    const auto& vlpo_cur = syn_vlpo_to_orexin_.step_and_compute(orexin_.v_soma(), dt);
     for (size_t i = 0; i < orexin_.size(); ++i) {
         if (std::abs(vlpo_cur[i]) > 0.01f)
             orexin_.inject_basal(i, vlpo_cur[i]);
@@ -145,7 +145,7 @@ void Hypothalamus::step(int32_t t, float dt) {
 
     // Orexin → VLPO (wake inhibits sleep)
     syn_orexin_to_vlpo_.deliver_spikes(orexin_.fired(), orexin_.spike_type());
-    auto orx_cur = syn_orexin_to_vlpo_.step_and_compute(vlpo_.v_soma(), dt);
+    const auto& orx_cur = syn_orexin_to_vlpo_.step_and_compute(vlpo_.v_soma(), dt);
     for (size_t i = 0; i < vlpo_.size(); ++i) {
         if (std::abs(orx_cur[i]) > 0.01f)
             vlpo_.inject_basal(i, orx_cur[i]);
@@ -175,7 +175,7 @@ void Hypothalamus::step(int32_t t, float dt) {
 
     // LH → VMH (hunger inhibits satiety)
     syn_lh_to_vmh_.deliver_spikes(lh_.fired(), lh_.spike_type());
-    auto lh_cur = syn_lh_to_vmh_.step_and_compute(vmh_.v_soma(), dt);
+    const auto& lh_cur = syn_lh_to_vmh_.step_and_compute(vmh_.v_soma(), dt);
     for (size_t i = 0; i < vmh_.size(); ++i) {
         if (std::abs(lh_cur[i]) > 0.01f)
             vmh_.inject_basal(i, lh_cur[i]);
@@ -183,7 +183,7 @@ void Hypothalamus::step(int32_t t, float dt) {
 
     // VMH → LH (satiety inhibits hunger)
     syn_vmh_to_lh_.deliver_spikes(vmh_.fired(), vmh_.spike_type());
-    auto vmh_cur = syn_vmh_to_lh_.step_and_compute(lh_.v_soma(), dt);
+    const auto& vmh_cur = syn_vmh_to_lh_.step_and_compute(lh_.v_soma(), dt);
     for (size_t i = 0; i < lh_.size(); ++i) {
         if (std::abs(vmh_cur[i]) > 0.01f)
             lh_.inject_basal(i, vmh_cur[i]);

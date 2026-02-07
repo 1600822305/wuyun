@@ -83,14 +83,14 @@ void ThalamicRelay::step(int32_t t, float dt) {
 
     // 1. Relay → TRN (excitatory drive)
     syn_relay_to_trn_.deliver_spikes(relay_.fired(), relay_.spike_type());
-    auto i_trn = syn_relay_to_trn_.step_and_compute(trn_.v_soma(), dt);
+    const auto& i_trn = syn_relay_to_trn_.step_and_compute(trn_.v_soma(), dt);
     for (size_t i = 0; i < trn_.size(); ++i) {
         trn_.inject_basal(i, i_trn[i]);
     }
 
     // 2. TRN → Relay (inhibitory)
     syn_trn_to_relay_.deliver_spikes(trn_.fired(), trn_.spike_type());
-    auto i_relay_inh = syn_trn_to_relay_.step_and_compute(relay_.v_soma(), dt);
+    const auto& i_relay_inh = syn_trn_to_relay_.step_and_compute(relay_.v_soma(), dt);
     for (size_t i = 0; i < relay_.size(); ++i) {
         relay_.inject_basal(i, i_relay_inh[i]);
     }

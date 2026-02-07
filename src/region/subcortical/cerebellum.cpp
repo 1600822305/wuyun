@@ -176,15 +176,15 @@ void Cerebellum::step(int32_t t, float dt) {
 
     // 4. GrC → PC (parallel fibers), GrC → MLI, GrC → Golgi
     syn_pf_to_pc_.deliver_spikes(grc_.fired(), grc_.spike_type());
-    auto i_pc_pf = syn_pf_to_pc_.step_and_compute(pc_.v_soma(), dt);
+    const auto& i_pc_pf = syn_pf_to_pc_.step_and_compute(pc_.v_soma(), dt);
     for (size_t i = 0; i < pc_.size(); ++i) pc_.inject_basal(i, i_pc_pf[i]);
 
     syn_pf_to_mli_.deliver_spikes(grc_.fired(), grc_.spike_type());
-    auto i_mli_pf = syn_pf_to_mli_.step_and_compute(mli_.v_soma(), dt);
+    const auto& i_mli_pf = syn_pf_to_mli_.step_and_compute(mli_.v_soma(), dt);
     for (size_t i = 0; i < mli_.size(); ++i) mli_.inject_basal(i, i_mli_pf[i]);
 
     syn_grc_to_golgi_.deliver_spikes(grc_.fired(), grc_.spike_type());
-    auto i_golgi_grc = syn_grc_to_golgi_.step_and_compute(golgi_.v_soma(), dt);
+    const auto& i_golgi_grc = syn_grc_to_golgi_.step_and_compute(golgi_.v_soma(), dt);
     for (size_t i = 0; i < golgi_.size(); ++i) golgi_.inject_basal(i, i_golgi_grc[i]);
 
     // 5. Climbing fiber: inject error signal directly into PC
@@ -198,7 +198,7 @@ void Cerebellum::step(int32_t t, float dt) {
     // 6. Step MLI, then MLI → PC (inhibition)
     mli_.step(t, dt);
     syn_mli_to_pc_.deliver_spikes(mli_.fired(), mli_.spike_type());
-    auto i_pc_mli = syn_mli_to_pc_.step_and_compute(pc_.v_soma(), dt);
+    const auto& i_pc_mli = syn_mli_to_pc_.step_and_compute(pc_.v_soma(), dt);
     for (size_t i = 0; i < pc_.size(); ++i) pc_.inject_basal(i, i_pc_mli[i]);
 
     // 7. Step PC
@@ -207,12 +207,12 @@ void Cerebellum::step(int32_t t, float dt) {
     // 8. Step Golgi, then Golgi → GrC (feedback inhibition, for next step)
     golgi_.step(t, dt);
     syn_golgi_to_grc_.deliver_spikes(golgi_.fired(), golgi_.spike_type());
-    auto i_grc_golgi = syn_golgi_to_grc_.step_and_compute(grc_.v_soma(), dt);
+    const auto& i_grc_golgi = syn_golgi_to_grc_.step_and_compute(grc_.v_soma(), dt);
     for (size_t i = 0; i < grc_.size(); ++i) grc_.inject_basal(i, i_grc_golgi[i]);
 
     // 9. PC → DCN (inhibitory output)
     syn_pc_to_dcn_.deliver_spikes(pc_.fired(), pc_.spike_type());
-    auto i_dcn_pc = syn_pc_to_dcn_.step_and_compute(dcn_.v_soma(), dt);
+    const auto& i_dcn_pc = syn_pc_to_dcn_.step_and_compute(dcn_.v_soma(), dt);
     for (size_t i = 0; i < dcn_.size(); ++i) dcn_.inject_basal(i, i_dcn_pc[i]);
 
     // 10. Step DCN

@@ -6,6 +6,28 @@
 
 namespace wuyun {
 
+// NMDA B(V) lookup table: 256 entries, V from -100 to +50 mV
+// B(V) = 1/(1 + [Mg2+]/3.57 * exp(-0.062*V)), precomputed for [Mg2+]=1.0
+static float nmda_b_table[256];
+static bool  nmda_table_init = false;
+
+static void init_nmda_table() {
+    if (nmda_table_init) return;
+    for (int i = 0; i < 256; ++i) {
+        float v = -100.0f + i * (150.0f / 255.0f);  // -100 to +50 mV
+        nmda_b_table[i] = 1.0f / (1.0f + (1.0f / 3.57f) * std::exp(-0.062f * v));
+    }
+    nmda_table_init = true;
+}
+
+static inline float nmda_b_lookup(float v) {
+    float idx_f = (v + 100.0f) * (255.0f / 150.0f);
+    int idx = static_cast<int>(idx_f);
+    if (idx < 0) idx = 0;
+    if (idx > 255) idx = 255;
+    return nmda_b_table[idx];
+}
+
 SynapseGroup::SynapseGroup(
     size_t n_pre,
     size_t n_post,
@@ -58,6 +80,9 @@ SynapseGroup::SynapseGroup(
     }
     weights_ = std::move(sorted_weights);
     delays_  = std::move(sorted_delays);
+
+    // Init NMDA lookup table once
+    if (mg_conc_ > 0.0f) init_nmda_table();
 }
 
 void SynapseGroup::enable_stp(const STPParams& params) {
@@ -75,15 +100,14 @@ void SynapseGroup::deliver_spikes(
     const std::vector<int8_t>& pre_spike_type
 ) {
     for (size_t pre = 0; pre < n_pre_; ++pre) {
-        bool fired = pre_fired[pre] != 0;
-
-        // STP: update state every step, get gain
-        float stp_gain = 1.0f;
-        if (stp_enabled_) {
-            stp_gain = stp_step(stp_states_[pre], stp_params_, fired);
+        if (!pre_fired[pre]) {
+            // STP decay only (no spike): cheaper path
+            if (stp_enabled_) stp_step(stp_states_[pre], stp_params_, false);
+            continue;
         }
 
-        if (!fired) continue;
+        // Neuron fired
+        float stp_gain = stp_enabled_ ? stp_step(stp_states_[pre], stp_params_, true) : 1.0f;
 
         // Burst spikes carry stronger signal (x2) than regular (x1)
         auto st = static_cast<SpikeType>(pre_spike_type[pre]);
@@ -99,33 +123,32 @@ void SynapseGroup::deliver_spikes(
     }
 }
 
-std::vector<float> SynapseGroup::step_and_compute(
+const std::vector<float>& SynapseGroup::step_and_compute(
     const std::vector<float>& v_post,
     float dt
 ) {
-    // Clear output buffer
+    // Clear output buffer (reused, no allocation)
     std::fill(i_post_.begin(), i_post_.end(), 0.0f);
 
     float decay = dt / tau_decay_;
     size_t n_syn = col_idx_.size();
+    bool has_nmda = (mg_conc_ > 0.0f);
 
     for (size_t s = 0; s < n_syn; ++s) {
-        // Decay gating variable: ds/dt = -s / tau_decay
+        // Decay gating variable
         g_[s] -= g_[s] * decay;
 
-        // I_syn = g_max * w * s * B(V) * (E_rev - V_post)
-        // B(V) = 1/(1 + [Mg²⁺]/3.57 · exp(-0.062·V))  (NMDA only)
         size_t post = static_cast<size_t>(col_idx_[s]);
         float v = v_post[post];
-        float b_v = 1.0f;
-        if (mg_conc_ > 0.0f) {
-            b_v = 1.0f / (1.0f + (mg_conc_ / 3.57f) * std::exp(-0.062f * v));
-        }
+
+        // B(V) lookup table for NMDA (replaces std::exp per synapse)
+        float b_v = has_nmda ? nmda_b_lookup(v) : 1.0f;
+
         float i_syn = g_max_ * weights_[s] * g_[s] * b_v * (e_rev_ - v);
         i_post_[post] += i_syn;
     }
 
-    return i_post_;
+    return i_post_;  // zero-copy: return reference to internal buffer
 }
 
 void SynapseGroup::enable_stdp(const STDPParams& params) {

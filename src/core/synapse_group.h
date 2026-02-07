@@ -50,13 +50,10 @@ public:
                         const std::vector<int8_t>& pre_spike_type);
 
     /**
-     * 更新门控变量并计算突触电流
-     *
-     * @param v_post  突触后膜电位数组
-     * @param dt      时间步长
-     * @return 聚合到每个 post 神经元的突触电流
+     * 更新门控变量并计算突触电流 (零拷贝: 返回内部缓冲引用)
+     * 注意: 返回的引用在下次调用前有效
      */
-    std::vector<float> step_and_compute(const std::vector<float>& v_post, float dt = 1.0f);
+    const std::vector<float>& step_and_compute(const std::vector<float>& v_post, float dt = 1.0f);
 
     // --- 访问器 ---
     size_t n_synapses() const { return col_idx_.size(); }

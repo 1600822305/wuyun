@@ -207,21 +207,16 @@ void CorticalColumn::deliver_and_inject(
     if (syn.n_synapses() == 0) return;
 
     syn.deliver_spikes(pre.fired(), pre.spike_type());
-    auto currents = syn.step_and_compute(post.v_soma(), dt);
+    const auto& currents = syn.step_and_compute(post.v_soma(), dt);
 
     CompartmentType target = syn.target();
     for (size_t i = 0; i < post.size(); ++i) {
-        if (std::abs(currents[i]) < 1e-12f) continue;
+        float c = currents[i];
+        if (c > -1e-12f && c < 1e-12f) continue;  // branchless-friendly zero check
         switch (target) {
-            case CompartmentType::BASAL:
-                post.inject_basal(i, currents[i]);
-                break;
-            case CompartmentType::APICAL:
-                post.inject_apical(i, currents[i]);
-                break;
-            case CompartmentType::SOMA:
-                post.inject_soma(i, currents[i]);
-                break;
+            case CompartmentType::BASAL:  post.inject_basal(i, c);  break;
+            case CompartmentType::APICAL: post.inject_apical(i, c); break;
+            case CompartmentType::SOMA:   post.inject_soma(i, c);   break;
         }
     }
 }

@@ -6,7 +6,11 @@ namespace wuyun {
 SpikeBus::SpikeBus(int32_t max_delay)
     : max_delay_(max_delay)
     , delay_buffer_(static_cast<size_t>(max_delay + 1))
-{}
+{
+    // Pre-allocate delay buffer slots to avoid realloc during simulation
+    for (auto& slot : delay_buffer_) slot.reserve(256);
+    query_result_.reserve(256);
+}
 
 uint32_t SpikeBus::register_region(const std::string& name, size_t n_neurons) {
     uint32_t id = static_cast<uint32_t>(region_names_.size());
@@ -44,16 +48,16 @@ void SpikeBus::submit_spikes(uint32_t region_id,
     }
 }
 
-std::vector<SpikeEvent> SpikeBus::get_arriving_spikes(uint32_t dst_region, int32_t t) const {
-    std::vector<SpikeEvent> result;
+const std::vector<SpikeEvent>& SpikeBus::get_arriving_spikes(uint32_t dst_region, int32_t t) {
+    query_result_.clear();  // reuse allocated memory
     size_t slot = static_cast<size_t>(t % (max_delay_ + 1));
 
     for (const auto& evt : delay_buffer_[slot]) {
         if (evt.timestamp != t) continue;
         if (evt.dst_region != dst_region) continue;
-        result.push_back(evt);
+        query_result_.push_back(evt);
     }
-    return result;
+    return query_result_;
 }
 
 void SpikeBus::advance(int32_t t) {

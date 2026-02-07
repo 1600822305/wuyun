@@ -166,60 +166,60 @@ void Amygdala::step(int32_t t, float dt) {
 
     // 1. La → BLA
     syn_la_to_bla_.deliver_spikes(la_.fired(), la_.spike_type());
-    auto i_bla = syn_la_to_bla_.step_and_compute(bla_.v_soma(), dt);
+    const auto& i_bla = syn_la_to_bla_.step_and_compute(bla_.v_soma(), dt);
     for (size_t i = 0; i < bla_.size(); ++i) bla_.inject_basal(i, i_bla[i]);
 
     // 2. BLA recurrent
     syn_bla_rec_.deliver_spikes(bla_.fired(), bla_.spike_type());
-    auto i_bla_rec = syn_bla_rec_.step_and_compute(bla_.v_soma(), dt);
+    const auto& i_bla_rec = syn_bla_rec_.step_and_compute(bla_.v_soma(), dt);
     for (size_t i = 0; i < bla_.size(); ++i) bla_.inject_basal(i, i_bla_rec[i]);
 
     // 3. BLA → CeA (fear expression)
     syn_bla_to_cea_.deliver_spikes(bla_.fired(), bla_.spike_type());
-    auto i_cea_bla = syn_bla_to_cea_.step_and_compute(cea_.v_soma(), dt);
+    const auto& i_cea_bla = syn_bla_to_cea_.step_and_compute(cea_.v_soma(), dt);
     for (size_t i = 0; i < cea_.size(); ++i) cea_.inject_basal(i, i_cea_bla[i]);
 
     // 4. La → CeA (direct fast path)
     syn_la_to_cea_.deliver_spikes(la_.fired(), la_.spike_type());
-    auto i_cea_la = syn_la_to_cea_.step_and_compute(cea_.v_soma(), dt);
+    const auto& i_cea_la = syn_la_to_cea_.step_and_compute(cea_.v_soma(), dt);
     for (size_t i = 0; i < cea_.size(); ++i) cea_.inject_basal(i, i_cea_la[i]);
 
     // 5. BLA → ITC (drives gate)
     syn_bla_to_itc_.deliver_spikes(bla_.fired(), bla_.spike_type());
-    auto i_itc = syn_bla_to_itc_.step_and_compute(itc_.v_soma(), dt);
+    const auto& i_itc = syn_bla_to_itc_.step_and_compute(itc_.v_soma(), dt);
     for (size_t i = 0; i < itc_.size(); ++i) itc_.inject_basal(i, i_itc[i]);
 
     // 6. ITC → CeA (inhibitory gate: extinction)
     syn_itc_to_cea_.deliver_spikes(itc_.fired(), itc_.spike_type());
-    auto i_cea_itc = syn_itc_to_cea_.step_and_compute(cea_.v_soma(), dt);
+    const auto& i_cea_itc = syn_itc_to_cea_.step_and_compute(cea_.v_soma(), dt);
     for (size_t i = 0; i < cea_.size(); ++i) cea_.inject_basal(i, i_cea_itc[i]);
 
     // 7. Optional: La → MeA, MeA → CeA
     if (config_.n_mea > 0) {
         syn_la_to_mea_.deliver_spikes(la_.fired(), la_.spike_type());
-        auto i_mea = syn_la_to_mea_.step_and_compute(mea_.v_soma(), dt);
+        const auto& i_mea = syn_la_to_mea_.step_and_compute(mea_.v_soma(), dt);
         for (size_t i = 0; i < mea_.size(); ++i) mea_.inject_basal(i, i_mea[i]);
 
         syn_mea_to_cea_.deliver_spikes(mea_.fired(), mea_.spike_type());
-        auto i_cea_mea = syn_mea_to_cea_.step_and_compute(cea_.v_soma(), dt);
+        const auto& i_cea_mea = syn_mea_to_cea_.step_and_compute(cea_.v_soma(), dt);
         for (size_t i = 0; i < cea_.size(); ++i) cea_.inject_basal(i, i_cea_mea[i]);
     }
 
     // 8. Optional: La → CoA
     if (config_.n_coa > 0) {
         syn_la_to_coa_.deliver_spikes(la_.fired(), la_.spike_type());
-        auto i_coa = syn_la_to_coa_.step_and_compute(coa_.v_soma(), dt);
+        const auto& i_coa = syn_la_to_coa_.step_and_compute(coa_.v_soma(), dt);
         for (size_t i = 0; i < coa_.size(); ++i) coa_.inject_basal(i, i_coa[i]);
     }
 
     // 9. Optional: BLA → AB → CeA
     if (config_.n_ab > 0) {
         syn_bla_to_ab_.deliver_spikes(bla_.fired(), bla_.spike_type());
-        auto i_ab = syn_bla_to_ab_.step_and_compute(ab_.v_soma(), dt);
+        const auto& i_ab = syn_bla_to_ab_.step_and_compute(ab_.v_soma(), dt);
         for (size_t i = 0; i < ab_.size(); ++i) ab_.inject_basal(i, i_ab[i]);
 
         syn_ab_to_cea_.deliver_spikes(ab_.fired(), ab_.spike_type());
-        auto i_cea_ab = syn_ab_to_cea_.step_and_compute(cea_.v_soma(), dt);
+        const auto& i_cea_ab = syn_ab_to_cea_.step_and_compute(cea_.v_soma(), dt);
         for (size_t i = 0; i < cea_.size(); ++i) cea_.inject_basal(i, i_cea_ab[i]);
     }
 

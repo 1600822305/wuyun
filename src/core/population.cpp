@@ -1,6 +1,7 @@
 #include "core/population.h"
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 #ifdef WUYUN_OPENMP
 #include <omp.h>
@@ -183,22 +184,21 @@ void NeuronPopulation::update_soma_and_fire(size_t i, int /*t*/, float dt) {
 // =============================================================================
 
 size_t NeuronPopulation::step(int t, float dt) {
-    // 清零输出
-    std::fill(fired_.begin(), fired_.end(), static_cast<uint8_t>(0));
-    std::fill(spike_type_.begin(), spike_type_.end(),
-              static_cast<int8_t>(SpikeType::NONE));
+    // 清零输出 (use memset for speed on large arrays)
+    memset(fired_.data(), 0, n_);
+    memset(spike_type_.data(), static_cast<int>(SpikeType::NONE), n_);
 
     // Step 1: 顶端树突更新
     if (has_apical_) {
         update_apical(dt);
     }
 
-    // Step 2-3: 对每个神经元，根据状态选择路径
-    // OpenMP: parallelize for populations >= 64 neurons (avoid thread overhead for small pops)
+    // Step 2-3: 对每个神经元 + 合并 fire count (消除单独计数循环)
+    size_t fire_count = 0;
     {
         int nn = static_cast<int>(n_);
 #ifdef WUYUN_OPENMP
-        #pragma omp parallel for schedule(static) if(nn >= 64)
+        #pragma omp parallel for schedule(static) if(nn >= 256) reduction(+:fire_count)
 #endif
         for (int ii = 0; ii < nn; ++ii) {
             size_t i = static_cast<size_t>(ii);
@@ -207,17 +207,15 @@ size_t NeuronPopulation::step(int t, float dt) {
             } else {
                 update_soma_and_fire(i, t, dt);
             }
+            fire_count += fired_[i];
         }
     }
 
-    // 清空输入
-    clear_inputs();
+    // 清空输入 (memset for speed)
+    memset(i_basal_.data(), 0, n_ * sizeof(float));
+    memset(i_soma_.data(), 0, n_ * sizeof(float));
+    if (has_apical_) memset(i_apical_.data(), 0, n_ * sizeof(float));
 
-    // 统计发放数
-    size_t fire_count = 0;
-    for (size_t i = 0; i < n_; ++i) {
-        fire_count += fired_[i];
-    }
     return fire_count;
 }
 

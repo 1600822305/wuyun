@@ -65,7 +65,7 @@ void MammillaryBody::step(int32_t t, float dt) {
 
     // Medial → Lateral
     syn_med_to_lat_.deliver_spikes(medial_.fired(), medial_.spike_type());
-    auto lat_currents = syn_med_to_lat_.step_and_compute(lateral_.v_soma(), dt);
+    const auto& lat_currents = syn_med_to_lat_.step_and_compute(lateral_.v_soma(), dt);
     for (size_t i = 0; i < lateral_.size(); ++i) {
         if (std::abs(lat_currents[i]) > 0.01f) {
             lateral_.inject_basal(i, lat_currents[i]);

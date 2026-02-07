@@ -75,13 +75,10 @@ public:
                        int32_t t);
 
     /**
-     * 获取当前步应该到达目标区域的脉冲
-     *
-     * @param dst_region  目标区域 ID
-     * @param t           当前时间步
-     * @return 到达该区域的脉冲事件列表
+     * 获取当前步应该到达目标区域的脉冲 (零拷贝: 返回内部缓冲引用)
+     * 注意: 引用在 advance() 之前有效
      */
-    std::vector<SpikeEvent> get_arriving_spikes(uint32_t dst_region, int32_t t) const;
+    const std::vector<SpikeEvent>& get_arriving_spikes(uint32_t dst_region, int32_t t);
 
     /** 推进时钟 (清理过期缓冲) */
     void advance(int32_t t);
@@ -104,6 +101,9 @@ private:
     // 延迟缓冲: delay_buffer_[slot] = vector of SpikeEvents
     // slot = t % (max_delay + 1)
     std::vector<std::vector<SpikeEvent>> delay_buffer_;
+
+    // 查询结果缓冲 (零拷贝: 避免每次 get_arriving_spikes 分配新 vector)
+    std::vector<SpikeEvent> query_result_;
 };
 
 } // namespace wuyun
