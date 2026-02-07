@@ -78,8 +78,12 @@ static void test_learning_curve() {
            cfg.world_config.width, cfg.world_config.height,
            cfg.world_config.vision_side(), cfg.world_config.vision_side(),
            cfg.world_config.n_food, cfg.world_config.n_danger);
-    printf("  Brain: V1=%zu, dlPFC=%zu, LGN=%zu neurons\n",
-           agent.v1()->n_neurons(), agent.dlpfc()->n_neurons(), agent.lgn()->n_neurons());
+    printf("  Brain: V1=%zu, V2=%zu, V4=%zu, IT=%zu, dlPFC=%zu, LGN=%zu neurons\n",
+           agent.v1()->n_neurons(),
+           agent.v2() ? agent.v2()->n_neurons() : 0,
+           agent.v4() ? agent.v4()->n_neurons() : 0,
+           agent.it_ctx() ? agent.it_ctx()->n_neurons() : 0,
+           agent.dlpfc()->n_neurons(), agent.lgn()->n_neurons());
     printf("  Features: PC=%s, Sleep=%s, Replay=%s\n",
            cfg.enable_predictive_coding ? "ON" : "OFF",
            cfg.enable_sleep_consolidation ? "ON" : "OFF",

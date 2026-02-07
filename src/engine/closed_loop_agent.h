@@ -49,7 +49,8 @@ struct AgentConfig {
     size_t vision_height = 5;
 
     // Action decoding
-    size_t brain_steps_per_action = 15;  // 每个环境步的脑步数 (LGN→V1→dlPFC→BG需7步延迟)
+    // v24: 15→20, visual hierarchy LGN→V1→V2→V4→IT→dlPFC→BG needs ~14 steps pipeline
+    size_t brain_steps_per_action = 20;
     size_t reward_processing_steps = 5;  // 奖励处理步数 (DA传播到BG)
 
     // Reward scaling
@@ -191,6 +192,9 @@ public:
     // --- 诊断 ---
     BrainRegion*    lgn()   const { return lgn_; }
     CorticalRegion* v1()    const { return v1_; }
+    CorticalRegion* v2()    const { return v2_; }
+    CorticalRegion* v4()    const { return v4_; }
+    CorticalRegion* it_ctx() const { return it_; }  // "it" is C++ keyword-adjacent, use it_ctx
     CorticalRegion* dlpfc() const { return dlpfc_; }
     CorticalRegion* m1()    const { return m1_; }
     BasalGanglia*   bg()    const { return bg_; }
@@ -209,6 +213,9 @@ private:
     // Cached region pointers
     BrainRegion*    lgn_   = nullptr;
     CorticalRegion* v1_    = nullptr;
+    CorticalRegion* v2_    = nullptr;   // Step 24: visual hierarchy
+    CorticalRegion* v4_    = nullptr;   // Step 24: visual hierarchy
+    CorticalRegion* it_    = nullptr;   // Step 24: invariant object recognition
     CorticalRegion* dlpfc_ = nullptr;
     CorticalRegion* m1_    = nullptr;
     BasalGanglia*   bg_    = nullptr;

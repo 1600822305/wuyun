@@ -74,10 +74,14 @@ void ClosedLoopAgent::build_brain() {
     };
 
     bool ctx_stdp = config_.enable_cortical_stdp && !config_.fast_eval;
-    // V1: primary visual cortex — STDP learns visual feature selectivity
-    // Scale with vision size: more pixels → more V1 neurons for feature extraction
+    // ===== Visual hierarchy: V1 → V2 → V4 → IT (ventral "what" pathway) =====
+    // Biology: each level extracts increasingly invariant features
+    //   V1: edge/orientation → V2: texture/contour → V4: shape/color → IT: object identity
+    // IT output is position-invariant → generalizes across food/danger locations
     float vis_scale = static_cast<float>(n_vis_pixels) / 9.0f;  // 1.0 for 3×3, ~2.8 for 5×5
     float v1f = config_.v1_size_factor;
+
+    // V1: primary visual — STDP learns oriented edge filters
     size_t v1_l4  = static_cast<size_t>(30 * vis_scale * v1f);
     size_t v1_l23 = static_cast<size_t>(60 * vis_scale * v1f);
     size_t v1_l5  = static_cast<size_t>(30 * vis_scale * v1f);
@@ -85,9 +89,37 @@ void ClosedLoopAgent::build_brain() {
     size_t v1_pv  = static_cast<size_t>(10 * vis_scale * v1f);
     size_t v1_sst = static_cast<size_t>(6 * vis_scale * v1f);
     add_ctx("V1", v1_l4, v1_l23, v1_l5, v1_l6, v1_pv, v1_sst, 3, ctx_stdp);
-    // dlPFC: decision making + working memory — NO STDP (representation stability
-    //        needed for BG DA-STDP to learn stable action associations)
-    // Slight scale for larger V1 input (sqrt to prevent over-scaling)
+
+    // V2: secondary visual — STDP learns texture/contour combinations
+    // ~70% of V1 size (biological: V2 < V1)
+    float v2_scale = vis_scale * 0.7f;
+    add_ctx("V2",
+        static_cast<size_t>(25 * v2_scale), static_cast<size_t>(45 * v2_scale),
+        static_cast<size_t>(22 * v2_scale), static_cast<size_t>(18 * v2_scale),
+        static_cast<size_t>(8 * v2_scale),  static_cast<size_t>(5 * v2_scale),
+        static_cast<size_t>(2 * v2_scale), ctx_stdp);
+
+    // V4: intermediate visual — STDP learns shape/color conjunctions
+    // ~50% of V1 size
+    float v4_scale = vis_scale * 0.5f;
+    add_ctx("V4",
+        static_cast<size_t>(20 * v4_scale), static_cast<size_t>(35 * v4_scale),
+        static_cast<size_t>(18 * v4_scale), static_cast<size_t>(14 * v4_scale),
+        static_cast<size_t>(6 * v4_scale),  static_cast<size_t>(4 * v4_scale),
+        static_cast<size_t>(2 * v4_scale), ctx_stdp);
+
+    // IT: inferotemporal — NO STDP (stable object identity representations)
+    // ~35% of V1 size, provides position-invariant "what" signal to dlPFC
+    // Biology: IT neurons respond to object identity regardless of position/size
+    float it_scale = vis_scale * 0.35f;
+    add_ctx("IT",
+        static_cast<size_t>(15 * it_scale), static_cast<size_t>(30 * it_scale),
+        static_cast<size_t>(15 * it_scale), static_cast<size_t>(12 * it_scale),
+        static_cast<size_t>(5 * it_scale),  static_cast<size_t>(3 * it_scale),
+        static_cast<size_t>(2 * it_scale), false);  // NO STDP: representation stability for BG
+
+    // dlPFC: decision making + working memory — NO STDP
+    // Receives from IT (invariant objects) instead of V1 (raw pixels)
     float dlpfc_scale = std::sqrt(vis_scale) * config_.dlpfc_size_factor;
     size_t dl_l4  = static_cast<size_t>(20 * dlpfc_scale);
     size_t dl_l23 = static_cast<size_t>(50 * dlpfc_scale);
@@ -166,9 +198,19 @@ void ClosedLoopAgent::build_brain() {
 
     // --- Projections (core closed-loop circuit) ---
 
-    // Visual pathway: LGN → V1 → dlPFC
+    // Visual hierarchy (ventral "what" pathway): LGN → V1 → V2 → V4 → IT → dlPFC
+    // Each level extracts increasingly abstract/invariant features
+    // IT provides position-invariant "food"/"danger" representations to dlPFC
     engine_.add_projection("LGN", "V1", 2);
-    engine_.add_projection("V1", "dlPFC", 2);
+    engine_.add_projection("V1", "V2", 2);       // edges → textures
+    engine_.add_projection("V2", "V4", 2);       // textures → shapes
+    engine_.add_projection("V4", "IT", 2);       // shapes → objects (invariant)
+    engine_.add_projection("IT", "dlPFC", 2);    // objects → decisions
+
+    // Feedback projections (top-down prediction, slower)
+    engine_.add_projection("V2", "V1", 3);
+    engine_.add_projection("V4", "V2", 3);
+    engine_.add_projection("IT", "V4", 3);
 
     // Decision → action: dlPFC → BG → MotorThal → M1
     engine_.add_projection("dlPFC", "BG", 2);
@@ -178,20 +220,18 @@ void ClosedLoopAgent::build_brain() {
     // Feedback: M1 → dlPFC (efference copy)
     engine_.add_projection("M1", "dlPFC", 3);
 
-    // Predictive coding: dlPFC → V1 (top-down attentional feedback)
-    // Gated by config: doesn't help in small 3x3 visual field (5 rounds of tuning confirmed).
-    // Infrastructure ready for larger environments.
+    // Predictive coding: dlPFC → IT (top-down attentional feedback)
+    // With visual hierarchy, dlPFC feeds back to IT (not V1 directly)
+    // IT propagates predictions down through V4→V2→V1 via existing feedback projections
     if (config_.enable_predictive_coding) {
-        engine_.add_projection("dlPFC", "V1", 3);
+        engine_.add_projection("dlPFC", "IT", 3);
     }
 
-    // Memory: dlPFC → Hippocampus (encode context)
+    // Memory: dlPFC + IT → Hippocampus (encode context + object identity)
     if (!config_.fast_eval) {
         engine_.add_projection("dlPFC", "Hippocampus", 3);
-        engine_.add_projection("V1", "Hippocampus", 3);
+        engine_.add_projection("IT", "Hippocampus", 3);   // v24: V1→IT, invariant object memory
         // Hippocampus → dlPFC (memory retrieval → decision bias)
-        // Biology: Sub → EC → mPFC/dlPFC, the main hippocampal output pathway
-        // for memory-guided decision making (Preston & Eichenbaum 2013)
         engine_.add_projection("Hippocampus", "dlPFC", 3);
     }
 
@@ -207,10 +247,11 @@ void ClosedLoopAgent::build_brain() {
 
     // Amygdala fear circuit projections
     if (config_.enable_amygdala) {
-        // V1 → Amygdala La (visual CS input: "what does danger look like?")
-        // Biology: visual cortex → La via cortical pathway
-        // La receives visual patterns and learns to associate them with danger
-        engine_.add_projection("V1", "Amygdala", 2);
+        // Two fear pathways (LeDoux 1996):
+        //   Fast: V1 → Amygdala La (crude, fast, subcortical-like)
+        //   Slow: IT → Amygdala La (refined, invariant, cortical)
+        engine_.add_projection("V1", "Amygdala", 2);   // Fast: raw visual → fear (crude but quick)
+        engine_.add_projection("IT", "Amygdala", 3);   // Slow: invariant object → fear (precise)
         // Amygdala CeA → VTA (fear output → DA modulation)
         // Biology: CeA → RMTg GABA → VTA DA neurons (inhibition)
         engine_.add_projection("Amygdala", "VTA", 2);
@@ -233,6 +274,9 @@ void ClosedLoopAgent::build_brain() {
     // --- Cache region pointers ---
     lgn_   = engine_.find_region("LGN");
     v1_    = dynamic_cast<CorticalRegion*>(engine_.find_region("V1"));
+    v2_    = dynamic_cast<CorticalRegion*>(engine_.find_region("V2"));
+    v4_    = dynamic_cast<CorticalRegion*>(engine_.find_region("V4"));
+    it_    = dynamic_cast<CorticalRegion*>(engine_.find_region("IT"));
     dlpfc_ = dynamic_cast<CorticalRegion*>(engine_.find_region("dlPFC"));
     m1_    = dynamic_cast<CorticalRegion*>(engine_.find_region("M1"));
     bg_    = dynamic_cast<BasalGanglia*>(engine_.find_region("BG"));
@@ -241,28 +285,41 @@ void ClosedLoopAgent::build_brain() {
     lhb_   = dynamic_cast<LateralHabenula*>(engine_.find_region("LHb"));
     amyg_  = dynamic_cast<Amygdala*>(engine_.find_region("Amygdala"));
 
-    // --- Register topographic V1→dlPFC mapping (retinotopic) ---
-    // Preserves spatial structure: V1 left-field → dlPFC left zone
-    // Without this, neuron_id % L4_size scrambles all spatial information
-    if (v1_ && dlpfc_) {
-        dlpfc_->add_topographic_input(v1_->region_id(), v1_->n_neurons());
-    }
+    // --- Topographic mappings through visual hierarchy ---
+    // V1→V2: retinotopic (preserve spatial layout)
+    if (v1_ && v2_) v2_->add_topographic_input(v1_->region_id(), v1_->n_neurons());
+    // V2→V4: partial retinotopy
+    if (v2_ && v4_) v4_->add_topographic_input(v2_->region_id(), v2_->n_neurons());
+    // V4→IT: coarse spatial mapping (position invariance emerges through STDP)
+    if (v4_ && it_) it_->add_topographic_input(v4_->region_id(), v4_->n_neurons());
+    // IT→dlPFC: object identity → decision (replaces V1→dlPFC)
+    if (it_ && dlpfc_) dlpfc_->add_topographic_input(it_->region_id(), it_->n_neurons());
 
     // --- Register topographic dlPFC→BG mapping (corticostriatal somatotopy) ---
-    // dlPFC spatial zone → D1/D2 action subgroup (proportional mapping)
-    // Without this, random 20% connectivity scrambles direction information
-    // at the "last mile" before action selection
     if (dlpfc_ && bg_) {
         bg_->set_topographic_cortical_source(dlpfc_->region_id(), dlpfc_->n_neurons());
     }
 
-    // --- Enable predictive coding on V1 (if configured) ---
-    // dlPFC sends top-down attentional feedback to V1 L2/3 apical.
-    // Disabled by default: doesn't help in small 3x3 visual field.
-    if (config_.enable_predictive_coding && v1_ && dlpfc_) {
-        v1_->enable_predictive_coding();
-        v1_->add_feedback_source(dlpfc_->region_id());
-        v1_->add_topographic_input(dlpfc_->region_id(), dlpfc_->n_neurons());
+    // --- Enable predictive coding through visual hierarchy ---
+    // With V2/V4/IT, predictions flow top-down: dlPFC→IT→V4→V2→V1
+    if (config_.enable_predictive_coding) {
+        // Enable PC on each visual area with feedback from the level above
+        if (v1_ && v2_) {
+            v1_->enable_predictive_coding();
+            v1_->add_feedback_source(v2_->region_id());
+        }
+        if (v2_ && v4_) {
+            v2_->enable_predictive_coding();
+            v2_->add_feedback_source(v4_->region_id());
+        }
+        if (v4_ && it_) {
+            v4_->enable_predictive_coding();
+            v4_->add_feedback_source(it_->region_id());
+        }
+        if (it_ && dlpfc_) {
+            it_->enable_predictive_coding();
+            it_->add_feedback_source(dlpfc_->region_id());
+        }
     }
 
     // --- Enable homeostatic plasticity ---
@@ -272,9 +329,11 @@ void ClosedLoopAgent::build_brain() {
         hp.eta = config_.homeostatic_eta;
         hp.scale_interval = 100;
         v1_->enable_homeostatic(hp);
+        if (v2_) v2_->enable_homeostatic(hp);
+        if (v4_) v4_->enable_homeostatic(hp);
+        if (it_) it_->enable_homeostatic(hp);
         dlpfc_->enable_homeostatic(hp);
-        // M1 intentionally excluded: motor cortex driven by exploration noise,
-        // homeostatic plasticity would suppress noise-driven firing → agent freezes
+        // M1 intentionally excluded: motor cortex driven by exploration noise
         if (hipp_) hipp_->enable_homeostatic(hp);
     }
 
@@ -539,10 +598,10 @@ StepResult ClosedLoopAgent::agent_step() {
         }
 
         // Motor efference copy: mark current exploration direction in BG sensory slots.
-        // Combined with topographic V1→dlPFC→BG visual context, enables DA-STDP to
+        // Combined with visual hierarchy IT→dlPFC→BG context, enables DA-STDP to
         // learn joint "visual context + action → reward" associations.
-        // Only in late brain steps (i>=10) after visual pipeline establishes context.
-        if (i >= 10 && attractor_group >= 0) {
+        // v24: i>=14 (was 10): visual pipeline LGN→V1→V2→V4→IT→dlPFC needs ~12 steps
+        if (i >= 14 && attractor_group >= 0) {
             bg_->mark_motor_efference(attractor_group);
         }
     }
