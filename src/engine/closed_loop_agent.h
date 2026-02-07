@@ -42,7 +42,7 @@ namespace wuyun {
 
 struct AgentConfig {
     // Brain scale
-    int brain_scale = 1;  // 默认1, 诊断时用 cfg.brain_scale=10
+    int brain_scale = 1;  // scale=1 default (scale=3 暴露 D2 过度激活问题)
 
     // Perception (auto-computed from world_config.vision_radius in constructor)
     size_t vision_width  = 5;   // v21: default 5x5 local patch (vision_radius=2)
