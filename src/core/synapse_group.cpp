@@ -59,15 +59,18 @@ SynapseGroup::SynapseGroup(
 
 void SynapseGroup::deliver_spikes(
     const std::vector<uint8_t>& pre_fired,
-    const std::vector<int8_t>& /*pre_spike_type*/
+    const std::vector<int8_t>& pre_spike_type
 ) {
     // For each fired pre neuron, increment gating variable of its synapses
+    // Burst spikes carry stronger signal (x2) than regular spikes (x1)
     for (size_t pre = 0; pre < n_pre_; ++pre) {
         if (!pre_fired[pre]) continue;
+        auto st = static_cast<SpikeType>(pre_spike_type[pre]);
+        float gain = is_burst(st) ? 2.0f : 1.0f;
         int32_t start = row_ptr_[pre];
         int32_t end   = row_ptr_[pre + 1];
         for (int32_t s = start; s < end; ++s) {
-            g_[static_cast<size_t>(s)] += 1.0f;
+            g_[static_cast<size_t>(s)] += gain;
         }
     }
 }

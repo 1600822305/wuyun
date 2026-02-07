@@ -51,24 +51,31 @@ struct ColumnConfig {
     size_t n_sst_martinotti  = 20;    // SST+ inhibitory (apical-targeting)
     size_t n_vip             = 10;    // VIP inhibitory (disinhibition)
 
-    // --- Connection probabilities (intra-column) ---
+    // --- Excitatory connection probabilities ---
     float p_l4_to_l23        = 0.3f;  // L4 -> L2/3 basal
     float p_l23_to_l5        = 0.2f;  // L2/3 -> L5 basal
     float p_l5_to_l6         = 0.2f;  // L5 -> L6 basal
     float p_l6_to_l4         = 0.15f; // L6 -> L4 (internal prediction loop)
+    float p_l23_recurrent    = 0.1f;  // L2/3 -> L2/3 lateral recurrent
 
-    // Inhibitory connections
-    float p_pv_to_exc        = 0.4f;  // PV -> all excitatory (soma, GABA_A)
-    float p_sst_to_apical    = 0.3f;  // SST -> L2/3 & L5 apical (GABA_B slow)
+    // --- Inhibitory connection probabilities ---
+    float p_pv_to_l23        = 0.4f;  // PV -> L2/3 soma (GABA_A)
+    float p_pv_to_l4         = 0.3f;  // PV -> L4 soma
+    float p_pv_to_l5         = 0.3f;  // PV -> L5 soma
+    float p_pv_to_l6         = 0.2f;  // PV -> L6 soma
+    float p_sst_to_l23_api   = 0.3f;  // SST -> L2/3 apical (GABA_B)
+    float p_sst_to_l5_api    = 0.3f;  // SST -> L5 apical (GABA_B)
     float p_vip_to_sst       = 0.5f;  // VIP -> SST (disinhibition)
-    float p_exc_to_pv        = 0.3f;  // Excitatory -> PV (drive inhibition)
+    float p_exc_to_pv        = 0.3f;  // Excitatory -> PV
     float p_exc_to_sst       = 0.2f;  // Excitatory -> SST
     float p_exc_to_vip       = 0.15f; // Excitatory -> VIP
 
     // --- Initial synapse weights ---
-    float w_exc              = 0.5f;  // Excitatory synapse weight
-    float w_inh              = 0.5f;  // Inhibitory synapse weight
+    float w_exc              = 0.5f;  // Excitatory AMPA weight
+    float w_nmda             = 0.3f;  // Excitatory NMDA weight (weaker)
+    float w_inh              = 0.5f;  // Inhibitory weight
     float w_l6_to_l4         = 0.3f;  // Prediction loop (weaker initially)
+    float w_recurrent        = 0.2f;  // L2/3 recurrent (weak)
 };
 
 // =============================================================================
@@ -163,21 +170,35 @@ private:
     NeuronPopulation sst_martinotti_;
     NeuronPopulation vip_;
 
-    // === Intra-column excitatory synapses ===
-    SynapseGroup syn_l4_to_l23_;     // L4 -> L2/3 basal (AMPA)
-    SynapseGroup syn_l23_to_l5_;     // L2/3 -> L5 basal (AMPA)
-    SynapseGroup syn_l5_to_l6_;      // L5 -> L6 basal (AMPA)
-    SynapseGroup syn_l6_to_l4_;      // L6 -> L4 basal (AMPA, prediction loop)
+    // === Excitatory AMPA synapses ===
+    SynapseGroup syn_l4_to_l23_;      // L4 -> L2/3 basal (AMPA)
+    SynapseGroup syn_l23_to_l5_;      // L2/3 -> L5 basal (AMPA)
+    SynapseGroup syn_l5_to_l6_;       // L5 -> L6 basal (AMPA)
+    SynapseGroup syn_l6_to_l4_;       // L6 -> L4 basal (AMPA, prediction loop)
+    SynapseGroup syn_l23_recurrent_;  // L2/3 -> L2/3 lateral (AMPA)
 
-    // === Excitatory -> Inhibitory synapses ===
-    SynapseGroup syn_exc_to_pv_;     // Excitatory -> PV (AMPA)
-    SynapseGroup syn_exc_to_sst_;    // Excitatory -> SST (AMPA)
-    SynapseGroup syn_exc_to_vip_;    // Excitatory -> VIP (AMPA)
+    // === Excitatory NMDA synapses (parallel slow channel) ===
+    SynapseGroup syn_l4_to_l23_nmda_; // L4 -> L2/3 (NMDA)
+    SynapseGroup syn_l23_to_l5_nmda_; // L2/3 -> L5 (NMDA)
+    SynapseGroup syn_l23_rec_nmda_;   // L2/3 recurrent (NMDA)
 
-    // === Inhibitory synapses ===
-    SynapseGroup syn_pv_to_exc_;     // PV -> excitatory soma (GABA_A)
-    SynapseGroup syn_sst_to_apical_; // SST -> L2/3 & L5 apical (GABA_B)
-    SynapseGroup syn_vip_to_sst_;    // VIP -> SST (GABA_A, disinhibition)
+    // === Excitatory -> Inhibitory ===
+    SynapseGroup syn_exc_to_pv_;      // L2/3 -> PV (AMPA)
+    SynapseGroup syn_exc_to_sst_;     // L2/3 -> SST (AMPA)
+    SynapseGroup syn_exc_to_vip_;     // L2/3 -> VIP (AMPA)
+
+    // === PV -> all excitatory soma (GABA_A fast) ===
+    SynapseGroup syn_pv_to_l23_;      // PV -> L2/3 soma
+    SynapseGroup syn_pv_to_l4_;       // PV -> L4 soma
+    SynapseGroup syn_pv_to_l5_;       // PV -> L5 soma
+    SynapseGroup syn_pv_to_l6_;       // PV -> L6 soma
+
+    // === SST -> apical (GABA_B slow, blocks burst!) ===
+    SynapseGroup syn_sst_to_l23_api_; // SST -> L2/3 apical
+    SynapseGroup syn_sst_to_l5_api_;  // SST -> L5 apical
+
+    // === VIP -> SST (GABA_A, disinhibition) ===
+    SynapseGroup syn_vip_to_sst_;     // VIP -> SST soma
 };
 
 } // namespace wuyun

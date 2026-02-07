@@ -52,71 +52,94 @@ static SynapseGroup make_empty_synapse(size_t n_pre, size_t n_post,
 // Constructor
 // =============================================================================
 
+// Helper: neuron params factories
+static NeuronParams make_l4_stellate_params() {
+    NeuronParams p;
+    p.somatic.v_rest = -65.0f; p.somatic.v_threshold = -50.0f;
+    p.somatic.v_reset = -60.0f; p.somatic.tau_m = 20.0f;
+    p.somatic.r_s = 1.0f; p.somatic.a = 0.01f;
+    p.somatic.b = 3.0f; p.somatic.tau_w = 200.0f;
+    p.somatic.refractory_period = 3;
+    p.kappa = 0.1f; p.kappa_backward = 0.05f;
+    p.burst_spike_count = 2; p.burst_isi = 3;
+    return p;
+}
+static NeuronParams make_l6_params() {
+    NeuronParams p;
+    p.somatic.v_rest = -65.0f; p.somatic.v_threshold = -50.0f;
+    p.somatic.v_reset = -60.0f; p.somatic.tau_m = 25.0f;
+    p.somatic.r_s = 0.9f; p.somatic.a = 0.01f;
+    p.somatic.b = 4.0f; p.somatic.tau_w = 250.0f;
+    p.somatic.refractory_period = 3;
+    p.kappa = 0.2f; p.kappa_backward = 0.1f;
+    p.burst_spike_count = 2; p.burst_isi = 3;
+    return p;
+}
+static NeuronParams make_sst_params() {
+    NeuronParams p;
+    p.somatic.v_rest = -65.0f; p.somatic.v_threshold = -50.0f;
+    p.somatic.v_reset = -60.0f; p.somatic.tau_m = 20.0f;
+    p.somatic.r_s = 0.9f; p.somatic.a = 0.05f;
+    p.somatic.b = 2.0f; p.somatic.tau_w = 100.0f;
+    p.somatic.refractory_period = 2;
+    p.kappa = 0.0f; p.kappa_backward = 0.0f;
+    p.burst_spike_count = 1; p.burst_isi = 1;
+    return p;
+}
+static NeuronParams make_vip_params() {
+    NeuronParams p;
+    p.somatic.v_rest = -65.0f; p.somatic.v_threshold = -50.0f;
+    p.somatic.v_reset = -60.0f; p.somatic.tau_m = 15.0f;
+    p.somatic.r_s = 1.0f; p.somatic.a = 0.03f;
+    p.somatic.b = 1.0f; p.somatic.tau_w = 80.0f;
+    p.somatic.refractory_period = 2;
+    p.kappa = 0.0f; p.kappa_backward = 0.0f;
+    p.burst_spike_count = 1; p.burst_isi = 1;
+    return p;
+}
+
+#define EMPTY_SYN(p, t) make_empty_synapse(1, 1, p, t)
+
 CorticalColumn::CorticalColumn(const ColumnConfig& cfg)
     : config_(cfg)
     // --- Excitatory populations ---
-    , l4_stellate_(cfg.n_l4_stellate, [](){
-        NeuronParams p;
-        p.somatic.v_rest = -65.0f; p.somatic.v_threshold = -50.0f;
-        p.somatic.v_reset = -60.0f; p.somatic.tau_m = 20.0f;
-        p.somatic.r_s = 1.0f; p.somatic.a = 0.01f;
-        p.somatic.b = 3.0f; p.somatic.tau_w = 200.0f;
-        p.somatic.refractory_period = 3;
-        p.kappa = 0.1f; p.kappa_backward = 0.05f;  // L4 stellate: weak apical
-        p.burst_spike_count = 2; p.burst_isi = 3;
-        return p;
-    }())
+    , l4_stellate_(cfg.n_l4_stellate, make_l4_stellate_params())
     , l23_pyramidal_(cfg.n_l23_pyramidal, L23_PYRAMIDAL_PARAMS())
     , l5_pyramidal_(cfg.n_l5_pyramidal, L5_PYRAMIDAL_PARAMS())
-    , l6_pyramidal_(cfg.n_l6_pyramidal, [](){
-        NeuronParams p;
-        p.somatic.v_rest = -65.0f; p.somatic.v_threshold = -50.0f;
-        p.somatic.v_reset = -60.0f; p.somatic.tau_m = 25.0f;
-        p.somatic.r_s = 0.9f; p.somatic.a = 0.01f;
-        p.somatic.b = 4.0f; p.somatic.tau_w = 250.0f;
-        p.somatic.refractory_period = 3;
-        p.kappa = 0.2f; p.kappa_backward = 0.1f;  // L6: moderate apical
-        p.burst_spike_count = 2; p.burst_isi = 3;
-        return p;
-    }())
-    // --- Inhibitory populations (single compartment, kappa=0) ---
+    , l6_pyramidal_(cfg.n_l6_pyramidal, make_l6_params())
+    // --- Inhibitory populations ---
     , pv_basket_(cfg.n_pv_basket, PV_BASKET_PARAMS())
-    , sst_martinotti_(cfg.n_sst_martinotti, [](){
-        NeuronParams p;
-        p.somatic.v_rest = -65.0f; p.somatic.v_threshold = -50.0f;
-        p.somatic.v_reset = -60.0f; p.somatic.tau_m = 20.0f;
-        p.somatic.r_s = 0.9f; p.somatic.a = 0.05f;
-        p.somatic.b = 2.0f; p.somatic.tau_w = 100.0f;
-        p.somatic.refractory_period = 2;
-        p.kappa = 0.0f; p.kappa_backward = 0.0f;
-        p.burst_spike_count = 1; p.burst_isi = 1;
-        return p;
-    }())
-    , vip_(cfg.n_vip, [](){
-        NeuronParams p;
-        p.somatic.v_rest = -65.0f; p.somatic.v_threshold = -50.0f;
-        p.somatic.v_reset = -60.0f; p.somatic.tau_m = 15.0f;
-        p.somatic.r_s = 1.0f; p.somatic.a = 0.03f;
-        p.somatic.b = 1.0f; p.somatic.tau_w = 80.0f;
-        p.somatic.refractory_period = 2;
-        p.kappa = 0.0f; p.kappa_backward = 0.0f;
-        p.burst_spike_count = 1; p.burst_isi = 1;
-        return p;
-    }())
-    // --- Synapses (placeholder, will be rebuilt) ---
-    , syn_l4_to_l23_(make_empty_synapse(1, 1, AMPA_PARAMS, CompartmentType::BASAL))
-    , syn_l23_to_l5_(make_empty_synapse(1, 1, AMPA_PARAMS, CompartmentType::BASAL))
-    , syn_l5_to_l6_(make_empty_synapse(1, 1, AMPA_PARAMS, CompartmentType::BASAL))
-    , syn_l6_to_l4_(make_empty_synapse(1, 1, AMPA_PARAMS, CompartmentType::BASAL))
-    , syn_exc_to_pv_(make_empty_synapse(1, 1, AMPA_PARAMS, CompartmentType::SOMA))
-    , syn_exc_to_sst_(make_empty_synapse(1, 1, AMPA_PARAMS, CompartmentType::SOMA))
-    , syn_exc_to_vip_(make_empty_synapse(1, 1, AMPA_PARAMS, CompartmentType::SOMA))
-    , syn_pv_to_exc_(make_empty_synapse(1, 1, GABA_A_PARAMS, CompartmentType::SOMA))
-    , syn_sst_to_apical_(make_empty_synapse(1, 1, GABA_B_PARAMS, CompartmentType::APICAL))
-    , syn_vip_to_sst_(make_empty_synapse(1, 1, GABA_A_PARAMS, CompartmentType::SOMA))
+    , sst_martinotti_(cfg.n_sst_martinotti, make_sst_params())
+    , vip_(cfg.n_vip, make_vip_params())
+    // --- AMPA synapses (placeholders) ---
+    , syn_l4_to_l23_(EMPTY_SYN(AMPA_PARAMS, CompartmentType::BASAL))
+    , syn_l23_to_l5_(EMPTY_SYN(AMPA_PARAMS, CompartmentType::BASAL))
+    , syn_l5_to_l6_(EMPTY_SYN(AMPA_PARAMS, CompartmentType::BASAL))
+    , syn_l6_to_l4_(EMPTY_SYN(AMPA_PARAMS, CompartmentType::BASAL))
+    , syn_l23_recurrent_(EMPTY_SYN(AMPA_PARAMS, CompartmentType::BASAL))
+    // --- NMDA synapses (placeholders) ---
+    , syn_l4_to_l23_nmda_(EMPTY_SYN(NMDA_PARAMS, CompartmentType::BASAL))
+    , syn_l23_to_l5_nmda_(EMPTY_SYN(NMDA_PARAMS, CompartmentType::BASAL))
+    , syn_l23_rec_nmda_(EMPTY_SYN(NMDA_PARAMS, CompartmentType::BASAL))
+    // --- Exc -> Inh ---
+    , syn_exc_to_pv_(EMPTY_SYN(AMPA_PARAMS, CompartmentType::SOMA))
+    , syn_exc_to_sst_(EMPTY_SYN(AMPA_PARAMS, CompartmentType::SOMA))
+    , syn_exc_to_vip_(EMPTY_SYN(AMPA_PARAMS, CompartmentType::SOMA))
+    // --- PV -> all exc soma ---
+    , syn_pv_to_l23_(EMPTY_SYN(GABA_A_PARAMS, CompartmentType::SOMA))
+    , syn_pv_to_l4_(EMPTY_SYN(GABA_A_PARAMS, CompartmentType::SOMA))
+    , syn_pv_to_l5_(EMPTY_SYN(GABA_A_PARAMS, CompartmentType::SOMA))
+    , syn_pv_to_l6_(EMPTY_SYN(GABA_A_PARAMS, CompartmentType::SOMA))
+    // --- SST -> apical ---
+    , syn_sst_to_l23_api_(EMPTY_SYN(GABA_B_PARAMS, CompartmentType::APICAL))
+    , syn_sst_to_l5_api_(EMPTY_SYN(GABA_B_PARAMS, CompartmentType::APICAL))
+    // --- VIP -> SST ---
+    , syn_vip_to_sst_(EMPTY_SYN(GABA_A_PARAMS, CompartmentType::SOMA))
 {
     build_synapses();
 }
+
+#undef EMPTY_SYN
 
 // =============================================================================
 // Build synapses with random sparse connectivity
@@ -126,91 +149,42 @@ void CorticalColumn::build_synapses() {
     const auto& c = config_;
     uint32_t seed = 42;
 
-    // --- Excitatory pathway (AMPA, target = BASAL) ---
-    // L4 -> L2/3 basal (feedforward)
-    {
-        auto coo = make_random_connections(c.n_l4_stellate, c.n_l23_pyramidal,
-                                            c.p_l4_to_l23, c.w_exc, 1, seed++);
-        syn_l4_to_l23_ = SynapseGroup(c.n_l4_stellate, c.n_l23_pyramidal,
-                                        coo.pre, coo.post, coo.weights, coo.delays,
-                                        AMPA_PARAMS, CompartmentType::BASAL);
-    }
-    // L2/3 -> L5 basal
-    {
-        auto coo = make_random_connections(c.n_l23_pyramidal, c.n_l5_pyramidal,
-                                            c.p_l23_to_l5, c.w_exc, 1, seed++);
-        syn_l23_to_l5_ = SynapseGroup(c.n_l23_pyramidal, c.n_l5_pyramidal,
-                                        coo.pre, coo.post, coo.weights, coo.delays,
-                                        AMPA_PARAMS, CompartmentType::BASAL);
-    }
-    // L5 -> L6 basal
-    {
-        auto coo = make_random_connections(c.n_l5_pyramidal, c.n_l6_pyramidal,
-                                            c.p_l5_to_l6, c.w_exc, 1, seed++);
-        syn_l5_to_l6_ = SynapseGroup(c.n_l5_pyramidal, c.n_l6_pyramidal,
-                                        coo.pre, coo.post, coo.weights, coo.delays,
-                                        AMPA_PARAMS, CompartmentType::BASAL);
-    }
-    // L6 -> L4 basal (internal prediction loop)
-    {
-        auto coo = make_random_connections(c.n_l6_pyramidal, c.n_l4_stellate,
-                                            c.p_l6_to_l4, c.w_l6_to_l4, 1, seed++);
-        syn_l6_to_l4_ = SynapseGroup(c.n_l6_pyramidal, c.n_l4_stellate,
-                                        coo.pre, coo.post, coo.weights, coo.delays,
-                                        AMPA_PARAMS, CompartmentType::BASAL);
-    }
+    // Helper lambda for building a SynapseGroup
+    auto build = [&](size_t npre, size_t npost, float prob, float w,
+                     const SynapseParams& sp, CompartmentType tgt) -> SynapseGroup {
+        auto coo = make_random_connections(npre, npost, prob, w, 1, seed++);
+        return SynapseGroup(npre, npost, coo.pre, coo.post, coo.weights, coo.delays, sp, tgt);
+    };
 
-    // --- Excitatory -> Inhibitory (AMPA, target = SOMA) ---
-    // L2/3 + L5 -> PV (combined as one group, L2/3 as pre)
-    {
-        auto coo = make_random_connections(c.n_l23_pyramidal, c.n_pv_basket,
-                                            c.p_exc_to_pv, c.w_exc, 1, seed++);
-        syn_exc_to_pv_ = SynapseGroup(c.n_l23_pyramidal, c.n_pv_basket,
-                                        coo.pre, coo.post, coo.weights, coo.delays,
-                                        AMPA_PARAMS, CompartmentType::SOMA);
-    }
-    // L2/3 -> SST
-    {
-        auto coo = make_random_connections(c.n_l23_pyramidal, c.n_sst_martinotti,
-                                            c.p_exc_to_sst, c.w_exc, 1, seed++);
-        syn_exc_to_sst_ = SynapseGroup(c.n_l23_pyramidal, c.n_sst_martinotti,
-                                         coo.pre, coo.post, coo.weights, coo.delays,
-                                         AMPA_PARAMS, CompartmentType::SOMA);
-    }
-    // L2/3 -> VIP
-    {
-        auto coo = make_random_connections(c.n_l23_pyramidal, c.n_vip,
-                                            c.p_exc_to_vip, c.w_exc, 1, seed++);
-        syn_exc_to_vip_ = SynapseGroup(c.n_l23_pyramidal, c.n_vip,
-                                         coo.pre, coo.post, coo.weights, coo.delays,
-                                         AMPA_PARAMS, CompartmentType::SOMA);
-    }
+    // ===================== Excitatory AMPA =====================
+    syn_l4_to_l23_     = build(c.n_l4_stellate,   c.n_l23_pyramidal, c.p_l4_to_l23,    c.w_exc,       AMPA_PARAMS, CompartmentType::BASAL);
+    syn_l23_to_l5_     = build(c.n_l23_pyramidal,  c.n_l5_pyramidal,  c.p_l23_to_l5,    c.w_exc,       AMPA_PARAMS, CompartmentType::BASAL);
+    syn_l5_to_l6_      = build(c.n_l5_pyramidal,   c.n_l6_pyramidal,  c.p_l5_to_l6,     c.w_exc,       AMPA_PARAMS, CompartmentType::BASAL);
+    syn_l6_to_l4_      = build(c.n_l6_pyramidal,   c.n_l4_stellate,   c.p_l6_to_l4,     c.w_l6_to_l4,  AMPA_PARAMS, CompartmentType::BASAL);
+    syn_l23_recurrent_  = build(c.n_l23_pyramidal,  c.n_l23_pyramidal, c.p_l23_recurrent, c.w_recurrent, AMPA_PARAMS, CompartmentType::BASAL);
 
-    // --- Inhibitory -> Excitatory ---
-    // PV -> L2/3 soma (GABA_A fast inhibition)
-    {
-        auto coo = make_random_connections(c.n_pv_basket, c.n_l23_pyramidal,
-                                            c.p_pv_to_exc, c.w_inh, 1, seed++);
-        syn_pv_to_exc_ = SynapseGroup(c.n_pv_basket, c.n_l23_pyramidal,
-                                        coo.pre, coo.post, coo.weights, coo.delays,
-                                        GABA_A_PARAMS, CompartmentType::SOMA);
-    }
-    // SST -> L2/3 + L5 apical (GABA_B slow, blocks burst!)
-    {
-        auto coo = make_random_connections(c.n_sst_martinotti, c.n_l23_pyramidal,
-                                            c.p_sst_to_apical, c.w_inh, 1, seed++);
-        syn_sst_to_apical_ = SynapseGroup(c.n_sst_martinotti, c.n_l23_pyramidal,
-                                            coo.pre, coo.post, coo.weights, coo.delays,
-                                            GABA_B_PARAMS, CompartmentType::APICAL);
-    }
-    // VIP -> SST (GABA_A, disinhibition circuit)
-    {
-        auto coo = make_random_connections(c.n_vip, c.n_sst_martinotti,
-                                            c.p_vip_to_sst, c.w_inh, 1, seed++);
-        syn_vip_to_sst_ = SynapseGroup(c.n_vip, c.n_sst_martinotti,
-                                         coo.pre, coo.post, coo.weights, coo.delays,
-                                         GABA_A_PARAMS, CompartmentType::SOMA);
-    }
+    // ===================== Excitatory NMDA (parallel slow) =====================
+    syn_l4_to_l23_nmda_ = build(c.n_l4_stellate,   c.n_l23_pyramidal, c.p_l4_to_l23,    c.w_nmda, NMDA_PARAMS, CompartmentType::BASAL);
+    syn_l23_to_l5_nmda_ = build(c.n_l23_pyramidal,  c.n_l5_pyramidal,  c.p_l23_to_l5,    c.w_nmda, NMDA_PARAMS, CompartmentType::BASAL);
+    syn_l23_rec_nmda_   = build(c.n_l23_pyramidal,  c.n_l23_pyramidal, c.p_l23_recurrent, c.w_nmda * 0.5f, NMDA_PARAMS, CompartmentType::BASAL);
+
+    // ===================== Exc -> Inhibitory (AMPA) =====================
+    syn_exc_to_pv_  = build(c.n_l23_pyramidal, c.n_pv_basket,      c.p_exc_to_pv,  c.w_exc, AMPA_PARAMS, CompartmentType::SOMA);
+    syn_exc_to_sst_ = build(c.n_l23_pyramidal, c.n_sst_martinotti, c.p_exc_to_sst, c.w_exc, AMPA_PARAMS, CompartmentType::SOMA);
+    syn_exc_to_vip_ = build(c.n_l23_pyramidal, c.n_vip,            c.p_exc_to_vip, c.w_exc, AMPA_PARAMS, CompartmentType::SOMA);
+
+    // ===================== PV -> ALL excitatory soma (GABA_A) =====================
+    syn_pv_to_l23_ = build(c.n_pv_basket, c.n_l23_pyramidal, c.p_pv_to_l23, c.w_inh, GABA_A_PARAMS, CompartmentType::SOMA);
+    syn_pv_to_l4_  = build(c.n_pv_basket, c.n_l4_stellate,   c.p_pv_to_l4,  c.w_inh, GABA_A_PARAMS, CompartmentType::SOMA);
+    syn_pv_to_l5_  = build(c.n_pv_basket, c.n_l5_pyramidal,  c.p_pv_to_l5,  c.w_inh, GABA_A_PARAMS, CompartmentType::SOMA);
+    syn_pv_to_l6_  = build(c.n_pv_basket, c.n_l6_pyramidal,  c.p_pv_to_l6,  c.w_inh, GABA_A_PARAMS, CompartmentType::SOMA);
+
+    // ===================== SST -> L2/3 AND L5 apical (GABA_B) =====================
+    syn_sst_to_l23_api_ = build(c.n_sst_martinotti, c.n_l23_pyramidal, c.p_sst_to_l23_api, c.w_inh, GABA_B_PARAMS, CompartmentType::APICAL);
+    syn_sst_to_l5_api_  = build(c.n_sst_martinotti, c.n_l5_pyramidal,  c.p_sst_to_l5_api,  c.w_inh, GABA_B_PARAMS, CompartmentType::APICAL);
+
+    // ===================== VIP -> SST (GABA_A disinhibition) =====================
+    syn_vip_to_sst_ = build(c.n_vip, c.n_sst_martinotti, c.p_vip_to_sst, c.w_inh, GABA_A_PARAMS, CompartmentType::SOMA);
 }
 
 // =============================================================================
@@ -283,25 +257,43 @@ void CorticalColumn::inject_attention(float vip_drive) {
 // =============================================================================
 
 ColumnOutput CorticalColumn::step(int t, float dt) {
+    // ================================================================
     // STEP 1: Deliver intra-column spikes from previous step
+    // ================================================================
 
-    // Excitatory pathway: L4 -> L2/3 -> L5 -> L6 -> L4
-    deliver_and_inject(l4_stellate_,   syn_l4_to_l23_,  l23_pyramidal_, dt);
-    deliver_and_inject(l23_pyramidal_, syn_l23_to_l5_,  l5_pyramidal_,  dt);
-    deliver_and_inject(l5_pyramidal_,  syn_l5_to_l6_,   l6_pyramidal_,  dt);
-    deliver_and_inject(l6_pyramidal_,  syn_l6_to_l4_,   l4_stellate_,   dt);
+    // --- Excitatory AMPA pathway: L4 → L2/3 → L5 → L6 → L4 ---
+    deliver_and_inject(l4_stellate_,   syn_l4_to_l23_,    l23_pyramidal_, dt);
+    deliver_and_inject(l23_pyramidal_, syn_l23_to_l5_,    l5_pyramidal_,  dt);
+    deliver_and_inject(l5_pyramidal_,  syn_l5_to_l6_,     l6_pyramidal_,  dt);
+    deliver_and_inject(l6_pyramidal_,  syn_l6_to_l4_,     l4_stellate_,   dt);
+    deliver_and_inject(l23_pyramidal_, syn_l23_recurrent_, l23_pyramidal_, dt);
 
-    // Excitatory -> Inhibitory
+    // --- Excitatory NMDA pathway (parallel slow channel) ---
+    deliver_and_inject(l4_stellate_,   syn_l4_to_l23_nmda_, l23_pyramidal_, dt);
+    deliver_and_inject(l23_pyramidal_, syn_l23_to_l5_nmda_, l5_pyramidal_,  dt);
+    deliver_and_inject(l23_pyramidal_, syn_l23_rec_nmda_,   l23_pyramidal_, dt);
+
+    // --- Excitatory → Inhibitory ---
     deliver_and_inject(l23_pyramidal_, syn_exc_to_pv_,  pv_basket_,      dt);
     deliver_and_inject(l23_pyramidal_, syn_exc_to_sst_, sst_martinotti_, dt);
     deliver_and_inject(l23_pyramidal_, syn_exc_to_vip_, vip_,            dt);
 
-    // Inhibitory -> targets
-    deliver_and_inject(pv_basket_,      syn_pv_to_exc_,     l23_pyramidal_, dt);
-    deliver_and_inject(sst_martinotti_, syn_sst_to_apical_, l23_pyramidal_, dt);
-    deliver_and_inject(vip_,            syn_vip_to_sst_,    sst_martinotti_,dt);
+    // --- PV → ALL excitatory soma (GABA_A fast) ---
+    deliver_and_inject(pv_basket_, syn_pv_to_l23_, l23_pyramidal_, dt);
+    deliver_and_inject(pv_basket_, syn_pv_to_l4_,  l4_stellate_,   dt);
+    deliver_and_inject(pv_basket_, syn_pv_to_l5_,  l5_pyramidal_,  dt);
+    deliver_and_inject(pv_basket_, syn_pv_to_l6_,  l6_pyramidal_,  dt);
 
+    // --- SST → L2/3 AND L5 apical (GABA_B slow, blocks burst!) ---
+    deliver_and_inject(sst_martinotti_, syn_sst_to_l23_api_, l23_pyramidal_, dt);
+    deliver_and_inject(sst_martinotti_, syn_sst_to_l5_api_,  l5_pyramidal_,  dt);
+
+    // --- VIP → SST (GABA_A disinhibition) ---
+    deliver_and_inject(vip_, syn_vip_to_sst_, sst_martinotti_, dt);
+
+    // ================================================================
     // STEP 2: Update all populations
+    // ================================================================
     l4_stellate_.step(t, dt);
     l23_pyramidal_.step(t, dt);
     l5_pyramidal_.step(t, dt);
@@ -310,7 +302,9 @@ ColumnOutput CorticalColumn::step(int t, float dt) {
     sst_martinotti_.step(t, dt);
     vip_.step(t, dt);
 
+    // ================================================================
     // STEP 3: Classify output
+    // ================================================================
     ColumnOutput out;
     classify_output(out);
     return out;
@@ -371,12 +365,24 @@ size_t CorticalColumn::total_neurons() const {
 }
 
 size_t CorticalColumn::total_synapses() const {
-    return syn_l4_to_l23_.n_synapses() + syn_l23_to_l5_.n_synapses() +
-           syn_l5_to_l6_.n_synapses() + syn_l6_to_l4_.n_synapses() +
-           syn_exc_to_pv_.n_synapses() + syn_exc_to_sst_.n_synapses() +
-           syn_exc_to_vip_.n_synapses() +
-           syn_pv_to_exc_.n_synapses() + syn_sst_to_apical_.n_synapses() +
-           syn_vip_to_sst_.n_synapses();
+    return
+        // AMPA excitatory
+        syn_l4_to_l23_.n_synapses() + syn_l23_to_l5_.n_synapses() +
+        syn_l5_to_l6_.n_synapses() + syn_l6_to_l4_.n_synapses() +
+        syn_l23_recurrent_.n_synapses() +
+        // NMDA excitatory
+        syn_l4_to_l23_nmda_.n_synapses() + syn_l23_to_l5_nmda_.n_synapses() +
+        syn_l23_rec_nmda_.n_synapses() +
+        // Exc -> Inh
+        syn_exc_to_pv_.n_synapses() + syn_exc_to_sst_.n_synapses() +
+        syn_exc_to_vip_.n_synapses() +
+        // PV -> all exc
+        syn_pv_to_l23_.n_synapses() + syn_pv_to_l4_.n_synapses() +
+        syn_pv_to_l5_.n_synapses() + syn_pv_to_l6_.n_synapses() +
+        // SST -> apical
+        syn_sst_to_l23_api_.n_synapses() + syn_sst_to_l5_api_.n_synapses() +
+        // VIP -> SST
+        syn_vip_to_sst_.n_synapses();
 }
 
 } // namespace wuyun
