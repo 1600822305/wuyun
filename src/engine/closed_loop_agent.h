@@ -125,11 +125,11 @@ struct AgentConfig {
     //      In 3×3 it was harmful (awake replay sufficient, over-consolidation).
     //      Tuning: very light naps, long intervals, gentle DA — prevent over-consolidation
     //      while combating forgetting in 100-cell grid.
-    bool   enable_sleep_consolidation = false; // ablation: +0.25 最有害
+    bool   enable_sleep_consolidation = true;  // v31: 修复后重新启用 (DA=baseline, engine.step)
     size_t wake_steps_before_sleep    = 800;   // v21: long interval, light touch
     size_t sleep_nrem_steps           = 15;    // v21: very light consolidation per bout
     int    sleep_replay_passes        = 1;     // Single pass (prevent over-consolidation)
-    float  sleep_positive_da          = 0.35f; // v21: barely above baseline (0.3), gentle nudge
+    float  sleep_positive_da          = 0.30f; // v31: =baseline (NREM DA is LOW, no new learning)
 
     // v30: Cerebellum forward model (Yoshida 2025: CB-BG synergistic RL)
     // M1 efference copy + visual context → predict next sensory state
