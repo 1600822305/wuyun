@@ -165,6 +165,22 @@ void ClosedLoopAgent::build_brain() {
         engine_.add_region(std::make_unique<Hippocampus>(hipp_cfg));
     }
 
+    // --- v30: Cerebellum forward model (Yoshida 2025: CB-BG synergistic RL) ---
+    // Predicts sensory consequences of actions, CF error corrects predictions
+    if (config_.enable_cerebellum) {
+        CerebellumConfig cb_cfg;
+        cb_cfg.n_granule  = std::max<size_t>(12, n_act * 3) * s;  // 12: input expansion
+        cb_cfg.n_purkinje = n_act * s;                             // 4: one per action
+        cb_cfg.n_dcn      = n_act * s;                             // 4: prediction output
+        cb_cfg.n_mli      = 2 * s;                                 // 2: feedforward inhibition
+        cb_cfg.n_golgi    = 2 * s;                                 // 2: feedback inhibition
+        // Higher connectivity for small network
+        cb_cfg.p_mf_to_grc = 0.4f;
+        cb_cfg.p_pf_to_pc  = 0.6f;
+        cb_cfg.p_pc_to_dcn = 0.6f;
+        engine_.add_region(std::make_unique<Cerebellum>(cb_cfg));
+    }
+
     // --- Projections (core closed-loop circuit) ---
 
     // Visual hierarchy (ventral "what" pathway): LGN → V1 → V2 → V4 → IT → dlPFC
@@ -230,6 +246,18 @@ void ClosedLoopAgent::build_brain() {
         }
     }
 
+    // --- v30: Cerebellum projections ---
+    if (config_.enable_cerebellum) {
+        // M1 → Cerebellum (mossy fiber: efference copy of motor commands)
+        engine_.add_projection("M1", "Cerebellum", 1);
+        // V1 → Cerebellum (mossy fiber: visual context for prediction)
+        engine_.add_projection("V1", "Cerebellum", 1);
+        // Cerebellum DCN → MotorThalamus (prediction-corrected motor signal)
+        engine_.add_projection("Cerebellum", "MotorThal", 1);
+        // Cerebellum DCN → BG (prediction confidence → modulate action selection)
+        engine_.add_projection("Cerebellum", "BG", 1);
+    }
+
     // --- Neuromodulator registration ---
     engine_.register_neuromod_source("VTA", SimulationEngine::NeuromodType::DA);
 
@@ -253,6 +281,7 @@ void ClosedLoopAgent::build_brain() {
     hipp_  = dynamic_cast<Hippocampus*>(engine_.find_region("Hippocampus"));
     lhb_   = dynamic_cast<LateralHabenula*>(engine_.find_region("LHb"));
     amyg_  = dynamic_cast<Amygdala*>(engine_.find_region("Amygdala"));
+    cb_    = dynamic_cast<Cerebellum*>(engine_.find_region("Cerebellum"));
 
     // --- Topographic mappings through visual hierarchy ---
     // V1→V2: retinotopic (preserve spatial layout)
@@ -536,6 +565,14 @@ StepResult ClosedLoopAgent::agent_step() {
                 }
             }
         }
+        // v30: Cerebellum climbing fiber injection (every brain step)
+        // Reward-as-error: unexpected food/danger = prediction failure → CF signal
+        // CF drives PF→PC LTD → cerebellum learns to predict action outcomes
+        if (cb_ && std::abs(last_reward_) > 0.05f) {
+            float cf_error = std::min(1.0f, std::abs(last_reward_));
+            cb_->inject_climbing_fiber(cf_error);
+        }
+
         // DA neuromodulatory broadcast: VTA → BG (volume transmission, every step)
         bg_->set_da_level(vta_->da_output());
 

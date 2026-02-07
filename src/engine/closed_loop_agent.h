@@ -31,6 +31,7 @@
 #include "region/limbic/lateral_habenula.h"
 #include "region/limbic/hippocampus.h"
 #include "region/limbic/amygdala.h"
+#include "region/subcortical/cerebellum.h"
 #include "engine/sleep_cycle.h"
 #include "plasticity/homeostatic.h"
 #include <memory>
@@ -136,6 +137,11 @@ struct AgentConfig {
     int    sleep_replay_passes        = 1;     // Single pass (prevent over-consolidation)
     float  sleep_positive_da          = 0.35f; // v21: barely above baseline (0.3), gentle nudge
 
+    // v30: Cerebellum forward model (Yoshida 2025: CB-BG synergistic RL)
+    // M1 efference copy + visual context → predict next sensory state
+    // Prediction error → climbing fiber → PF-PC LTD → fast correction
+    bool  enable_cerebellum = true;
+
     // v27: Developmental period (critical period for visual feature learning)
     // Biology: infant visual cortex spends ~6 months self-organizing via Hebbian STDP
     // before goal-directed behavior begins. Agent random-walks during dev period,
@@ -210,6 +216,7 @@ public:
     Hippocampus*    hipp()  const { return hipp_; }
     LateralHabenula* lhb()  const { return lhb_; }
     Amygdala*       amyg()  const { return amyg_; }
+    Cerebellum*     cb()    const { return cb_; }
 
 private:
     AgentConfig config_;
@@ -231,6 +238,7 @@ private:
     Hippocampus*    hipp_  = nullptr;
     LateralHabenula* lhb_   = nullptr;
     Amygdala*       amyg_   = nullptr;
+    Cerebellum*     cb_     = nullptr;   // v30: forward model
 
     // State
     int    agent_step_count_ = 0;
