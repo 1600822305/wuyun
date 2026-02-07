@@ -420,12 +420,25 @@ int main() {
     TestResult results[6];
     std::thread threads[6];
 
-    threads[0] = std::thread([&]{ results[0] = test_learning_curve(); });
-    threads[1] = std::thread([&]{ results[1] = test_learning_vs_control(); });
-    threads[2] = std::thread([&]{ results[2] = test_bg_diagnostics(); });
-    threads[3] = std::thread([&]{ results[3] = test_long_training(); });
-    threads[4] = std::thread([&]{ results[4] = test_large_env(); });
-    threads[5] = std::thread([&]{ results[5] = test_generalization(); });
+    // Track completion for progress reporting
+    std::atomic<int> done{0};
+    const char* names[] = {"学习曲线5k", "学习vs对照", "BG诊断", "长训10k", "大环境15x15", "泛化"};
+
+    auto run_test = [&](int idx, std::function<TestResult()> fn) {
+        printf("  [开始] 测试%d: %s\n", idx+1, names[idx]);
+        fflush(stdout);
+        results[idx] = fn();
+        int d = ++done;
+        printf("  [完成] 测试%d: %s (%d/6)\n", idx+1, names[idx], d);
+        fflush(stdout);
+    };
+
+    threads[0] = std::thread([&]{ run_test(0, test_learning_curve); });
+    threads[1] = std::thread([&]{ run_test(1, test_learning_vs_control); });
+    threads[2] = std::thread([&]{ run_test(2, test_bg_diagnostics); });
+    threads[3] = std::thread([&]{ run_test(3, test_long_training); });
+    threads[4] = std::thread([&]{ run_test(4, test_large_env); });
+    threads[5] = std::thread([&]{ run_test(5, test_generalization); });
 
     // Wait for all
     for (auto& t : threads) t.join();
