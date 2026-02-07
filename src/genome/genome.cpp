@@ -85,6 +85,7 @@ Genome Genome::crossover(const Genome& a, const Genome& b, std::mt19937& rng) {
 
 AgentConfig Genome::to_agent_config() const {
     AgentConfig cfg;
+    cfg.fast_eval = true;  // Skip hippocampus + cortical STDP for evolution speed
 
     // Learning
     cfg.da_stdp_lr = da_stdp_lr.value;
@@ -121,13 +122,14 @@ AgentConfig Genome::to_agent_config() const {
     cfg.dlpfc_size_factor = dlpfc_size.value;
     cfg.bg_size_factor = bg_size.value;
 
-    // Timing
-    cfg.brain_steps_per_action = std::max(
-        static_cast<size_t>(5),
-        static_cast<size_t>(std::round(brain_steps.value)));
+    // Timing — clamp brain_steps to 10 in fast_eval for speed
+    // (full pipeline needs ~14, but 10 is enough to propagate LGN→V1→dlPFC→BG)
+    size_t bs = static_cast<size_t>(std::round(brain_steps.value));
+    cfg.brain_steps_per_action = std::clamp(bs, static_cast<size_t>(5), static_cast<size_t>(10));
     cfg.reward_processing_steps = std::max(
         static_cast<size_t>(1),
-        static_cast<size_t>(std::round(reward_steps.value)));
+        std::min(static_cast<size_t>(3),
+                 static_cast<size_t>(std::round(reward_steps.value))));
 
     return cfg;
 }

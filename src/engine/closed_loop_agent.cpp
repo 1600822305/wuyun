@@ -73,7 +73,7 @@ void ClosedLoopAgent::build_brain() {
         engine_.add_region(std::make_unique<CorticalRegion>(name, c));
     };
 
-    bool ctx_stdp = config_.enable_cortical_stdp;
+    bool ctx_stdp = config_.enable_cortical_stdp && !config_.fast_eval;
     // V1: primary visual cortex — STDP learns visual feature selectivity
     // Scale with vision size: more pixels → more V1 neurons for feature extraction
     float vis_scale = static_cast<float>(n_vis_pixels) / 9.0f;  // 1.0 for 3×3, ~2.8 for 5×5
@@ -125,14 +125,17 @@ void ClosedLoopAgent::build_brain() {
     engine_.add_region(std::make_unique<VTA_DA>(vta_cfg));
 
     // --- Hippocampus: spatial memory ---
-    HippocampusConfig hipp_cfg;
-    hipp_cfg.n_ec  = 40 * s;
-    hipp_cfg.n_dg  = 80 * s;
-    hipp_cfg.n_ca3 = 30 * s;
-    hipp_cfg.n_ca1 = 30 * s;
-    hipp_cfg.n_sub = 15 * s;
-    hipp_cfg.ca3_stdp_enabled = true;  // Memory encoding
-    engine_.add_region(std::make_unique<Hippocampus>(hipp_cfg));
+    // Skipped in fast_eval: 195 neurons (24%) with zero contribution to closed-loop
+    if (!config_.fast_eval) {
+        HippocampusConfig hipp_cfg;
+        hipp_cfg.n_ec  = 40 * s;
+        hipp_cfg.n_dg  = 80 * s;
+        hipp_cfg.n_ca3 = 30 * s;
+        hipp_cfg.n_ca1 = 30 * s;
+        hipp_cfg.n_sub = 15 * s;
+        hipp_cfg.ca3_stdp_enabled = true;  // Memory encoding
+        engine_.add_region(std::make_unique<Hippocampus>(hipp_cfg));
+    }
 
     // --- Projections (core closed-loop circuit) ---
 
@@ -156,8 +159,10 @@ void ClosedLoopAgent::build_brain() {
     }
 
     // Memory: dlPFC → Hippocampus (encode context)
-    engine_.add_projection("dlPFC", "Hippocampus", 3);
-    engine_.add_projection("V1", "Hippocampus", 3);
+    if (!config_.fast_eval) {
+        engine_.add_projection("dlPFC", "Hippocampus", 3);
+        engine_.add_projection("V1", "Hippocampus", 3);
+    }
 
     // VTA DA → BG (reward signal)
     engine_.add_projection("VTA", "BG", 2);
@@ -215,7 +220,7 @@ void ClosedLoopAgent::build_brain() {
         dlpfc_->enable_homeostatic(hp);
         // M1 intentionally excluded: motor cortex driven by exploration noise,
         // homeostatic plasticity would suppress noise-driven firing → agent freezes
-        hipp_->enable_homeostatic(hp);
+        if (hipp_) hipp_->enable_homeostatic(hp);
     }
 
     // --- Enable working memory on dlPFC ---

@@ -99,6 +99,9 @@ struct AgentConfig {
     float replay_da_scale    = 0.5f;   // DA signal scaling during replay (moderate vs online)
     size_t replay_buffer_size = 30;    // Max episodes in buffer
 
+    // Evolution fast-eval mode
+    bool fast_eval = false;  // Skip hippocampus + cortical STDP for ~40% speedup
+
     // GridWorld
     GridWorldConfig world_config;
 };

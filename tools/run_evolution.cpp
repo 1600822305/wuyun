@@ -17,15 +17,15 @@ int main(int argc, char* argv[]) {
     using namespace wuyun;
 
     // Parse arguments
-    size_t n_gen = 30;
-    size_t n_pop = 60;
+    size_t n_gen = 20;
+    size_t n_pop = 30;
     if (argc >= 2) n_gen = static_cast<size_t>(std::atoi(argv[1]));
     if (argc >= 3) n_pop = static_cast<size_t>(std::atoi(argv[2]));
 
     printf("=== WuYun Genome Layer v1: Evolution ===\n");
     printf("  Population: %zu, Generations: %zu\n", n_pop, n_gen);
     printf("  Genes: 23 closed-loop parameters\n");
-    printf("  Eval: 5000 steps x 3 seeds\n");
+    printf("  Eval: 3000 steps x 2 seeds\n");
     printf("  Fitness: late_safety + improvement*2 - danger*0.002 + food*0.001\n\n");
 
     EvolutionConfig ecfg;
@@ -35,8 +35,8 @@ int main(int argc, char* argv[]) {
     ecfg.mutation_rate = 0.15f;
     ecfg.mutation_sigma = 0.10f;
     ecfg.elite_fraction = 0.10f;
-    ecfg.eval_steps = 5000;
-    ecfg.eval_seeds = {42, 77, 123};
+    ecfg.eval_steps = 3000;
+    ecfg.eval_seeds = {42, 77};
     ecfg.ga_seed = 2024;
 
     // Default GridWorld (5x5, 3 food, 2 danger)

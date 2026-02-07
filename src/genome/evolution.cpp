@@ -100,8 +100,17 @@ FitnessResult EvolutionEngine::evaluate_single(const Genome& genome, uint32_t se
     size_t warmup = config_.eval_steps / 5;
     size_t test_half = (config_.eval_steps - warmup) / 2;
 
+    int warmup_food = 0;
     for (size_t i = 0; i < warmup; ++i) {
-        agent.agent_step();
+        auto result = agent.agent_step();
+        if (result.got_food) warmup_food++;
+    }
+
+    // Early termination: if 0 food after warmup, this genome is broken
+    if (warmup_food == 0 && warmup >= 500) {
+        FitnessResult bad{};
+        bad.fitness = -2.0f;
+        return bad;
     }
 
     // Early phase
