@@ -1022,3 +1022,81 @@ Python 原型 (wuyun/) → _archived/ 算法参考
           注意力 · GNW意识 · 内驱力 · NREM巩固 · REM梦境 · 睡眠周期管理
           4种调质广播 · 稳态可塑性 · 规模可扩展(E/I自平衡)
 ```
+
+---
+
+## Step 13-B: 闭环Agent + GridWorld (Closed-Loop Agent)
+
+**目标**: 将大脑模型与环境连接，实现完整的感知→决策→行动→感知闭环
+
+### 架构
+
+```
+GridWorld.observe()
+    ↓ 3x3 pixels
+VisualInput → LGN → V1 → dlPFC → BG → MotorThal → M1
+                                                      ↓ decode L5 spikes
+GridWorld.act(action) ←── winner-take-all ←── M1 L5 [UP|DOWN|LEFT|RIGHT]
+    ↓ reward
+VTA.inject_reward() → DA → BG DA-STDP → 学习
+```
+
+### 新增文件
+
+**GridWorld** (`engine/grid_world.h/cpp`):
+- 10x10 网格, Agent可移动, 食物(+1奖励)/危险(-1)/墙壁
+- 3x3 局部视觉观测 (灰度编码: food=0.9, danger=0.3, agent=0.6)
+- 食物被吃后随机重生, 危险持续存在
+- `to_string()` 文本渲染, `full_observation()` 全局视图
+
+**ClosedLoopAgent** (`engine/closed_loop_agent.h/cpp`):
+- 自动构建最小闭环大脑: LGN + V1 + dlPFC + M1 + BG + MotorThal + VTA + Hippocampus
+- 每个环境步运行 N 个脑步 (默认10), 累积M1 L5发放
+- M1 L5分4组(UP/DOWN/LEFT/RIGHT), winner-take-all解码
+- 运动探索噪声 (bias+jitter注入选定L5组, 打破对称性)
+- 支持 DA-STDP + 稳态可塑性 + 工作记忆
+- 滑动窗口统计: `avg_reward()`, `food_rate()`
+
+### 关键修复
+
+**VTA 奖励响应** (`region/neuromod/vta_da.h/cpp`):
+- 添加 `reward_psp_` 缓冲 (PSP衰减=0.85), 使奖励信号持续多步
+- 增大RPE→电流乘数 (50→200), 确保DA神经元在5步内响应
+- 修复前: DA始终=0.1 (神经元从不发放); 修复后: DA=0.6 (phasic burst)
+
+**M1 运动探索** (`closed_loop_agent.cpp`):
+- 每个action期间选定一个L5组, 持续注入bias+jitter噪声
+- 默认noise=55 (bias=33, 需~9步到阈值, 10步内可靠发放)
+- 77.5% 非STAY动作, 均匀分布于4方向
+
+**SimulationEngine** (`simulation_engine.h`):
+- 添加显式 non-copyable/movable 声明, 修复pybind11 MSVC模板实例化错误
+
+### pybind11绑定
+- `GridWorldConfig`, `GridWorld`, `CellType`, `Action`, `StepResult`
+- `AgentConfig`, `ClosedLoopAgent` (unique_ptr holder + factory函数)
+
+### 测试结果 (7/7 通过)
+
+| 测试 | 结果 |
+|------|------|
+| GridWorld 基础 (移动/墙壁) | ✅ |
+| 视觉观测 (3x3 patch编码) | ✅ |
+| Agent 构建 (8区域正确连接) | ✅ |
+| 闭环运行 (100步不崩溃) | ✅ |
+| 动作多样性 (77.5% 非STAY) | ✅ |
+| DA 奖励信号 (0.1→0.6, RPE=-1.0) | ✅ |
+| **长期稳定性 (500步, 5食物)** | ✅ |
+
+### 回归测试: 28/28 CTest 全通过 (0 失败)
+
+### 系统状态
+
+```
+48区域 · ~5528+神经元 · ~109投射 · 175测试 · 28 CTest suites
+完整功能: 感觉输入 · 视听编码 · 层级处理 · 双流视觉 · 语言
+          5种学习(STDP/STP/DA-STDP/CA3-STDP/稳态) · 预测编码 · 工作记忆
+          注意力 · GNW意识 · 内驱力 · NREM巩固 · REM梦境 · 睡眠周期管理
+          4种调质广播 · 稳态可塑性 · 规模可扩展(E/I自平衡)
+          闭环Agent · GridWorld环境 · 运动探索 · VTA奖励信号
+```

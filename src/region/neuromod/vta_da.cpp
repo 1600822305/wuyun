@@ -20,18 +20,19 @@ void VTA_DA::step(int32_t t, float dt) {
     // Compute RPE = actual reward - expected reward
     last_rpe_ = reward_input_ - expected_reward_;
 
-    // RPE → DA neuron excitation
-    // Positive RPE → phasic burst (strong excitation)
-    // Negative RPE → pause (inhibition, below tonic)
-    float rpe_current = last_rpe_ * config_.phasic_gain * 50.0f;
+    // Accumulate reward into PSP buffer (sustained drive across multiple steps)
+    if (std::abs(reward_input_) > 0.001f) {
+        reward_psp_ += last_rpe_ * config_.phasic_gain * 200.0f;
+    }
 
     // Inject PSP buffer (cross-region input, sustained)
     for (size_t i = 0; i < psp_da_.size(); ++i) {
         float psp_input = psp_da_[i] > 0.5f ? psp_da_[i] : 0.0f;
-        // Tonic baseline drive + RPE + cross-region PSP
-        da_neurons_.inject_basal(i, 5.0f + rpe_current + psp_input);
+        // Tonic baseline drive + sustained reward PSP + cross-region PSP
+        da_neurons_.inject_basal(i, 5.0f + reward_psp_ + psp_input);
         psp_da_[i] *= PSP_DECAY;
     }
+    reward_psp_ *= REWARD_PSP_DECAY;  // Slow decay of reward signal
 
     da_neurons_.step(t, dt);
 

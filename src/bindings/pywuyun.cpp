@@ -26,6 +26,8 @@
 #include "engine/global_workspace.h"
 #include "engine/sensory_input.h"
 #include "engine/sleep_cycle.h"
+#include "engine/grid_world.h"
+#include "engine/closed_loop_agent.h"
 #include "plasticity/homeostatic.h"
 #include "region/subcortical/cerebellum.h"
 
@@ -922,5 +924,91 @@ PYBIND11_MODULE(pywuyun, m) {
     // =========================================================================
     // Module-level convenience
     // =========================================================================
-    m.def("version", []() { return "0.5.0"; });
+    // =========================================================================
+    // GridWorld
+    // =========================================================================
+    py::enum_<CellType>(m, "CellType")
+        .value("EMPTY",  CellType::EMPTY)
+        .value("FOOD",   CellType::FOOD)
+        .value("DANGER", CellType::DANGER)
+        .value("WALL",   CellType::WALL);
+
+    py::enum_<Action>(m, "Action")
+        .value("UP",    Action::UP)
+        .value("DOWN",  Action::DOWN)
+        .value("LEFT",  Action::LEFT)
+        .value("RIGHT", Action::RIGHT)
+        .value("STAY",  Action::STAY);
+
+    py::class_<GridWorldConfig>(m, "GridWorldConfig")
+        .def(py::init<>())
+        .def_readwrite("width",      &GridWorldConfig::width)
+        .def_readwrite("height",     &GridWorldConfig::height)
+        .def_readwrite("n_food",     &GridWorldConfig::n_food)
+        .def_readwrite("n_danger",   &GridWorldConfig::n_danger)
+        .def_readwrite("seed",       &GridWorldConfig::seed)
+        .def_readwrite("vis_empty",  &GridWorldConfig::vis_empty)
+        .def_readwrite("vis_food",   &GridWorldConfig::vis_food)
+        .def_readwrite("vis_danger", &GridWorldConfig::vis_danger)
+        .def_readwrite("vis_wall",   &GridWorldConfig::vis_wall)
+        .def_readwrite("vis_agent",  &GridWorldConfig::vis_agent);
+
+    py::class_<StepResult>(m, "StepResult")
+        .def_readonly("reward",     &StepResult::reward)
+        .def_readonly("got_food",   &StepResult::got_food)
+        .def_readonly("hit_danger", &StepResult::hit_danger)
+        .def_readonly("hit_wall",   &StepResult::hit_wall)
+        .def_readonly("agent_x",    &StepResult::agent_x)
+        .def_readonly("agent_y",    &StepResult::agent_y);
+
+    py::class_<GridWorld>(m, "GridWorld", "Simple 2D grid world environment")
+        .def(py::init<const GridWorldConfig&>(),
+             py::arg("config") = GridWorldConfig{})
+        .def("reset",    &GridWorld::reset)
+        .def("act",      &GridWorld::act, py::arg("action"))
+        .def("observe",  &GridWorld::observe)
+        .def("full_observation", &GridWorld::full_observation)
+        .def("agent_x",  &GridWorld::agent_x)
+        .def("agent_y",  &GridWorld::agent_y)
+        .def("width",    &GridWorld::width)
+        .def("height",   &GridWorld::height)
+        .def("total_food_collected", &GridWorld::total_food_collected)
+        .def("total_danger_hits",    &GridWorld::total_danger_hits)
+        .def("total_steps",          &GridWorld::total_steps)
+        .def("to_string",            &GridWorld::to_string);
+
+    // =========================================================================
+    // ClosedLoopAgent
+    // =========================================================================
+    py::class_<AgentConfig>(m, "AgentConfig")
+        .def(py::init<>())
+        .def_readwrite("brain_scale",            &AgentConfig::brain_scale)
+        .def_readwrite("vision_width",           &AgentConfig::vision_width)
+        .def_readwrite("vision_height",          &AgentConfig::vision_height)
+        .def_readwrite("brain_steps_per_action", &AgentConfig::brain_steps_per_action)
+        .def_readwrite("reward_scale",           &AgentConfig::reward_scale)
+        .def_readwrite("enable_da_stdp",         &AgentConfig::enable_da_stdp)
+        .def_readwrite("da_stdp_lr",             &AgentConfig::da_stdp_lr)
+        .def_readwrite("enable_homeostatic",     &AgentConfig::enable_homeostatic)
+        .def_readwrite("world_config",           &AgentConfig::world_config);
+
+    py::class_<ClosedLoopAgent, std::unique_ptr<ClosedLoopAgent>>(m, "ClosedLoopAgent",
+        "Closed-loop agent: GridWorld \u2194 WuYun brain")
+        .def(py::init([](const AgentConfig& cfg) {
+            return std::make_unique<ClosedLoopAgent>(cfg);
+        }), py::arg("config") = AgentConfig{})
+        .def("reset_world",  &ClosedLoopAgent::reset_world)
+        .def("agent_step",   &ClosedLoopAgent::agent_step)
+        .def("run",          &ClosedLoopAgent::run, py::arg("n_steps"))
+        .def("world",        &ClosedLoopAgent::world, py::return_value_policy::reference)
+        .def("brain",        &ClosedLoopAgent::brain, py::return_value_policy::reference)
+        .def("agent_step_count", &ClosedLoopAgent::agent_step_count)
+        .def("last_action",  &ClosedLoopAgent::last_action)
+        .def("last_reward",  &ClosedLoopAgent::last_reward)
+        .def("avg_reward",   &ClosedLoopAgent::avg_reward,
+             py::arg("window") = 100)
+        .def("food_rate",    &ClosedLoopAgent::food_rate,
+             py::arg("window") = 100);
+
+    m.def("version", []() { return "0.6.0"; });
 }

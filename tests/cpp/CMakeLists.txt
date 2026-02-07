@@ -229,5 +229,13 @@ if(MSVC)
 endif()
 add_test(NAME homeostatic_tests COMMAND test_homeostatic)
 
+# Step 13-B Closed-loop agent + GridWorld tests
+add_executable(test_closed_loop test_closed_loop.cpp)
+target_link_libraries(test_closed_loop PRIVATE wuyun_core)
+if(MSVC)
+    target_compile_options(test_closed_loop PRIVATE /utf-8)
+endif()
+add_test(NAME closed_loop_tests COMMAND test_closed_loop)
+
 # Register as CTest
 add_test(NAME neuron_tests COMMAND test_neuron)

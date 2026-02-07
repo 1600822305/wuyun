@@ -62,6 +62,8 @@ private:
     float expected_reward_ = 0.0f;
     float last_rpe_        = 0.0f;
     float da_level_        = 0.1f;  // tonic + phasic
+    float reward_psp_      = 0.0f;  // Sustained reward drive (exponential decay)
+    static constexpr float REWARD_PSP_DECAY = 0.85f;  // Slower decay for reward signal
 
     // PSP buffer for cross-region input (sustained synaptic drive)
     static constexpr float PSP_DECAY = 0.7f;

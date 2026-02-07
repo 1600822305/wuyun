@@ -49,6 +49,12 @@ public:
      */
     explicit SimulationEngine(int32_t max_delay = 10);
 
+    // Non-copyable (contains unique_ptrs)
+    SimulationEngine(const SimulationEngine&) = delete;
+    SimulationEngine& operator=(const SimulationEngine&) = delete;
+    SimulationEngine(SimulationEngine&&) = default;
+    SimulationEngine& operator=(SimulationEngine&&) = default;
+
     // --- 区域管理 ---
 
     /** 添加脑区 (自动注册到 SpikeBus) */

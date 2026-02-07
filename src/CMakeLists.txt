@@ -33,6 +33,8 @@ set(WUYUN_CORE_SOURCES
     engine/global_workspace.cpp
     engine/sensory_input.cpp
     engine/sleep_cycle.cpp
+    engine/grid_world.cpp
+    engine/closed_loop_agent.cpp
 )
 
 add_library(wuyun_core STATIC ${WUYUN_CORE_SOURCES})
