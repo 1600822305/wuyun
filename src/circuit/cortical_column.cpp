@@ -168,6 +168,11 @@ void CorticalColumn::build_synapses() {
     syn_l23_to_l5_nmda_ = build(c.n_l23_pyramidal,  c.n_l5_pyramidal,  c.p_l23_to_l5,    c.w_nmda, NMDA_PARAMS, CompartmentType::BASAL);
     syn_l23_rec_nmda_   = build(c.n_l23_pyramidal,  c.n_l23_pyramidal, c.p_l23_recurrent, c.w_nmda * 0.5f, NMDA_PARAMS, CompartmentType::BASAL);
 
+    // ===================== Auto-enable STDP if configured =====================
+    if (c.stdp_enabled) {
+        enable_stdp();
+    }
+
     // ===================== Exc -> Inhibitory (AMPA) =====================
     syn_exc_to_pv_  = build(c.n_l23_pyramidal, c.n_pv_basket,      c.p_exc_to_pv,  c.w_exc, AMPA_PARAMS, CompartmentType::SOMA);
     syn_exc_to_sst_ = build(c.n_l23_pyramidal, c.n_sst_martinotti, c.p_exc_to_sst, c.w_exc, AMPA_PARAMS, CompartmentType::SOMA);
@@ -303,6 +308,18 @@ ColumnOutput CorticalColumn::step(int t, float dt) {
     vip_.step(t, dt);
 
     // ================================================================
+    // STEP 2.5: Online plasticity (STDP)
+    // ================================================================
+    if (stdp_active_) {
+        // L4→L2/3: feedforward feature learning
+        syn_l4_to_l23_.apply_stdp(l4_stellate_.fired(), l23_pyramidal_.fired(), t);
+        // L2/3 recurrent: lateral pattern completion
+        syn_l23_recurrent_.apply_stdp(l23_pyramidal_.fired(), l23_pyramidal_.fired(), t);
+        // L2/3→L5: output learning
+        syn_l23_to_l5_.apply_stdp(l23_pyramidal_.fired(), l5_pyramidal_.fired(), t);
+    }
+
+    // ================================================================
     // STEP 3: Classify output
     // ================================================================
     ColumnOutput out;
@@ -383,6 +400,29 @@ size_t CorticalColumn::total_synapses() const {
         syn_sst_to_l23_api_.n_synapses() + syn_sst_to_l5_api_.n_synapses() +
         // VIP -> SST
         syn_vip_to_sst_.n_synapses();
+}
+
+// =============================================================================
+// Enable STDP on excitatory synapses
+// =============================================================================
+
+void CorticalColumn::enable_stdp() {
+    STDPParams params;
+    params.a_plus   = config_.stdp_a_plus;
+    params.a_minus  = config_.stdp_a_minus;
+    params.tau_plus  = config_.stdp_tau;
+    params.tau_minus = config_.stdp_tau;
+    params.w_min     = 0.0f;
+    params.w_max     = config_.stdp_w_max;
+
+    // L4→L2/3: feedforward feature learning (most important for self-organization)
+    syn_l4_to_l23_.enable_stdp(params);
+    // L2/3 recurrent: lateral attractor dynamics
+    syn_l23_recurrent_.enable_stdp(params);
+    // L2/3→L5: output pathway learning
+    syn_l23_to_l5_.enable_stdp(params);
+
+    stdp_active_ = true;
 }
 
 } // namespace wuyun

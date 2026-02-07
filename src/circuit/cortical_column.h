@@ -76,6 +76,13 @@ struct ColumnConfig {
     float w_inh              = 0.5f;  // Inhibitory weight
     float w_l6_to_l4         = 0.3f;  // Prediction loop (weaker initially)
     float w_recurrent        = 0.2f;  // L2/3 recurrent (weak)
+
+    // --- Cortical STDP (online learning) ---
+    bool  stdp_enabled       = false;  // Enable STDP on excitatory synapses
+    float stdp_a_plus        = 0.01f;  // LTP amplitude (standard cortical)
+    float stdp_a_minus       = -0.012f;// LTD amplitude
+    float stdp_tau           = 20.0f;  // Time window (ms)
+    float stdp_w_max         = 1.5f;   // Max weight
 };
 
 // =============================================================================
@@ -114,6 +121,10 @@ public:
      * @return    Column output (prediction errors, bursts, drive)
      */
     ColumnOutput step(int t, float dt = 1.0f);
+
+    /** Enable STDP on cortical excitatory synapses (called after construction) */
+    void enable_stdp();
+    bool has_stdp() const { return stdp_active_; }
 
     // --- External input injection ---
 
@@ -199,6 +210,9 @@ private:
 
     // === VIP -> SST (GABA_A, disinhibition) ===
     SynapseGroup syn_vip_to_sst_;     // VIP -> SST soma
+
+    // === STDP state ===
+    bool stdp_active_ = false;
 };
 
 } // namespace wuyun
