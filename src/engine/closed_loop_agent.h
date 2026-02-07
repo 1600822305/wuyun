@@ -31,6 +31,7 @@
 #include "region/limbic/lateral_habenula.h"
 #include "region/limbic/hippocampus.h"
 #include "region/limbic/amygdala.h"
+#include "engine/sleep_cycle.h"
 #include "plasticity/homeostatic.h"
 #include <memory>
 #include <vector>
@@ -116,6 +117,16 @@ struct AgentConfig {
     bool  enable_negative_replay = true;  // Enable replay of danger episodes
     int   negative_replay_passes = 2;     // Conservative: fewer passes than positive (5)
     float negative_replay_da_scale = 0.3f; // DA dip scale (baseline - |reward|×this)
+
+    // Sleep consolidation (periodic offline replay)
+    // Biology: NREM SWR replays recent experiences for BG+cortical consolidation.
+    // Agent runs wake_steps, then sleeps for sleep_nrem_steps, then wakes.
+    // During sleep: no environment interaction, replay all buffered episodes.
+    bool   enable_sleep_consolidation = false;  // Disabled: harmful in 3x3 (awake replay sufficient)
+    size_t wake_steps_before_sleep    = 1000;  // Wake steps between sleep bouts (less frequent)
+    size_t sleep_nrem_steps           = 30;    // NREM consolidation steps per bout (light sleep)
+    int    sleep_replay_passes        = 1;     // Single pass (prevent over-consolidation)
+    float  sleep_positive_da          = 0.40f; // Gentle DA above baseline (0.3) for Go consolidation
 
     // Evolution fast-eval mode
     bool fast_eval = false;  // Skip hippocampus + cortical STDP for ~40% speedup
@@ -228,6 +239,11 @@ private:
     void run_awake_replay(float reward);
     void run_negative_replay(float reward);
     void capture_dlpfc_spikes(int action_group);
+
+    // --- Sleep consolidation ---
+    SleepCycleManager sleep_mgr_;
+    size_t wake_step_counter_ = 0;
+    void run_sleep_consolidation();
 };
 
 } // namespace wuyun

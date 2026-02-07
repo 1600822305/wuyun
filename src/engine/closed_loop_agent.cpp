@@ -307,6 +307,19 @@ StepResult ClosedLoopAgent::agent_step() {
     //   Phase C: Act in world → store reward as pending for next step
     // =====================================================================
 
+    // --- Sleep consolidation: periodic offline replay ---
+    // Biology: after sustained waking, NREM sleep replays recent experiences
+    // via hippocampal SWR, consolidating both positive and negative memories
+    // in BG (striatal action values). No environment interaction during sleep.
+    // (Diekelmann & Born 2010: sleep for memory consolidation)
+    if (config_.enable_sleep_consolidation && config_.wake_steps_before_sleep > 0) {
+        ++wake_step_counter_;
+        if (wake_step_counter_ >= config_.wake_steps_before_sleep) {
+            run_sleep_consolidation();
+            wake_step_counter_ = 0;
+        }
+    }
+
     // --- Phase A: Process pending reward (from previous action) ---
     if (has_pending_reward_) {
         inject_reward(pending_reward_);
@@ -867,6 +880,98 @@ void ClosedLoopAgent::run_awake_replay(float reward) {
     }
 
     // Exit replay mode and restore DA level
+    bg_->set_replay_mode(false);
+    bg_->set_da_level(saved_da);
+}
+
+// =============================================================================
+// Sleep consolidation: NREM SWR replay for offline memory consolidation
+// =============================================================================
+
+void ClosedLoopAgent::run_sleep_consolidation() {
+    // Offline sleep consolidation — NREM Sharp-Wave Ripple replay:
+    //
+    //   After ~500 waking steps, the agent "sleeps" for ~80 brain steps.
+    //   During NREM sleep:
+    //   1. Hippocampus generates SWR (CA3 noise → pattern completion)
+    //   2. All buffered episodes (positive + negative) are replayed to BG
+    //   3. More thorough than awake replay: multiple passes, all episodes
+    //   4. No environment interaction (no visual input, no motor output)
+    //
+    //   Biology: NREM slow-wave sleep is the primary window for
+    //   hippocampal-cortical memory consolidation. SWR during NREM
+    //   reactivate recent experiences, strengthening synaptic traces.
+    //   (Diekelmann & Born 2010, Wilson & McNaughton 1994)
+    //
+    //   Key difference from awake replay:
+    //   - Replays ALL episodes (not just reward-triggered)
+    //   - Multiple passes (more consolidation time)
+    //   - Both positive and negative with appropriate DA levels
+    //   - Hippocampus in sleep replay mode (SWR generation)
+
+    if (!bg_ || !vta_) return;
+    if (replay_buffer_.size() < 2) return;
+
+    // Collect all episodes from buffer
+    auto all_episodes = replay_buffer_.recent(replay_buffer_.size());
+
+    // Collect positive episodes only.
+    // Sleep consolidation focuses on Go pathway (positive reward memories).
+    // Avoidance learning is already well-served by:
+    //   1. LHb direct DA pause (online)
+    //   2. Amygdala one-shot fear conditioning (online)
+    //   3. Awake negative replay (immediate after danger)
+    // Adding negative replay during sleep causes D2 over-strengthening
+    // and behavioral oscillation (empirically verified).
+    // Biology: NREM SWR preferentially replays reward-associated sequences
+    // (Lansink et al. 2009, Ambrose et al. 2016).
+    std::vector<const Episode*> positive_eps;
+    for (const auto* ep : all_episodes) {
+        if (!ep->steps.empty() && ep->reward > 0.05f) {
+            positive_eps.push_back(ep);
+        }
+    }
+
+    // Guard: require positive episodes before sleeping
+    if (positive_eps.empty()) return;
+
+    // --- Enter sleep ---
+    sleep_mgr_.enter_sleep();
+    if (hipp_) hipp_->enable_sleep_replay();
+
+    float saved_da = bg_->da_level();
+    bg_->set_replay_mode(true);
+
+    // --- NREM SWR replay: positive consolidation only ---
+    size_t nrem_steps_done = 0;
+    size_t total_nrem = config_.sleep_nrem_steps;
+
+    for (int pass = 0; pass < config_.sleep_replay_passes && nrem_steps_done < total_nrem; ++pass) {
+        for (const auto* ep_ptr : positive_eps) {
+            if (nrem_steps_done >= total_nrem) break;
+            const Episode& ep = *ep_ptr;
+            bg_->set_da_level(config_.sleep_positive_da);
+
+            size_t start_step = (ep.steps.size() > 8) ? 8 : 0;
+            for (size_t i = start_step; i < ep.steps.size() && nrem_steps_done < total_nrem; ++i) {
+                const SpikeSnapshot& snap = ep.steps[i];
+                if (!snap.cortical_events.empty()) {
+                    bg_->receive_spikes(snap.cortical_events);
+                }
+                if (snap.action_group >= 0) {
+                    bg_->mark_motor_efference(snap.action_group);
+                }
+                bg_->replay_learning_step(0, 1.0f);
+                if (hipp_) hipp_->step(static_cast<int32_t>(nrem_steps_done), 1.0f);
+                sleep_mgr_.step();
+                ++nrem_steps_done;
+            }
+        }
+    }
+
+    // --- Wake up ---
+    sleep_mgr_.wake_up();
+    if (hipp_) hipp_->disable_sleep_replay();
     bg_->set_replay_mode(false);
     bg_->set_da_level(saved_da);
 }
