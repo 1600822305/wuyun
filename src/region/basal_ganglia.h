@@ -64,8 +64,11 @@ public:
     void inject_cortical_input(const std::vector<float>& d1_cur,
                                 const std::vector<float>& d2_cur);
 
-    /** 设置 DA 水平 (影响 D1/D2 兴奋性) */
+    /** 设置 DA 水平 (影响 D1/D2 兴奋性) — 仅用于直接测试, 正式仿真由脉冲自动推算 */
     void set_da_level(float da);
+
+    /** 设置 DA 源区域 ID (来自 VTA 的脉冲将自动更新 DA 水平) */
+    void set_da_source_region(uint32_t region_id) { da_source_region_ = region_id; }
 
     /** 获取 GPi 输出 (持续抑制 - 去抑制 = 动作选择) */
     const NeuronPopulation& gpi() const { return gpi_; }
@@ -79,7 +82,10 @@ private:
     void aggregate_state();
 
     BasalGangliaConfig config_;
-    float da_level_ = 0.1f;  // DA tonic baseline
+    float da_level_ = 0.1f;      // DA tonic baseline
+    uint32_t da_source_region_ = UINT32_MAX;  // VTA region ID (UINT32_MAX = not set)
+    float da_spike_accum_ = 0.0f; // DA spike accumulator for rate estimation
+    static constexpr float DA_RATE_TAU = 0.95f; // exponential smoothing
 
     // 5 populations
     NeuronPopulation d1_msn_;    // Go pathway
@@ -96,6 +102,20 @@ private:
     SynapseGroup syn_gpe_to_stn_;
     // Indirect + Hyperdirect: STN → GPi (excitatory)
     SynapseGroup syn_stn_to_gpi_;
+
+    // 跨区域输入随机映射表 (构造时生成, 替代 id%5 硬编码)
+    // cortex_to_d1_map_[i] = 第i个连接的目标 D1 神经元
+    std::vector<std::vector<uint32_t>> ctx_to_d1_map_;  // per-input neuron → D1 targets
+    std::vector<std::vector<uint32_t>> ctx_to_d2_map_;  // per-input neuron → D2 targets
+    std::vector<std::vector<uint32_t>> ctx_to_stn_map_; // per-input neuron → STN targets (hyperdirect)
+    size_t input_map_size_ = 0;
+    void build_input_maps(size_t n_input_neurons);
+
+    // PSP 缓冲 (模拟突触时间常数)
+    static constexpr float PSP_DECAY = 0.7f;
+    std::vector<float> psp_d1_;
+    std::vector<float> psp_d2_;
+    std::vector<float> psp_stn_;
 
     std::vector<uint8_t> fired_all_;
     std::vector<int8_t>  spike_type_all_;

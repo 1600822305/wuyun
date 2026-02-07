@@ -1,6 +1,7 @@
 #include "region/basal_ganglia.h"
 #include <random>
 #include <algorithm>
+#include <climits>
 
 namespace wuyun {
 
@@ -79,10 +80,15 @@ BasalGanglia::BasalGanglia(const BasalGangliaConfig& config)
     , syn_d2_to_gpe_(make_empty(config.n_d2_msn, config.n_gpe, GABA_A_PARAMS, CompartmentType::BASAL))
     , syn_gpe_to_stn_(make_empty(config.n_gpe, config.n_stn, GABA_A_PARAMS, CompartmentType::BASAL))
     , syn_stn_to_gpi_(make_empty(config.n_stn, config.n_gpi, AMPA_PARAMS, CompartmentType::BASAL))
+    , psp_d1_(config.n_d1_msn, 0.0f)
+    , psp_d2_(config.n_d2_msn, 0.0f)
+    , psp_stn_(config.n_stn, 0.0f)
     , fired_all_(n_neurons_, 0)
     , spike_type_all_(n_neurons_, 0)
 {
     build_synapses();
+    // Build input maps for a reasonable max input neuron count
+    build_input_maps(256);
 }
 
 void BasalGanglia::build_synapses() {
@@ -120,6 +126,34 @@ void BasalGanglia::build_synapses() {
     }
 }
 
+void BasalGanglia::build_input_maps(size_t n_input_neurons) {
+    input_map_size_ = n_input_neurons;
+    ctx_to_d1_map_.resize(n_input_neurons);
+    ctx_to_d2_map_.resize(n_input_neurons);
+    ctx_to_stn_map_.resize(n_input_neurons);
+
+    std::mt19937 rng(777);
+    std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+
+    for (size_t i = 0; i < n_input_neurons; ++i) {
+        // Cortex → D1: probability p_ctx_to_d1
+        for (size_t j = 0; j < d1_msn_.size(); ++j) {
+            if (dist(rng) < config_.p_ctx_to_d1)
+                ctx_to_d1_map_[i].push_back(static_cast<uint32_t>(j));
+        }
+        // Cortex → D2: probability p_ctx_to_d2
+        for (size_t j = 0; j < d2_msn_.size(); ++j) {
+            if (dist(rng) < config_.p_ctx_to_d2)
+                ctx_to_d2_map_[i].push_back(static_cast<uint32_t>(j));
+        }
+        // Cortex → STN (hyperdirect): probability p_ctx_to_stn
+        for (size_t j = 0; j < stn_.size(); ++j) {
+            if (dist(rng) < config_.p_ctx_to_stn)
+                ctx_to_stn_map_[i].push_back(static_cast<uint32_t>(j));
+        }
+    }
+}
+
 void BasalGanglia::step(int32_t t, float dt) {
     oscillation_.step(dt);
     neuromod_.step(dt);
@@ -127,10 +161,31 @@ void BasalGanglia::step(int32_t t, float dt) {
     // DA modulation: D1 gets tonic excitation proportional to DA
     //                D2 gets tonic excitation inversely proportional to DA
     // Scale is significant: MSN need ~50 to fire, DA should contribute ~10-20
+    // Update DA level from spike accumulator (exponential smoothing)
+    if (da_source_region_ != UINT32_MAX) {
+        // DA firing rate estimate (spikes per step, smoothed)
+        da_spike_accum_ *= DA_RATE_TAU;
+        da_level_ = std::clamp(0.1f + da_spike_accum_ * 0.05f, 0.0f, 1.0f);
+    }
+
     float da_exc_d1 = da_level_ * 30.0f;   // DA enhances D1
     float da_exc_d2 = (1.0f - da_level_) * 20.0f;  // DA suppresses D2
     for (size_t i = 0; i < d1_msn_.size(); ++i) d1_msn_.inject_basal(i, da_exc_d1);
     for (size_t i = 0; i < d2_msn_.size(); ++i) d2_msn_.inject_basal(i, da_exc_d2);
+
+    // Inject decaying PSP buffers (cross-region synaptic time constant)
+    for (size_t i = 0; i < psp_d1_.size(); ++i) {
+        if (psp_d1_[i] > 0.5f) d1_msn_.inject_basal(i, psp_d1_[i]);
+        psp_d1_[i] *= PSP_DECAY;
+    }
+    for (size_t i = 0; i < psp_d2_.size(); ++i) {
+        if (psp_d2_[i] > 0.5f) d2_msn_.inject_basal(i, psp_d2_[i]);
+        psp_d2_[i] *= PSP_DECAY;
+    }
+    for (size_t i = 0; i < psp_stn_.size(); ++i) {
+        if (psp_stn_[i] > 0.5f) stn_.inject_basal(i, psp_stn_[i]);
+        psp_stn_[i] *= PSP_DECAY;
+    }
 
     // GPi/GPe get tonic excitation (they fire spontaneously)
     for (size_t i = 0; i < gpi_.size(); ++i) gpi_.inject_basal(i, 8.0f);
@@ -167,20 +222,25 @@ void BasalGanglia::step(int32_t t, float dt) {
 }
 
 void BasalGanglia::receive_spikes(const std::vector<SpikeEvent>& events) {
-    // Cortical input → D1 and D2 (and STN for hyperdirect)
     for (const auto& evt : events) {
-        float current = is_burst(static_cast<SpikeType>(evt.spike_type)) ? 15.0f : 8.0f;
-        size_t id = evt.neuron_id;
-
-        // Distribute to D1, D2, STN
-        if (id < d1_msn_.size()) {
-            d1_msn_.inject_basal(id % d1_msn_.size(), current);
+        // DA spikes from VTA → update DA level automatically
+        if (evt.region_id == da_source_region_) {
+            da_spike_accum_ += 1.0f;
+            continue;
         }
-        d2_msn_.inject_basal(id % d2_msn_.size(), current);
 
-        // Hyperdirect: some cortical input to STN
-        if (id % 5 == 0) {
-            stn_.inject_basal(id % stn_.size(), current * 0.5f);
+        // Cortical spikes → route through pre-built random sparse maps
+        float current = is_burst(static_cast<SpikeType>(evt.spike_type)) ? 25.0f : 15.0f;
+        size_t src = evt.neuron_id % input_map_size_;
+
+        for (uint32_t tgt : ctx_to_d1_map_[src]) {
+            psp_d1_[tgt] += current;
+        }
+        for (uint32_t tgt : ctx_to_d2_map_[src]) {
+            psp_d2_[tgt] += current;
+        }
+        for (uint32_t tgt : ctx_to_stn_map_[src]) {
+            psp_stn_[tgt] += current * 0.5f;
         }
     }
 }

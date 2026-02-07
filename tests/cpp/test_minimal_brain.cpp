@@ -128,6 +128,14 @@ static SimulationEngine build_minimal_brain() {
     engine.add_projection("dlPFC", "BG", 2, "dlPFC→BG");       // 动作选择
     engine.add_projection("BG", "MotorThal", 2, "BG→MotorThal"); // GPi→丘脑
     engine.add_projection("MotorThal", "M1", 2, "MotorThal→M1"); // 丘脑→运动皮层
+    engine.add_projection("VTA", "BG", 1, "VTA→BG");           // DA调制(走SpikeBus)
+
+    // Wire DA source: BG reads VTA spikes to auto-update DA level
+    auto* bg_ptr = dynamic_cast<BasalGanglia*>(engine.find_region("BG"));
+    auto* vta_ptr = engine.find_region("VTA");
+    if (bg_ptr && vta_ptr) {
+        bg_ptr->set_da_source_region(vta_ptr->region_id());
+    }
 
     return engine;
 }
@@ -141,7 +149,7 @@ void test_engine_construction() {
     auto engine = build_minimal_brain();
 
     CHECK(engine.num_regions() == 7, "应有7个区域");
-    CHECK(engine.bus().num_projections() == 6, "应有6条投射");
+    CHECK(engine.bus().num_projections() == 7, "应有7条投射(+VTA→BG)");
 
     // Check each region exists
     CHECK(engine.find_region("LGN") != nullptr, "LGN 存在");
@@ -243,53 +251,44 @@ void test_signal_propagation() {
 // =============================================================================
 void test_da_modulation() {
     printf("\n--- 测试4: DA 奖励调制 ---\n");
-    printf("    原理: VTA DA burst → BG D1增强 → Go通路更活跃\n");
+    printf("    原理: DA↑ → D1兴奋性增强 → Go通路更活跃\n");
 
-    auto engine = build_minimal_brain();
+    // Use standalone BG instances (no da_source_region_ set)
+    // to directly test DA modulation via set_da_level()
+    auto bg_cfg = BasalGangliaConfig{};
+    bg_cfg.n_d1_msn = 50; bg_cfg.n_d2_msn = 50;
+    bg_cfg.n_gpi = 15; bg_cfg.n_gpe = 15; bg_cfg.n_stn = 10;
 
-    auto* vta = dynamic_cast<VTA_DA*>(engine.find_region("VTA"));
-    auto* bg  = dynamic_cast<BasalGanglia*>(engine.find_region("BG"));
-
-    CHECK(vta != nullptr, "VTA 应该存在");
-    CHECK(bg != nullptr, "BG 应该存在");
-
-    // Phase 1: Run with moderate cortical input (near threshold), no reward
-    size_t d1_spikes_no_reward = 0;
-    for (int32_t t = 0; t < 100; ++t) {
-        // MSN v_rest=-80, threshold=-50, R_s=0.6 → steady-state needs I≈50
-        // Use sub-threshold input so DA can push over the edge
-        std::vector<float> ctx_input(50, 40.0f);  // Below threshold alone
-        bg->inject_cortical_input(ctx_input, ctx_input);
-        bg->set_da_level(0.1f);  // tonic baseline
-
-        engine.step();
-
-        for (size_t i = 0; i < bg->d1().size(); ++i) {
-            if (bg->d1().fired()[i]) d1_spikes_no_reward++;
-        }
-    }
-
-    // Phase 2: Same cortical input but with high DA (simulating reward)
-    auto engine2 = build_minimal_brain();
-    auto* bg2  = dynamic_cast<BasalGanglia*>(engine2.find_region("BG"));
-
-    size_t d1_spikes_with_reward = 0;
+    // Phase 1: Low DA (tonic baseline)
+    BasalGanglia bg1(bg_cfg);
+    size_t d1_spikes_low_da = 0;
     for (int32_t t = 0; t < 100; ++t) {
         std::vector<float> ctx_input(50, 40.0f);
-        bg2->inject_cortical_input(ctx_input, ctx_input);
-        bg2->set_da_level(0.6f);  // High DA = reward state
-
-        engine2.step();
-
-        for (size_t i = 0; i < bg2->d1().size(); ++i) {
-            if (bg2->d1().fired()[i]) d1_spikes_with_reward++;
+        bg1.inject_cortical_input(ctx_input, ctx_input);
+        bg1.set_da_level(0.1f);
+        bg1.step(t);
+        for (size_t i = 0; i < bg1.d1().size(); ++i) {
+            if (bg1.d1().fired()[i]) d1_spikes_low_da++;
         }
     }
 
-    printf("    D1 无奖励(DA=0.1): %zu   D1 有奖励(DA=0.6): %zu\n",
-           d1_spikes_no_reward, d1_spikes_with_reward);
+    // Phase 2: High DA (reward state)
+    BasalGanglia bg2(bg_cfg);
+    size_t d1_spikes_high_da = 0;
+    for (int32_t t = 0; t < 100; ++t) {
+        std::vector<float> ctx_input(50, 40.0f);
+        bg2.inject_cortical_input(ctx_input, ctx_input);
+        bg2.set_da_level(0.6f);
+        bg2.step(t);
+        for (size_t i = 0; i < bg2.d1().size(); ++i) {
+            if (bg2.d1().fired()[i]) d1_spikes_high_da++;
+        }
+    }
 
-    CHECK(d1_spikes_with_reward > d1_spikes_no_reward,
+    printf("    D1 低DA(0.1): %zu   D1 高DA(0.6): %zu\n",
+           d1_spikes_low_da, d1_spikes_high_da);
+
+    CHECK(d1_spikes_high_da > d1_spikes_low_da,
           "DA 奖励应增强 D1 Go 通路");
 
     PASS("DA 奖励调制");
