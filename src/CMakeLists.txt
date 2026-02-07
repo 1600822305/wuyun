@@ -15,6 +15,12 @@ set(WUYUN_CORE_SOURCES
     plasticity/istdp.cpp
     plasticity/homeostatic.cpp
     circuit/cortical_column.cpp
+    region/brain_region.cpp
+    region/cortical_region.cpp
+    region/thalamic_relay.cpp
+    region/basal_ganglia.cpp
+    region/vta_da.cpp
+    engine/simulation_engine.cpp
 )
 
 add_library(wuyun_core STATIC ${WUYUN_CORE_SOURCES})

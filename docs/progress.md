@@ -76,19 +76,35 @@
   - 颗粒细胞 (高阈值稀疏), 浦肯野 (高频), DA神经元 (慢适应 burst)
 - ✅ **21 测试全通过** (9 neuron + 6 column + 6 foundation)
 
-### Step 3: 核心回路 — 最小可工作大脑
+### Step 3: 核心回路 — 最小可工作大脑 ✅ (2026-02-07)
 > 目标: 感觉→认知→动作的最短通路能跑通
-**3a. 感觉-认知通路 (皮层+丘脑核心):**
-- ⬜ 丘脑感觉中继 (T-01 LGN, T-02 MGN, T-03 VPL, T-16 TRN)
-- ⬜ V1 (S-01) + A1 (S-02) — 皮层柱实例 + 丘脑输入
-- ⬜ dlPFC (A-01) — 工作记忆参数
-**3b. 动作选择通路 (基底节):**
-- ⬜ 纹状体 D1/D2 (BG-01~02) + GPi/GPe (BG-03~04) + STN
-- ⬜ 丘脑运动中继 (T-07 VLa, T-08 VLp)
-- ⬜ M1 (M-01) — 运动输出
-**3c. 奖励信号 (DA系统):**
-- ⬜ VTA (MB-03) + SNc (MB-04) → 纹状体/PFC DA投射
-- ⬜ LHb (ET-01) → VTA 负RPE
+
+**架构层 (新增):**
+- ✅ `BrainRegion` 基类 — 统一接口: 注册SpikeBus + step/receive/submit + 振荡/调质
+- ✅ `CorticalRegion` — CorticalColumn 的 BrainRegion 包装 + PSP 输入缓冲
+- ✅ `SimulationEngine` — 全局时钟 + SpikeBus 编排 + step循环
+
+**3a. 感觉-认知通路:**
+- ✅ `ThalamicRelay` (LGN) — Relay+TRN 双群体, Relay↔TRN 互连突触, Tonic/Burst 切换
+- ✅ V1 (CorticalRegion 实例, 270 神经元)
+- ✅ dlPFC (CorticalRegion 实例, 202 神经元)
+
+**3b. 动作选择通路:**
+- ✅ `BasalGanglia` — D1/D2 MSN + GPi/GPe + STN, Direct/Indirect/Hyperdirect 三条通路
+- ✅ MotorThalamus (ThalamicRelay 实例)
+- ✅ M1 (CorticalRegion 实例, 169 神经元)
+
+**3c. 奖励信号:**
+- ✅ `VTA_DA` — DA 神经元 + RPE 计算 + DA level 输出 + phasic/tonic
+- ✅ DA→BG D1/D2 调制: DA↑=D1增强(Go), DA↓=D2增强(NoGo)
+
+**端到端验证 (5 测试全通过):**
+- 构造: 7 区域, 906 神经元, 6 投射
+- 沉默: 无输入→全系统安静
+- **信号传播**: 视觉(35.0)→LGN(124 spikes)→V1(23 spikes) ✓
+- **DA 调制**: DA=0.1→D1=50, DA=0.6→D1=150 (3倍增强) ✓
+- **TRN 门控**: 正常=60, TRN抑制=3 (95%抑制) ✓
+- **26 测试全通过** (9 neuron + 6 column + 6 foundation + 5 minimal_brain)
 
 ### Step 4: 记忆与情感回路
 > 目标: 能学习、能记住、能赋予情感价值

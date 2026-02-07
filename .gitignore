@@ -34,3 +34,6 @@ experiments/logs/
 *.pt
 *.pth
 *.ckpt
+
+# Quick scratch pad (随便改, 不入库)
+tools/scratch.cpp
