@@ -28,6 +28,9 @@
 #include "region/subcortical/basal_ganglia.h"
 #include "region/subcortical/thalamic_relay.h"
 #include "region/neuromod/vta_da.h"
+#include "region/neuromod/lc_ne.h"
+#include "region/neuromod/nbm_ach.h"
+#include "region/neuromod/drn_5ht.h"
 #include "region/limbic/lateral_habenula.h"
 #include "region/limbic/hippocampus.h"
 #include "region/limbic/amygdala.h"
@@ -136,6 +139,12 @@ struct AgentConfig {
     int    sleep_replay_passes        = 1;     // Single pass (prevent over-consolidation)
     float  sleep_positive_da          = 0.30f; // v31: =baseline (NREM DA is LOW, no new learning)
 
+    // v34: 神经调质系统接入 (LC-NE, NBM-ACh, DRN-5HT)
+    // 替换手工计算的探索噪声和ACh boost，用真实神经元动态驱动
+    bool  enable_lc_ne    = true;   // LC蓝斑: NE驱动探索/利用平衡
+    bool  enable_nbm_ach  = true;   // NBM基底核: ACh驱动STDP注意力门控
+    bool  enable_drn_5ht  = true;   // DRN缝核: 5-HT驱动耐心/学习率调制
+
     // v30: Cerebellum forward model (Yoshida 2025: CB-BG synergistic RL)
     // M1 efference copy + visual context → predict next sensory state
     // Prediction error → climbing fiber → PF-PC LTD → fast correction
@@ -238,6 +247,9 @@ private:
     LateralHabenula* lhb_   = nullptr;
     Amygdala*       amyg_   = nullptr;
     Cerebellum*     cb_     = nullptr;   // v30: forward model
+    LC_NE*          lc_     = nullptr;   // v34: NE exploration
+    NBM_ACh*        nbm_    = nullptr;   // v34: ACh attention
+    DRN_5HT*        drn_    = nullptr;   // v34: 5-HT patience
 
     // State
     int    agent_step_count_ = 0;

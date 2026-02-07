@@ -263,14 +263,38 @@ void ClosedLoopAgent::build_brain() {
         engine_.add_projection("Cerebellum", "BG", 1);
     }
 
+    // --- v34: 神经调质系统 (LC-NE, NBM-ACh, DRN-5HT) ---
+    // Volume transmission: 不走SpikeBus，通过inject_arousal/surprise/wellbeing驱动
+    // SimulationEngine每步自动收集输出并广播到所有区域
+    if (config_.enable_lc_ne) {
+        LCConfig lc_cfg;
+        lc_cfg.n_ne_neurons = 4 * s;
+        engine_.add_region(std::make_unique<LC_NE>(lc_cfg));
+    }
+    if (config_.enable_nbm_ach) {
+        NBMConfig nbm_cfg;
+        nbm_cfg.n_ach_neurons = 4 * s;
+        engine_.add_region(std::make_unique<NBM_ACh>(nbm_cfg));
+    }
+    if (config_.enable_drn_5ht) {
+        DRNConfig drn_cfg;
+        drn_cfg.n_5ht_neurons = 4 * s;
+        engine_.add_region(std::make_unique<DRN_5HT>(drn_cfg));
+    }
+
     // --- Neuromodulator registration ---
     engine_.register_neuromod_source("VTA", SimulationEngine::NeuromodType::DA);
+    if (config_.enable_lc_ne)
+        engine_.register_neuromod_source("LC", SimulationEngine::NeuromodType::NE);
+    if (config_.enable_nbm_ach)
+        engine_.register_neuromod_source("NBM", SimulationEngine::NeuromodType::ACh);
+    if (config_.enable_drn_5ht)
+        engine_.register_neuromod_source("DRN", SimulationEngine::NeuromodType::SHT);
 
     // --- Wire DA source for BG ---
     auto* bg_ptr = dynamic_cast<BasalGanglia*>(engine_.find_region("BG"));
     auto* vta_ptr = engine_.find_region("VTA");
     // DA传递用neuromodulatory broadcast (体积传递), 不走SpikeBus
-    // VTA→BG投射保留用于其他信号, DA level直接同步
     // bg_ptr->set_da_source_region(vta_ptr->region_id()); // DISABLED: use direct DA broadcast
 
     // --- Cache region pointers ---
@@ -287,6 +311,9 @@ void ClosedLoopAgent::build_brain() {
     lhb_   = dynamic_cast<LateralHabenula*>(engine_.find_region("LHb"));
     amyg_  = dynamic_cast<Amygdala*>(engine_.find_region("Amygdala"));
     cb_    = dynamic_cast<Cerebellum*>(engine_.find_region("Cerebellum"));
+    lc_    = dynamic_cast<LC_NE*>(engine_.find_region("LC"));
+    nbm_   = dynamic_cast<NBM_ACh*>(engine_.find_region("NBM"));
+    drn_   = dynamic_cast<DRN_5HT*>(engine_.find_region("DRN"));
 
     // --- Topographic mappings through visual hierarchy ---
     // V1→V2: retinotopic (preserve spatial layout)
@@ -442,10 +469,16 @@ StepResult ClosedLoopAgent::agent_step() {
             lhb_->inject_frustration(frustration);
         }
 
-        // v26: ACh-gated visual STDP (Froemke et al. 2007)
+        // v34: ACh-gated visual STDP — 由 NBM-ACh 神经元驱动
         // Biology: NBM ACh burst during salient events → visual cortex STDP enhanced
-        // Effect: V2/V4 learn "what food/danger looks like" faster after reward events
-        float ach_boost = 1.0f + std::abs(pending_reward_) * 0.5f;  // v26: gentler ACh (reward ±1.5 → gain 1.75)
+        // 输入: DA偏离baseline = "意外" → ACh phasic burst
+        // 效果: 意外事件(食物/危险)时皮层学得快，平常时学得慢
+        if (nbm_) {
+            float da_error = std::abs(vta_->da_output() - 0.3f);
+            nbm_->inject_surprise(da_error);  // DA偏离→意外→ACh↑
+        }
+        float ach_boost = nbm_ ? (nbm_->ach_output() / 0.2f)
+                                : (1.0f + std::abs(pending_reward_) * 0.5f);  // fallback
         if (v1_)  v1_->column().set_ach_stdp_gain(ach_boost);
         if (v2_)  v2_->column().set_ach_stdp_gain(ach_boost);
         if (v4_)  v4_->column().set_ach_stdp_gain(ach_boost);
@@ -516,21 +549,37 @@ StepResult ClosedLoopAgent::agent_step() {
     size_t d1_group = (d1_size >= 4) ? d1_size / 4 : d1_size;
     float bg_to_m1_gain = config_.bg_to_m1_gain;
 
-    // Motor exploration: cortical attractor dynamics + NE-modulated arousal
-    // Biology: LC-NE system scales exploration based on learning progress
-    //   Getting food regularly → low NE → exploit learned policy
-    //   Not finding food → high NE → explore more
-    //   Floor at 70% ensures M1 always fires (attractor_drive ≥ 0.7*55*0.6 = 23)
+    // v34: LC-NE 驱动探索噪声 (替换手工 food_rate 计算)
+    // Biology: LC-NE arousal → NE↑ → 探索↑; 持续成功 → arousal↓ → NE↓ → 利用
+    // 输入: (1-food_rate)=饥饿/不确定 + amygdala fear = 威胁
+    // 输出: ne_output() 驱动 noise_scale
+    if (lc_) {
+        float fr = food_rate(200);
+        // 极温和arousal: LC自有tonic drive=8.0已足够维持NE baseline
+        // arousal只做微调: 找到food→NE微降(安静利用), 未找到→NE微升(探索)
+        float arousal = std::max(0.0f, 0.05f - fr * 0.1f);
+        lc_->inject_arousal(arousal);
+    }
+    // v34: DRN-5HT wellbeing 注入 (持续获得食物→5-HT↑→更耐心)
+    if (drn_) {
+        drn_->inject_wellbeing(food_rate(200));
+    }
+
     float noise_scale = 1.0f;
-    if (agent_step_count_ > 500 && reward_history_.size() > 0) {
+    if (lc_) {
+        // NE驱动探索: ne_tonic≈0.22时scale=1.0, 高NE=探索多, 低NE=利用多
+        float ne = lc_->ne_output();
+        float ne_tonic = 0.22f;  // LC自然tonic发放对应的NE水平
+        noise_scale = std::clamp(ne / ne_tonic, 0.5f, 1.5f);
+    } else if (agent_step_count_ > 500 && reward_history_.size() > 0) {
+        // fallback: 旧的手工逻辑
         int food_count = 0;
         int total = static_cast<int>(std::min(history_idx_, reward_history_.size()));
         for (int k = 0; k < total; ++k) {
             if (food_history_[k]) food_count++;
         }
-        float food_rate = static_cast<float>(food_count) / static_cast<float>(std::max(total, 1));
-        // More food found → reduce exploration (exploit). Scale: 1.0→0.7 as food_rate 0→0.1
-        noise_scale = std::max(config_.ne_floor, 1.0f - food_rate * config_.ne_food_scale);
+        float fr = static_cast<float>(food_count) / static_cast<float>(std::max(total, 1));
+        noise_scale = std::max(config_.ne_floor, 1.0f - fr * config_.ne_food_scale);
     }
     float effective_noise = config_.exploration_noise * noise_scale;
 
@@ -582,7 +631,21 @@ StepResult ClosedLoopAgent::agent_step() {
         }
 
         // DA neuromodulatory broadcast: VTA → BG (volume transmission, every step)
-        bg_->set_da_level(vta_->da_output());
+        // v34: DRN-5HT 调制 DA 信号增益
+        // 5-HT↑(顺利) → DA error 被衰减 → 学习更稳定(不轻易改变已学到的行为)
+        // 5-HT↓(不顺) → DA error 被放大 → 学习更快(需要快速调整策略)
+        {
+            float da = vta_->da_output();
+            if (drn_) {
+                float sht = drn_->sht_output();
+                // sht=0.3(baseline)→gain=1.0, sht=0.5(顺利)→gain=0.7, sht=0.1(不顺)→gain=1.3
+                float da_gain = std::clamp(1.6f - 2.0f * sht, 0.5f, 1.5f);
+                float da_baseline = 0.3f;
+                da = da_baseline + (da - da_baseline) * da_gain;
+                da = std::clamp(da, 0.0f, 1.0f);
+            }
+            bg_->set_da_level(da);
+        }
 
         // Hippocampal spatial memory → dlPFC: handled via SpikeBus projection
         // (Hippocampus → dlPFC added in build_brain)

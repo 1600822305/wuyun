@@ -528,6 +528,9 @@ static void test_ablation() {
         {"关 sleep consolidation",[](AgentConfig& c){ c.enable_sleep_consolidation = false; }},
         {"关 synaptic consol",  [](AgentConfig& c) { c.enable_synaptic_consolidation = false; }},
         {"关 interleaved replay",[](AgentConfig& c){ c.enable_interleaved_replay = false; }},
+        {"关 LC-NE",            [](AgentConfig& c) { c.enable_lc_ne = false; }},
+        {"关 NBM-ACh",          [](AgentConfig& c) { c.enable_nbm_ach = false; }},
+        {"关 DRN-5HT",          [](AgentConfig& c) { c.enable_drn_5ht = false; }},
     };
 
     int n_configs = sizeof(configs) / sizeof(configs[0]);
