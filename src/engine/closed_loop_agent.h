@@ -65,8 +65,8 @@ struct AgentConfig {
     float da_stdp_lr        = 0.046f;
     bool enable_homeostatic = true;
     bool enable_cortical_stdp = true;
-    float cortical_stdp_a_plus  = 0.003f;
-    float cortical_stdp_a_minus = -0.011f;
+    float cortical_stdp_a_plus  = 0.005f;  // v32: 生物学正常值
+    float cortical_stdp_a_minus = -0.006f; // v32: 1.2× LTP (之前 3.7× 导致权重崩塌)
     float cortical_stdp_w_max   = 2.8f;
 
     float lgn_gain           = 188.0f;

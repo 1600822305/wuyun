@@ -423,14 +423,11 @@ StepResult ClosedLoopAgent::agent_step() {
             amyg_->inject_us(us_mag);
         }
 
-        // LHb activation for negative rewards (punishment/danger)
-        // Biology: aversive stimuli → LHb burst → RMTg GABA → VTA DA pause
-        //          This creates a strong DA dip below tonic baseline,
-        //          enabling D2 NoGo pathway to learn "avoid this action"
-        if (lhb_ && pending_reward_ < -0.01f) {
-            float punishment_magnitude = -pending_reward_;  // Make positive
-            lhb_->inject_punishment(punishment_magnitude);
-        }
+        // v32: LHb NO LONGER receives direct punishment (was double-counting with VTA RPE)
+        // Biology: LHb encodes frustrative non-reward (expected food not received),
+        // NOT direct punishment. Direct punishment is handled by VTA negative RPE.
+        // Previous bug: same pending_reward_ fed both VTA RPE AND LHb → 2× DA suppression
+        // inject_frustration() below handles the correct LHb function.
 
         // Frustrative non-reward: expected reward didn't arrive
         // Biology: when food is expected (high food_rate) but not received,
@@ -559,10 +556,8 @@ StepResult ClosedLoopAgent::agent_step() {
         if (amyg_) {
             float cea_drive = amyg_->cea_vta_drive();
             if (cea_drive > 0.01f) {
-                vta_->inject_lhb_inhibition(cea_drive);  // Reuse VTA inhibition interface
-                if (lhb_) {
-                    lhb_->inject_punishment(cea_drive * 0.5f);  // CeA → LHb amplification
-                }
+                vta_->inject_lhb_inhibition(cea_drive);  // CeA → VTA DA pause
+                // v32: removed CeA → LHb (was double-counting)
             }
         }
         // v30: Cerebellum climbing fiber injection (every brain step)
