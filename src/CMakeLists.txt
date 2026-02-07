@@ -7,6 +7,7 @@ set(WUYUN_CORE_SOURCES
     core/spike_queue.cpp
     plasticity/stdp.cpp
     plasticity/stp.cpp
+    circuit/cortical_column.cpp
 )
 
 add_library(wuyun_core STATIC ${WUYUN_CORE_SOURCES})

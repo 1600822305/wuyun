@@ -7,11 +7,26 @@ if(MSVC)
     target_compile_options(test_neuron PRIVATE /utf-8)
 endif()
 
+# Column tests
+add_executable(test_column test_column.cpp)
+target_link_libraries(test_column PRIVATE wuyun_core)
+if(MSVC)
+    target_compile_options(test_column PRIVATE /utf-8)
+endif()
+add_test(NAME column_tests COMMAND test_column)
+
 # Benchmark
 add_executable(test_benchmark test_benchmark.cpp)
 target_link_libraries(test_benchmark PRIVATE wuyun_core)
 if(MSVC)
     target_compile_options(test_benchmark PRIVATE /utf-8)
+endif()
+
+# Debug
+add_executable(test_debug_column test_debug_column.cpp)
+target_link_libraries(test_debug_column PRIVATE wuyun_core)
+if(MSVC)
+    target_compile_options(test_debug_column PRIVATE /utf-8)
 endif()
 
 # Register as CTest

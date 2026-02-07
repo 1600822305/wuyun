@@ -53,10 +53,18 @@
   | 100K 突触 | 75 μs | — |
   | 1M 突触 | 1.2 ms | — |
 
-### Step 2: 皮层柱模板 (C++)
-- ⬜ src/circuit/cortical_column.h/cpp (6层通用模板)
-- ⬜ src/circuit/microcircuit.h/cpp (PV+/SST+/VIP)
-- ⬜ 预测编码验证 (前馈→regular, 前馈+反馈→burst)
+### Step 2: 皮层柱模板 (C++) ✅ (2026-02-07)
+- ✅ src/circuit/cortical_column.h/cpp — 6层通用模板 (L4/L2-3/L5/L6 + PV/SST/VIP)
+- ✅ PV+/SST+/VIP 抑制性微环路内嵌于 CorticalColumn (无需独立文件)
+- ✅ 10 组柱内突触: L4→L23, L23→L5, L5→L6, L6→L4, Exc→PV/SST/VIP, PV→Soma, SST→Apical, VIP→SST
+- ✅ 修复突触电流符号 (V-E → E-V), AMPA 产生正确去极化电流
+- ✅ 6 测试全通过 (中文详细输出):
+  - 构造验证: 540 神经元, 19352 突触
+  - 沉默: 无输入零发放
+  - **纯前馈→REGULAR**: L4→L2/3, regular=20, burst=0 ✓ (预测误差)
+  - **前馈+反馈→BURST**: regular=92, burst=343, drive=628 ✓ (预测匹配)
+  - **注意力门控**: VIP→SST去抑制 (架构正确, 效果待调参)
+  - **L5驱动**: 459发放, 452 burst驱动 ✓ (皮层下输出)
 
 ### Step 3: 核心回路 — 最小可工作大脑
 > 目标: 感觉→认知→动作的最短通路能跑通

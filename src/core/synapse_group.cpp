@@ -86,9 +86,10 @@ std::vector<float> SynapseGroup::step_and_compute(
         // Decay gating variable: ds/dt = -s / tau_decay
         g_[s] -= g_[s] * decay;
 
-        // I_syn = g_max * w * s * (V_post - E_rev)
+        // I_syn = g_max * w * s * (E_rev - V_post)
+        // Positive for excitatory (E_rev=0 > V_post=-65), negative for inhibitory
         size_t post = static_cast<size_t>(col_idx_[s]);
-        float i_syn = g_max_ * weights_[s] * g_[s] * (v_post[post] - e_rev_);
+        float i_syn = g_max_ * weights_[s] * g_[s] * (e_rev_ - v_post[post]);
         i_post_[post] += i_syn;
     }
 
