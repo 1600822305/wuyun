@@ -50,38 +50,38 @@ struct AgentConfig {
     size_t vision_height = 5;
 
     // Action decoding
-    // v30b: Baldwin 100gen×60pop evolved (gen87, fitness=2.53)
-    size_t brain_steps_per_action = 14;
+    // Step 29 best: 30gen×40pop Baldwin (gen11, fitness=2.89, 泛化+0.667)
+    size_t brain_steps_per_action = 17;
     size_t reward_processing_steps = 10;
 
-    float reward_scale = 5.0f;
+    float reward_scale = 1.8f;
 
-    float exploration_noise = 70.0f;
+    float exploration_noise = 55.0f;
     size_t exploration_anneal_steps = 0;  // Steps over which noise reduces (0=no anneal, let BG override)
 
     // Learning
-    // Learning — Baldwin 100gen evolved (gen87)
+    // Step 29 best (30gen Baldwin, 泛化+0.667)
     bool enable_da_stdp     = true;
-    float da_stdp_lr        = 0.039f;
+    float da_stdp_lr        = 0.046f;
     bool enable_homeostatic = true;
-    bool enable_cortical_stdp = false; // ablation: +0.20 有害 (120n下学噪声)
-    float cortical_stdp_a_plus  = 0.005f;
-    float cortical_stdp_a_minus = -0.013f;
-    float cortical_stdp_w_max   = 2.2f;
+    bool enable_cortical_stdp = true;
+    float cortical_stdp_a_plus  = 0.003f;
+    float cortical_stdp_a_minus = -0.011f;
+    float cortical_stdp_w_max   = 2.8f;
 
-    float lgn_gain           = 500.0f;
-    float lgn_baseline       = 19.0f;
-    float lgn_noise_amp      = 0.5f;
+    float lgn_gain           = 188.0f;
+    float lgn_baseline       = 4.8f;
+    float lgn_noise_amp      = 2.6f;
 
-    float bg_to_m1_gain      = 5.7f;
-    float attractor_drive_ratio  = 0.47f;
-    float background_drive_ratio = 0.30f;
+    float bg_to_m1_gain      = 21.0f;
+    float attractor_drive_ratio  = 0.35f;
+    float background_drive_ratio = 0.24f;
 
-    float ne_food_scale      = 2.6f;
-    float ne_floor           = 0.84f;
+    float ne_food_scale      = 1.0f;
+    float ne_floor           = 1.0f;
 
-    float homeostatic_target_rate = 14.4f;
-    float homeostatic_eta    = 0.0067f;
+    float homeostatic_target_rate = 5.4f;
+    float homeostatic_eta    = 0.0015f;
 
     // Brain size factors (multiplied on base neuron counts)
     float v1_size_factor     = 1.0f;
@@ -104,9 +104,9 @@ struct AgentConfig {
     float amyg_us_gain       = 1.5f;   // US magnitude scaling for BLA injection
 
     // Awake SWR Replay (experience replay via hippocampal sharp-wave ripples)
-    bool  enable_replay      = false; // ablation: +0.06 有害 (120n下重放是噪声)
-    int   replay_passes      = 5;
-    float replay_da_scale    = 0.76f;
+    bool  enable_replay      = true;
+    int   replay_passes      = 10;
+    float replay_da_scale    = 0.62f;
     size_t replay_buffer_size = 50;    // Max episodes in buffer (v21: 30→50, 10×10 has 100 positions)
 
     // Negative experience replay (LHb-controlled avoidance learning)
@@ -144,7 +144,7 @@ struct AgentConfig {
     bool   enable_predictive_learning = true;  // L6 prediction + error-gated STDP
 
     // Evolution fast-eval mode
-    bool fast_eval = true;   // ablation: hippocampus +0.06 有害 (CA3=6太小)
+    bool fast_eval = false;
 
     // GridWorld
     GridWorldConfig world_config;
