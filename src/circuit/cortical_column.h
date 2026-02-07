@@ -133,6 +133,13 @@ public:
     void enable_stdp();
     bool has_stdp() const { return stdp_active_; }
 
+    /** v26: ACh modulation of STDP learning rate (Froemke et al. 2007)
+     *  Biology: NBM ACh release during salient events widens STDP window
+     *  and enhances LTP, making reward-relevant features learned faster.
+     *  gain=1.0 normal; >1.0 enhanced learning; <1.0 suppressed */
+    void set_ach_stdp_gain(float gain) { ach_stdp_gain_ = gain; }
+    float ach_stdp_gain() const { return ach_stdp_gain_; }
+
     /** Enable homeostatic plasticity (synaptic scaling on feedforward excitatory synapses) */
     void enable_homeostatic(const HomeostaticParams& params = {});
     bool has_homeostatic() const { return homeo_active_; }
@@ -230,6 +237,7 @@ private:
 
     // === STDP state ===
     bool stdp_active_ = false;
+    float ach_stdp_gain_ = 1.0f;  // v26: ACh modulation of STDP rate
 
     // === Homeostatic plasticity state ===
     bool homeo_active_ = false;

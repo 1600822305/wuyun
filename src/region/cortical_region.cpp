@@ -96,6 +96,14 @@ void CorticalRegion::step(int32_t t, float dt) {
         column_.inject_attention(vip_drive);
     }
 
+    // v26: Tonic drive (Pulvinar → V2/V4/IT, prevents signal extinction in hierarchy)
+    if (tonic_drive_ > 0.01f) {
+        auto& l4_tonic = column_.l4();
+        for (size_t i = 0; i < l4_tonic.size(); ++i) {
+            l4_tonic.inject_basal(i, tonic_drive_);
+        }
+    }
+
     // Inject decaying PSP buffer into L4 basal (feedforward sensory input)
     auto& l4 = column_.l4();
     for (size_t i = 0; i < psp_buffer_.size(); ++i) {
@@ -200,7 +208,7 @@ void CorticalRegion::receive_spikes(const std::vector<SpikeEvent>& events) {
             }
             for (size_t k = 0; k < fan; ++k) {
                 size_t idx = (base + k) % buf_sz;
-                pc_prediction_buf_[idx] += current * 0.12f;  // FB << FF (weak prediction)
+                pc_prediction_buf_[idx] += current * 0.5f;  // v26: 0.12→0.5 (Felleman & Van Essen: FB=10×FF)
             }
         } else {
             // Feedforward → L4 PSP buffer

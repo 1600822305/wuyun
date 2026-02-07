@@ -275,12 +275,13 @@ void BasalGanglia::step(int32_t t, float dt) {
     }
 
     // MSN up-state drive + symmetric DA modulation
-    // At baseline DA (0.1): D1 = D2 = up + base (balanced, near threshold)
+    // v26: tonic = up(20) + da_base(15) = 35 (was 40). Moderate reduction.
+    // Multiplicative weight gain (3×) does most of the work amplifying weight differences.
     // DA > baseline: D1↑ D2↓ (reward → reinforce Go, suppress NoGo)
     // DA < baseline: D1↓ D2↑ (punishment → suppress Go, reinforce NoGo)
     float up = config_.msn_up_state_drive;
     float da_delta = da_level_ - config_.da_stdp_baseline;  // RPE-like
-    float da_base = 15.0f;   // Symmetric baseline DA contribution
+    float da_base = 15.0f;   // v26: keep at 15 for compatibility
     float da_gain = 50.0f;   // DA modulation strength
     float da_exc_d1 = up + da_base + da_delta * da_gain;   // Go: DA↑ → more
     float da_exc_d2 = up + da_base - da_delta * da_gain;   // NoGo: DA↑ → less
@@ -422,12 +423,19 @@ void BasalGanglia::receive_spikes(const std::vector<SpikeEvent>& events) {
         for (size_t idx = 0; idx < ctx_to_d1_map_[src].size(); ++idx) {
             uint32_t tgt = ctx_to_d1_map_[src][idx];
             float w = (config_.da_stdp_enabled && src < ctx_d1_w_.size()) ? ctx_d1_w_[src][idx] : 1.0f;
-            psp_d1_[tgt] += base_current * w;
+            // v26: multiplicative gain (Surmeier 2007)
+            // w=1.0→gain=1.0, w=1.5→gain=2.5, w=0.5→gain=0.25
+            // Weight differences are nonlinearly amplified, making learned preferences decisive
+            float gain = 1.0f + (w - 1.0f) * config_.weight_gain_factor;
+            if (gain < 0.1f) gain = 0.1f;  // Floor: don't go fully silent
+            psp_d1_[tgt] += base_current * gain;
         }
         for (size_t idx = 0; idx < ctx_to_d2_map_[src].size(); ++idx) {
             uint32_t tgt = ctx_to_d2_map_[src][idx];
             float w = (config_.da_stdp_enabled && src < ctx_d2_w_.size()) ? ctx_d2_w_[src][idx] : 1.0f;
-            psp_d2_[tgt] += base_current * w;
+            float gain = 1.0f + (w - 1.0f) * config_.weight_gain_factor;
+            if (gain < 0.1f) gain = 0.1f;
+            psp_d2_[tgt] += base_current * gain;
         }
         for (uint32_t tgt : ctx_to_stn_map_[src]) {
             psp_stn_[tgt] += base_current * 0.5f;
@@ -504,7 +512,7 @@ void BasalGanglia::replay_learning_step(int32_t t, float dt) {
     // MSN up-state drive + DA modulation (same as normal step)
     float up = config_.msn_up_state_drive;
     float da_delta = da_level_ - config_.da_stdp_baseline;
-    float da_base = 15.0f;
+    float da_base = 15.0f;   // v26: match step() change
     float da_gain = 50.0f;
     float da_exc_d1 = up + da_base + da_delta * da_gain;
     float da_exc_d2 = up + da_base - da_delta * da_gain;

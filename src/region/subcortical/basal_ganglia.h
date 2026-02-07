@@ -47,8 +47,15 @@ struct BasalGangliaConfig {
 
     // MSN up-state drive: brings MSN from down state (-80mV) closer to threshold
     // Biological basis: MSN exhibit bistable up/down states (Wilson & Kawaguchi 1996)
-    // In up state, MSN are ~15mV from threshold and fire readily from cortical input
-    float msn_up_state_drive = 25.0f;  // Tonic baseline (up+da_base=40 < threshold 50)
+    // v26: keep tonic=40 (original), rely on multiplicative weight gain (3×) to amplify differences
+    // Surmeier 2007: D1 enhances cortical INPUT gain, not tonic drive
+    float msn_up_state_drive = 25.0f;
+
+    // Cortical weight gain amplification (Surmeier et al. 2007)
+    // Biology: D1 receptors enhance NMDA/Ca2+ channels, amplifying cortical input gain
+    // Effect: weight differences are nonlinearly amplified, not just linearly added
+    // gain = 1 + (w - 1) * factor; w=1.5→gain=2.5, w=0.5→gain=0.25(clamped)
+    float weight_gain_factor = 3.0f;
 
     // --- DA-STDP (three-factor reinforcement learning) ---
     bool  da_stdp_enabled  = false;   // Enable DA-STDP on cortical→MSN

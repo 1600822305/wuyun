@@ -1,17 +1,16 @@
 /**
- * test_learning_curve.cpp — 闭环学习曲线验证
+ * test_learning_curve.cpp — 闭环学习曲线验证 (多线程并行)
  *
- * v21 环境升级: 10×10 grid, 5×5 视野, 5 food, 4 danger
- * (从 10×10/3×3/3food/2danger 升级, 释放 PC/睡眠/空间记忆)
- *
- * 核心问题: Agent能否在更大环境中通过DA-STDP学会趋食避害?
+ * v21 环境升级: 10×10 grid, 5×5 视野, 5 food, 3 danger
+ * v26: 6 个测试多线程并行, ~4-6× 加速
  *
  * 测试方案:
- * 1. 5000步长时训练, 每500步记录食物率和危险率
- * 2. 对比有学习 vs 无学习 (control)
- * 3. BG DA-STDP诊断 (权重变化/DA/elig)
- * 4. 10000步长时训练 (学习曲线稳定性)
- * 5. 更大环境 PC 对比 (15×15, 7×7视野)
+ * 1. 5000步学习曲线
+ * 2. 学习 vs 无学习对照
+ * 3. BG DA-STDP 诊断
+ * 4. 10000步长时训练
+ * 5. 超大环境 (15×15, 7×7)
+ * 6. 泛化能力诊断
  */
 
 #include "engine/closed_loop_agent.h"
@@ -19,8 +18,12 @@
 #include <cstdio>
 #include <cmath>
 #include <vector>
-#include <map>
-#include <numeric>
+#include <string>
+#include <sstream>
+#include <thread>
+#include <atomic>
+#include <functional>
+#include <chrono>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -28,14 +31,11 @@
 
 using namespace wuyun;
 
-static int g_pass = 0, g_fail = 0;
-
-#define TEST_ASSERT(cond, msg) do { \
-    if (!(cond)) { \
-        printf("  [FAIL] %s (line %d)\n", msg, __LINE__); \
-        g_fail++; return; \
-    } \
-} while(0)
+// Thread-safe test result
+struct TestResult {
+    bool passed = true;
+    std::string output;
+};
 
 struct EpochStats {
     int food = 0;
@@ -64,45 +64,46 @@ static EpochStats run_epoch(ClosedLoopAgent& agent, int n_steps) {
 }
 
 // =========================================================================
-// Test 1: 学习曲线 (5000步, 10×10 grid, 5×5 vision)
+// Test 1: 学习曲线 (5000步)
 // =========================================================================
-static void test_learning_curve() {
-    printf("\n--- 测试1: 学习曲线 (5000步, 10x10 grid, 5x5 vision) ---\n");
+static TestResult test_learning_curve() {
+    std::ostringstream out;
+    out << "\n--- 测试1: 学习曲线 (5000步, 10x10 grid, 5x5 vision) ---\n";
 
     AgentConfig cfg;
     cfg.enable_da_stdp = true;
-
     ClosedLoopAgent agent(cfg);
 
-    printf("  Environment: %zux%zu grid, %zux%zu vision, %zu food, %zu danger\n",
-           cfg.world_config.width, cfg.world_config.height,
-           cfg.world_config.vision_side(), cfg.world_config.vision_side(),
-           cfg.world_config.n_food, cfg.world_config.n_danger);
-    printf("  Brain: V1=%zu, V2=%zu, V4=%zu, IT=%zu, dlPFC=%zu, LGN=%zu neurons\n",
-           agent.v1()->n_neurons(),
-           agent.v2() ? agent.v2()->n_neurons() : 0,
-           agent.v4() ? agent.v4()->n_neurons() : 0,
-           agent.it_ctx() ? agent.it_ctx()->n_neurons() : 0,
-           agent.dlpfc()->n_neurons(), agent.lgn()->n_neurons());
-    printf("  Features: PC=%s, Sleep=%s, Replay=%s\n",
-           cfg.enable_predictive_coding ? "ON" : "OFF",
-           cfg.enable_sleep_consolidation ? "ON" : "OFF",
-           cfg.enable_replay ? "ON" : "OFF");
+    out << "  Environment: " << cfg.world_config.width << "x" << cfg.world_config.height
+        << " grid, " << cfg.world_config.vision_side() << "x" << cfg.world_config.vision_side()
+        << " vision, " << cfg.world_config.n_food << " food, " << cfg.world_config.n_danger << " danger\n";
+    out << "  Brain: V1=" << agent.v1()->n_neurons()
+        << ", V2=" << (agent.v2() ? agent.v2()->n_neurons() : 0)
+        << ", V4=" << (agent.v4() ? agent.v4()->n_neurons() : 0)
+        << ", IT=" << (agent.it_ctx() ? agent.it_ctx()->n_neurons() : 0)
+        << ", dlPFC=" << agent.dlpfc()->n_neurons()
+        << ", LGN=" << agent.lgn()->n_neurons() << " neurons\n";
+    out << "  Features: PC=" << (cfg.enable_predictive_coding ? "ON" : "OFF")
+        << ", Sleep=" << (cfg.enable_sleep_consolidation ? "ON" : "OFF")
+        << ", Replay=" << (cfg.enable_replay ? "ON" : "OFF") << "\n";
 
-    printf("  Epoch | Food | Danger | F:D ratio | Avg Reward | Safety\n");
-    printf("  ------|------|--------|-----------|------------|-------\n");
+    char buf[256];
+    snprintf(buf, sizeof(buf), "  Epoch | Food | Danger | F:D ratio | Avg Reward | Safety\n");
+    out << buf;
+    snprintf(buf, sizeof(buf), "  ------|------|--------|-----------|------------|-------\n");
+    out << buf;
 
     std::vector<EpochStats> epochs;
     for (int epoch = 0; epoch < 10; ++epoch) {
         auto stats = run_epoch(agent, 500);
         epochs.push_back(stats);
-        printf("  %5d | %4d | %6d |   %5.2f   |   %+.4f   | %.2f\n",
+        snprintf(buf, sizeof(buf), "  %5d | %4d | %6d |   %5.2f   |   %+.4f   | %.2f\n",
                (epoch + 1) * 500, stats.food, stats.danger,
                stats.danger > 0 ? (float)stats.food / stats.danger : 99.0f,
                stats.avg_reward, stats.safety_ratio());
+        out << buf;
     }
 
-    // Early = first 2 epochs (1000 steps), Late = last 2 epochs (1000 steps)
     float early_food = (float)(epochs[0].food + epochs[1].food);
     float late_food  = (float)(epochs[8].food + epochs[9].food);
     float early_danger = (float)(epochs[0].danger + epochs[1].danger);
@@ -112,89 +113,88 @@ static void test_learning_curve() {
     float late_safety = (late_food + late_danger > 0)
         ? late_food / (late_food + late_danger) : 0.5f;
 
-    printf("\n  Summary:\n");
-    printf("  Early (0-1000):  food=%d, danger=%d, safety=%.2f\n",
+    snprintf(buf, sizeof(buf), "\n  Summary:\n  Early (0-1000): food=%d, danger=%d, safety=%.2f\n",
            (int)early_food, (int)early_danger, early_safety);
-    printf("  Late (4000-5000): food=%d, danger=%d, safety=%.2f\n",
+    out << buf;
+    snprintf(buf, sizeof(buf), "  Late (4000-5000): food=%d, danger=%d, safety=%.2f\n",
            (int)late_food, (int)late_danger, late_safety);
-    printf("  Total food: %d, Total steps: %d\n",
+    out << buf;
+    snprintf(buf, sizeof(buf), "  Total food: %d, Total steps: %d\n",
            agent.world().total_food_collected(), agent.world().total_steps());
+    out << buf;
 
-    // The agent should collect food over 5000 steps
-    TEST_ASSERT(agent.world().total_food_collected() > 0, "Collected at least some food");
-
-    printf("  [PASS]\n"); g_pass++;
+    TestResult r;
+    r.passed = (agent.world().total_food_collected() > 0);
+    out << (r.passed ? "  [PASS]\n" : "  [FAIL] No food collected\n");
+    r.output = out.str();
+    return r;
 }
 
 // =========================================================================
-// Test 2: 学习 vs 无学习对照 (10×10, 5×5 vision)
+// Test 2: 学习 vs 无学习对照
 // =========================================================================
-static void test_learning_vs_control() {
-    printf("\n--- 测试2: 学习 vs 无学习对照 (3000步, 10x10 grid) ---\n");
+static TestResult test_learning_vs_control() {
+    std::ostringstream out;
+    out << "\n--- 测试2: 学习 vs 无学习对照 (3000步, 10x10 grid) ---\n";
 
     auto make_agent = [](bool enable_learning) {
         AgentConfig cfg;
         cfg.enable_da_stdp = enable_learning;
-        cfg.world_config.seed = 42;  // Same world layout
+        cfg.world_config.seed = 42;
         return ClosedLoopAgent(cfg);
     };
 
     auto learner = make_agent(true);
     auto control = make_agent(false);
 
-    // Warm-up: 1000 steps
     for (int i = 0; i < 1000; ++i) {
         learner.agent_step();
         control.agent_step();
     }
 
-    // Test: 2000 steps
     auto learn_stats = run_epoch(learner, 2000);
     auto ctrl_stats  = run_epoch(control, 2000);
 
-    printf("  Learner (DA-STDP ON):  food=%d, danger=%d, safety=%.2f, avg_r=%+.4f\n",
+    char buf[256];
+    snprintf(buf, sizeof(buf), "  Learner (DA-STDP ON):  food=%d, danger=%d, safety=%.2f, avg_r=%+.4f\n",
            learn_stats.food, learn_stats.danger, learn_stats.safety_ratio(), learn_stats.avg_reward);
-    printf("  Control (DA-STDP OFF): food=%d, danger=%d, safety=%.2f, avg_r=%+.4f\n",
+    out << buf;
+    snprintf(buf, sizeof(buf), "  Control (DA-STDP OFF): food=%d, danger=%d, safety=%.2f, avg_r=%+.4f\n",
            ctrl_stats.food, ctrl_stats.danger, ctrl_stats.safety_ratio(), ctrl_stats.avg_reward);
+    out << buf;
 
     float learn_score = learn_stats.avg_reward;
     float ctrl_score = ctrl_stats.avg_reward;
-    printf("  Learner advantage: %+.4f\n", learn_score - ctrl_score);
+    snprintf(buf, sizeof(buf), "  Learner advantage: %+.4f\n", learn_score - ctrl_score);
+    out << buf;
 
-    // Learner should do at least as well as control
-    // (even if not strictly better, the system shouldn't be worse)
-    TEST_ASSERT(learn_score >= ctrl_score - 0.05f,
-                "Learner not significantly worse than control");
-
-    printf("  [PASS]\n"); g_pass++;
+    TestResult r;
+    r.passed = (learn_score >= ctrl_score - 0.05f);
+    out << (r.passed ? "  [PASS]\n" : "  [FAIL] Learner significantly worse than control\n");
+    r.output = out.str();
+    return r;
 }
 
 // =========================================================================
-// Test 3: BG DA-STDP诊断 (找出权重不变的根因)
+// Test 3: BG DA-STDP 诊断
 // =========================================================================
-static void test_bg_diagnostics() {
-    printf("\n--- 测试3: BG DA-STDP诊断 ---\n");
+static TestResult test_bg_diagnostics() {
+    std::ostringstream out;
+    out << "\n--- 测试3: BG DA-STDP诊断 ---\n";
 
     AgentConfig cfg;
     cfg.enable_da_stdp = true;
-
     ClosedLoopAgent agent(cfg);
 
-    // Diagnostic: run 10 agent steps with detailed logging
-    printf("  Step-by-step diagnostics:\n");
-
-    int d1_fire_total = 0;
-    int d2_fire_total = 0;
-    float max_da = 0.0f;
-    float max_elig = 0.0f;
+    out << "  Step-by-step diagnostics:\n";
+    int d1_fire_total = 0, d2_fire_total = 0;
+    float max_da = 0.0f, max_elig = 0.0f;
+    char buf[256];
 
     for (int step = 0; step < 50; ++step) {
         auto result = agent.agent_step();
-
         auto* bg = agent.bg();
-        auto* vta = agent.vta();
 
-        // Count D1/D2 firing
         int d1_fired = 0, d2_fired = 0;
         for (size_t i = 0; i < bg->d1().size(); ++i) d1_fired += bg->d1().fired()[i];
         for (size_t i = 0; i < bg->d2().size(); ++i) d2_fired += bg->d2().fired()[i];
@@ -207,20 +207,18 @@ static void test_bg_diagnostics() {
         if (elig > max_elig) max_elig = elig;
 
         if (step < 10 || result.got_food || result.hit_danger) {
-            printf("    step=%d act=%d r=%.2f | DA=%.3f accum=%.1f | D1=%d D2=%d | elig=%.1f | ctx=%zu\n",
-                   step, (int)agent.last_action(), result.reward,
-                   da, bg->da_spike_accum(), d1_fired, d2_fired,
-                   elig, bg->total_cortical_inputs());
+            snprintf(buf, sizeof(buf),
+                "    step=%d act=%d r=%.2f | DA=%.3f | D1=%d D2=%d | elig=%.1f | ctx=%zu\n",
+                step, (int)agent.last_action(), result.reward,
+                da, d1_fired, d2_fired, elig, bg->total_cortical_inputs());
+            out << buf;
         }
     }
 
-    printf("  Summary over 50 steps:\n");
-    printf("    D1 total fires: %d, D2 total fires: %d\n", d1_fire_total, d2_fire_total);
-    printf("    Max DA level: %.4f (baseline=0.1)\n", max_da);
-    printf("    Max eligibility: %.4f\n", max_elig);
-    printf("    VTA DA output: %.4f\n", agent.vta()->da_output());
+    snprintf(buf, sizeof(buf), "  Summary: D1=%d, D2=%d fires. Max DA=%.4f, Max elig=%.1f\n",
+           d1_fire_total, d2_fire_total, max_da, max_elig);
+    out << buf;
 
-    // Check weight changes
     auto* bg = agent.bg();
     float w_min = 999, w_max = -999;
     int w_count = 0;
@@ -232,189 +230,206 @@ static void test_bg_diagnostics() {
             w_count++;
         }
     }
-    printf("    D1 weights: n=%d, min=%.4f, max=%.4f, range=%.4f\n",
+    snprintf(buf, sizeof(buf), "  D1 weights: n=%d, min=%.4f, max=%.4f, range=%.4f\n",
            w_count, w_min, w_max, w_max - w_min);
+    out << buf;
 
-    TEST_ASSERT(w_count > 0, "BG has D1 weights");
-    printf("  [PASS]\n"); g_pass++;
+    TestResult r;
+    r.passed = (w_count > 0);
+    out << (r.passed ? "  [PASS]\n" : "  [FAIL] No D1 weights\n");
+    r.output = out.str();
+    return r;
 }
 
 // =========================================================================
-// Test 4: 10000步长时训练 (10×10, 5×5 vision, all features ON)
+// Test 4: 10000步长时训练
 // =========================================================================
-static void test_long_training() {
-    printf("\n--- 测试4: 10000步长时训练 (10x10 grid, PC+Sleep+Replay) ---\n");
+static TestResult test_long_training() {
+    std::ostringstream out;
+    out << "\n--- 测试4: 10000步长时训练 (10x10 grid, PC+Sleep+Replay) ---\n";
 
     AgentConfig cfg;
     cfg.enable_da_stdp = true;
-
     ClosedLoopAgent agent(cfg);
 
-    printf("  Environment: %zux%zu grid, %zux%zu vision, %zu food, %zu danger\n",
-           cfg.world_config.width, cfg.world_config.height,
-           cfg.world_config.vision_side(), cfg.world_config.vision_side(),
-           cfg.world_config.n_food, cfg.world_config.n_danger);
+    out << "  Environment: " << cfg.world_config.width << "x" << cfg.world_config.height
+        << " grid, " << cfg.world_config.vision_side() << "x" << cfg.world_config.vision_side()
+        << " vision, " << cfg.world_config.n_food << " food, " << cfg.world_config.n_danger << " danger\n";
 
-    printf("  Epoch  | Food | Danger | Safety | Avg Reward\n");
-    printf("  -------|------|--------|--------|----------\n");
+    char buf[256];
+    snprintf(buf, sizeof(buf), "  Epoch  | Food | Danger | Safety | Avg Reward\n");
+    out << buf;
+    snprintf(buf, sizeof(buf), "  -------|------|--------|--------|----------\n");
+    out << buf;
 
     std::vector<float> safety_history;
     for (int epoch = 0; epoch < 10; ++epoch) {
         auto stats = run_epoch(agent, 1000);
         float safety = stats.safety_ratio();
         safety_history.push_back(safety);
-        printf("  %5dk | %4d | %6d |  %.2f  |  %+.4f\n",
+        snprintf(buf, sizeof(buf), "  %5dk | %4d | %6d |  %.2f  |  %+.4f\n",
                epoch + 1, stats.food, stats.danger, safety, stats.avg_reward);
+        out << buf;
     }
 
-    // Check trend: is late safety better than early?
     float early_avg = (safety_history[0] + safety_history[1]) / 2.0f;
     float late_avg = (safety_history[8] + safety_history[9]) / 2.0f;
 
-    printf("\n  Early safety (1-2k): %.3f\n", early_avg);
-    printf("  Late safety (9-10k): %.3f\n", late_avg);
-    printf("  Improvement: %+.3f\n", late_avg - early_avg);
+    snprintf(buf, sizeof(buf), "\n  Early (1-2k): %.3f, Late (9-10k): %.3f, Improvement: %+.3f\n",
+           early_avg, late_avg, late_avg - early_avg);
+    out << buf;
+    snprintf(buf, sizeof(buf), "  Total food: %d, Total danger: %d\n",
+           agent.world().total_food_collected(), agent.world().total_danger_hits());
+    out << buf;
 
-    printf("  Total food: %d\n", agent.world().total_food_collected());
-    printf("  Total danger: %d\n", agent.world().total_danger_hits());
-
-    // System should be stable (no crashes, some food collection)
-    TEST_ASSERT(agent.world().total_food_collected() > 0, "Collected food in 10k steps");
-    TEST_ASSERT(agent.agent_step_count() == 10000, "10k steps completed");
-
-    printf("  [PASS]\n"); g_pass++;
+    TestResult r;
+    r.passed = (agent.world().total_food_collected() > 0 && agent.agent_step_count() == 10000);
+    out << (r.passed ? "  [PASS]\n" : "  [FAIL]\n");
+    r.output = out.str();
+    return r;
 }
 
 // =========================================================================
-// Test 5: 超大环境 (15x15, 7x7视野) — 验证扩展性
+// Test 5: 超大环境 (15x15, 7x7视野)
 // =========================================================================
-static void test_large_env() {
-    printf("\n--- 测试5: 超大环境 (15x15, 7x7视野, 3000步) ---\n");
+static TestResult test_large_env() {
+    std::ostringstream out;
+    out << "\n--- 测试5: 超大环境 (15x15, 7x7视野, 3000步) ---\n";
 
     AgentConfig cfg;
     cfg.enable_da_stdp = true;
     cfg.enable_predictive_coding = true;
     cfg.enable_sleep_consolidation = true;
-    // Large environment with wider vision
-    cfg.world_config.width  = 15;
+    cfg.world_config.width = 15;
     cfg.world_config.height = 15;
-    cfg.world_config.n_food   = 8;
+    cfg.world_config.n_food = 8;
     cfg.world_config.n_danger = 6;
-    cfg.world_config.vision_radius = 3;  // 7x7 vision (49 pixels)
+    cfg.world_config.vision_radius = 3;
     cfg.world_config.seed = 77;
-
     ClosedLoopAgent agent(cfg);
 
-    printf("  Environment: %zux%zu grid, %zux%zu vision, %zu food, %zu danger\n",
-           cfg.world_config.width, cfg.world_config.height,
-           cfg.world_config.vision_side(), cfg.world_config.vision_side(),
-           cfg.world_config.n_food, cfg.world_config.n_danger);
-    printf("  Brain: V1=%zu, dlPFC=%zu, LGN=%zu neurons\n",
-           agent.v1()->n_neurons(), agent.dlpfc()->n_neurons(), agent.lgn()->n_neurons());
-    printf("  Features: PC=%s, Sleep=%s, Amygdala=%s, LHb=%s\n",
-           cfg.enable_predictive_coding ? "ON" : "OFF",
-           cfg.enable_sleep_consolidation ? "ON" : "OFF",
-           cfg.enable_amygdala ? "ON" : "OFF",
-           cfg.enable_lhb ? "ON" : "OFF");
+    out << "  Brain: V1=" << agent.v1()->n_neurons()
+        << ", dlPFC=" << agent.dlpfc()->n_neurons()
+        << ", LGN=" << agent.lgn()->n_neurons() << " neurons\n";
 
-    printf("  Epoch  | Food | Danger | Safety | Avg Reward\n");
-    printf("  -------|------|--------|--------|----------\n");
-
+    char buf[256];
     std::vector<float> safety_history;
     for (int epoch = 0; epoch < 6; ++epoch) {
         auto stats = run_epoch(agent, 500);
         float safety = stats.safety_ratio();
         safety_history.push_back(safety);
-        printf("  %5d  | %4d | %6d |  %.2f  |  %+.4f\n",
-               (epoch + 1) * 500, stats.food, stats.danger, safety, stats.avg_reward);
+        snprintf(buf, sizeof(buf), "  %5d | food=%2d danger=%2d safety=%.2f\n",
+               (epoch + 1) * 500, stats.food, stats.danger, safety);
+        out << buf;
     }
 
     float early_avg = (safety_history[0] + safety_history[1]) / 2.0f;
     float late_avg = (safety_history[4] + safety_history[5]) / 2.0f;
+    snprintf(buf, sizeof(buf), "  Early: %.3f, Late: %.3f, Improvement: %+.3f\n",
+           early_avg, late_avg, late_avg - early_avg);
+    out << buf;
 
-    printf("\n  Early safety (0-1000): %.3f\n", early_avg);
-    printf("  Late safety (2000-3000): %.3f\n", late_avg);
-    printf("  Improvement: %+.3f\n", late_avg - early_avg);
-    printf("  Total food: %d, Total danger: %d\n",
-           agent.world().total_food_collected(), agent.world().total_danger_hits());
-
-    // Verify the large brain runs stably
-    TEST_ASSERT(agent.world().total_steps() == 3000, "Completed 3k steps in large env");
-    TEST_ASSERT(agent.v1()->n_neurons() > 400, "V1 scaled up for 7x7 vision");
-
-    printf("  [PASS]\n"); g_pass++;
+    TestResult r;
+    r.passed = (agent.world().total_steps() == 3000 && agent.v1()->n_neurons() > 400);
+    out << (r.passed ? "  [PASS]\n" : "  [FAIL]\n");
+    r.output = out.str();
+    return r;
 }
 
 // =========================================================================
-// Test 6: 泛化能力测试 — 训练 seed=42 vs 未训练, 对比后期表现
-// "学到的是规则还是记忆？"
+// Test 6: 泛化能力诊断
 // =========================================================================
-static void test_generalization() {
-    printf("\n--- 测试6: 泛化能力诊断 ---\n");
+static TestResult test_generalization() {
+    std::ostringstream out;
+    out << "\n--- 测试6: 泛化能力诊断 ---\n";
 
-    // 训练 2000 步 (seed=42) vs 未训练 (seed=77), 各自后 500 步表现
     float trained_safety = 0, fresh_safety = 0;
     int seeds[] = {77, 123};
+    char buf[256];
 
     for (int s : seeds) {
-        // A: 训练 2000 步后再跑 500 步
         AgentConfig cfg_t;
         cfg_t.enable_da_stdp = true;
         cfg_t.world_config.seed = 42;
         ClosedLoopAgent ag_t(cfg_t);
-        run_epoch(ag_t, 2000);  // 训练
-        auto t_res = run_epoch(ag_t, 500);  // 测试 (同地图后期,食物已重生多次)
+        run_epoch(ag_t, 2000);
+        auto t_res = run_epoch(ag_t, 500);
 
-        // B: 全新 agent 跑 500 步 (不同 seed)
         AgentConfig cfg_f;
         cfg_f.enable_da_stdp = true;
         cfg_f.world_config.seed = static_cast<uint32_t>(s);
         ClosedLoopAgent ag_f(cfg_f);
         auto f_res = run_epoch(ag_f, 500);
 
-        printf("    seed=%3d: trained=%.2f(f=%d,d=%d) fresh=%.2f(f=%d,d=%d) Δ=%+.2f\n",
-               s, t_res.safety_ratio(), t_res.food, t_res.danger,
-               f_res.safety_ratio(), f_res.food, f_res.danger,
-               t_res.safety_ratio() - f_res.safety_ratio());
+        snprintf(buf, sizeof(buf),
+            "    seed=%3d: trained=%.2f(f=%d,d=%d) fresh=%.2f(f=%d,d=%d) D=%+.2f\n",
+            s, t_res.safety_ratio(), t_res.food, t_res.danger,
+            f_res.safety_ratio(), f_res.food, f_res.danger,
+            t_res.safety_ratio() - f_res.safety_ratio());
+        out << buf;
         trained_safety += t_res.safety_ratio();
         fresh_safety += f_res.safety_ratio();
     }
 
     float avg_t = trained_safety / 2.0f;
     float avg_f = fresh_safety / 2.0f;
-    printf("    平均: trained=%.3f, fresh=%.3f, 泛化优势=%+.3f\n",
+    snprintf(buf, sizeof(buf), "    平均: trained=%.3f, fresh=%.3f, 泛化优势=%+.3f\n",
            avg_t, avg_f, avg_t - avg_f);
+    out << buf;
 
     if (avg_t > avg_f + 0.02f)
-        printf("    结论: ✅ 训练有帮助 — 可能学到了一般性策略\n");
+        out << "    结论: 训练有帮助\n";
     else if (avg_t > avg_f - 0.02f)
-        printf("    结论: ⚠️ 中性 — 训练没有显著帮助\n");
+        out << "    结论: 中性\n";
     else
-        printf("    结论: ❌ 训练有害 — 可能过拟合了特定布局\n");
+        out << "    结论: 训练有害\n";
 
-    TEST_ASSERT(true, "Generalization diagnostic completed");
-    printf("  [PASS]\n"); g_pass++;
+    TestResult r;
+    r.passed = true;
+    out << "  [PASS]\n";
+    r.output = out.str();
+    return r;
 }
 
 // =========================================================================
-// main
+// main — 6 tests in parallel
 // =========================================================================
 int main() {
 #ifdef _WIN32
     SetConsoleOutputCP(65001);
 #endif
-    printf("=== 悟韵 Step 23: 泛化能力诊断 (10x10, 5x5 vision) ===\n");
 
-    test_learning_curve();
-    test_learning_vs_control();
-    test_bg_diagnostics();
-    test_long_training();
-    test_large_env();
-    test_generalization();
+    printf("=== 悟韵 闭环学习验证 (6 tests, multi-threaded) ===\n");
+
+    auto t0 = std::chrono::steady_clock::now();
+
+    // Launch all 6 tests in parallel
+    TestResult results[6];
+    std::thread threads[6];
+
+    threads[0] = std::thread([&]{ results[0] = test_learning_curve(); });
+    threads[1] = std::thread([&]{ results[1] = test_learning_vs_control(); });
+    threads[2] = std::thread([&]{ results[2] = test_bg_diagnostics(); });
+    threads[3] = std::thread([&]{ results[3] = test_long_training(); });
+    threads[4] = std::thread([&]{ results[4] = test_large_env(); });
+    threads[5] = std::thread([&]{ results[5] = test_generalization(); });
+
+    // Wait for all
+    for (auto& t : threads) t.join();
+
+    auto t1 = std::chrono::steady_clock::now();
+    double elapsed = std::chrono::duration<double>(t1 - t0).count();
+
+    // Print results sequentially (clean output)
+    int pass = 0, fail = 0;
+    for (int i = 0; i < 6; ++i) {
+        printf("%s", results[i].output.c_str());
+        if (results[i].passed) pass++; else fail++;
+    }
 
     printf("\n========================================\n");
-    printf("  通过: %d / %d\n", g_pass, g_pass + g_fail);
+    printf("  通过: %d / %d  (%.1f秒, %d线程并行)\n", pass, pass + fail, elapsed, 6);
     printf("========================================\n");
 
-    return g_fail > 0 ? 1 : 0;
+    return fail > 0 ? 1 : 0;
 }

@@ -50,6 +50,12 @@ public:
     void set_attention_gain(float gain) { attention_gain_ = gain; }
     float attention_gain() const { return attention_gain_; }
 
+    /** v26: 视觉区自发活动 (Pulvinar/tonic drive)
+     *  Biology: Pulvinar→V2/V4 provides sustained activation preventing signal extinction.
+     *  Each step, inject tonic_drive_ current into L4 neurons (keeps area alive). */
+    void set_tonic_drive(float drive) { tonic_drive_ = drive; }
+    float tonic_drive() const { return tonic_drive_; }
+
     /** 获取内部皮层柱 */
     CorticalColumn&       column()       { return column_; }
     const CorticalColumn& column() const { return column_; }
@@ -167,6 +173,9 @@ private:
     float pc_error_smooth_      = 0.0f;       // 指数平滑的预测误差
     static constexpr float PC_ERROR_SMOOTH = 0.1f;  // 平滑率
     static constexpr float PC_PRED_DECAY   = 0.7f;  // 预测缓冲衰减
+
+    // --- 自发活动 (Pulvinar tonic drive) ---
+    float tonic_drive_ = 0.0f;               // v26: 视觉区自发驱动 (防止信号消亡)
 
     // --- 注意力状态 ---
     float attention_gain_ = 1.0f;            // 顶下注意力增益

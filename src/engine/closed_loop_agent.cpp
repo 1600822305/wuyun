@@ -337,6 +337,14 @@ void ClosedLoopAgent::build_brain() {
         if (hipp_) hipp_->enable_homeostatic(hp);
     }
 
+    // --- v26: Tonic drive for visual hierarchy (Pulvinar → V2/V4/IT) ---
+    // Biology: Pulvinar thalamic nucleus provides sustained activation to extrastriate
+    // visual areas, preventing signal extinction through the hierarchy.
+    // Without this, V1=809 → V2=246 → V4=35 → IT=2 (signal dies)
+    if (v2_) v2_->set_tonic_drive(3.0f);
+    if (v4_) v4_->set_tonic_drive(2.5f);
+    if (it_) it_->set_tonic_drive(2.0f);
+
     // --- Enable working memory on dlPFC ---
     dlpfc_->enable_working_memory();
 }
@@ -417,6 +425,15 @@ StepResult ClosedLoopAgent::agent_step() {
             lhb_->inject_frustration(frustration);
         }
 
+        // v26: ACh-gated visual STDP (Froemke et al. 2007)
+        // Biology: NBM ACh burst during salient events → visual cortex STDP enhanced
+        // Effect: V2/V4 learn "what food/danger looks like" faster after reward events
+        float ach_boost = 1.0f + std::abs(pending_reward_) * 0.5f;  // v26: gentler ACh (reward ±1.5 → gain 1.75)
+        if (v1_)  v1_->column().set_ach_stdp_gain(ach_boost);
+        if (v2_)  v2_->column().set_ach_stdp_gain(ach_boost);
+        if (v4_)  v4_->column().set_ach_stdp_gain(ach_boost);
+        // IT intentionally excluded (NO STDP, representation stability)
+
         // Run a few steps so DA can modulate BG eligibility traces
         // DA broadcast: VTA computes DA level, BG reads it directly (volume transmission)
         for (size_t i = 0; i < config_.reward_processing_steps; ++i) {
@@ -429,6 +446,11 @@ StepResult ClosedLoopAgent::agent_step() {
             engine_.step();
         }
         has_pending_reward_ = false;
+
+        // Reset ACh STDP boost after reward processing
+        if (v1_)  v1_->column().set_ach_stdp_gain(1.0f);
+        if (v2_)  v2_->column().set_ach_stdp_gain(1.0f);
+        if (v4_)  v4_->column().set_ach_stdp_gain(1.0f);
     }
 
     // --- Phase B: Observe + decide ---

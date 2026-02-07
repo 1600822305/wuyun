@@ -311,12 +311,36 @@ ColumnOutput CorticalColumn::step(int t, float dt) {
     // STEP 2.5: Online plasticity (STDP)
     // ================================================================
     if (stdp_active_) {
+        // v26: ACh modulation — temporarily scale STDP rates during salient events
+        // Biology: NBM ACh enhances LTP window (Froemke 2007), making STDP
+        // learn reward-relevant features faster during attention/arousal
+        if (ach_stdp_gain_ > 1.01f || ach_stdp_gain_ < 0.99f) {
+            auto scale_stdp = [&](SynapseGroup& sg) {
+                sg.stdp_params().a_plus  *= ach_stdp_gain_;
+                sg.stdp_params().a_minus *= ach_stdp_gain_;
+            };
+            scale_stdp(syn_l4_to_l23_);
+            scale_stdp(syn_l23_recurrent_);
+            scale_stdp(syn_l23_to_l5_);
+        }
+
         // L4→L2/3: feedforward feature learning
         syn_l4_to_l23_.apply_stdp(l4_stellate_.fired(), l23_pyramidal_.fired(), t);
         // L2/3 recurrent: lateral pattern completion
         syn_l23_recurrent_.apply_stdp(l23_pyramidal_.fired(), l23_pyramidal_.fired(), t);
         // L2/3→L5: output learning
         syn_l23_to_l5_.apply_stdp(l23_pyramidal_.fired(), l5_pyramidal_.fired(), t);
+
+        // Restore original STDP params
+        if (ach_stdp_gain_ > 1.01f || ach_stdp_gain_ < 0.99f) {
+            auto unscale = [&](SynapseGroup& sg) {
+                sg.stdp_params().a_plus  /= ach_stdp_gain_;
+                sg.stdp_params().a_minus /= ach_stdp_gain_;
+            };
+            unscale(syn_l4_to_l23_);
+            unscale(syn_l23_recurrent_);
+            unscale(syn_l23_to_l5_);
+        }
     }
 
     // ================================================================
