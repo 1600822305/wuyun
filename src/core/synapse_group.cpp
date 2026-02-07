@@ -1,6 +1,8 @@
 #include "core/synapse_group.h"
+#include "plasticity/stp.h"
 #include <algorithm>
 #include <numeric>
+#include <cmath>
 
 namespace wuyun {
 
@@ -22,6 +24,7 @@ SynapseGroup::SynapseGroup(
     , tau_decay_(syn_params.tau_decay)
     , e_rev_(syn_params.e_rev)
     , g_max_(syn_params.g_max)
+    , mg_conc_(syn_params.mg_conc)
     , g_(weights.size(), 0.0f)
     , i_post_(n_post, 0.0f)
 {
@@ -57,20 +60,41 @@ SynapseGroup::SynapseGroup(
     delays_  = std::move(sorted_delays);
 }
 
+void SynapseGroup::enable_stp(const STPParams& params) {
+    stp_enabled_ = true;
+    stp_params_ = params;
+    stp_states_.resize(n_pre_);
+    for (auto& s : stp_states_) {
+        s.x = 1.0f;
+        s.u = params.U;
+    }
+}
+
 void SynapseGroup::deliver_spikes(
     const std::vector<uint8_t>& pre_fired,
     const std::vector<int8_t>& pre_spike_type
 ) {
-    // For each fired pre neuron, increment gating variable of its synapses
-    // Burst spikes carry stronger signal (x2) than regular spikes (x1)
     for (size_t pre = 0; pre < n_pre_; ++pre) {
-        if (!pre_fired[pre]) continue;
+        bool fired = pre_fired[pre] != 0;
+
+        // STP: update state every step, get gain
+        float stp_gain = 1.0f;
+        if (stp_enabled_) {
+            stp_gain = stp_step(stp_states_[pre], stp_params_, fired);
+        }
+
+        if (!fired) continue;
+
+        // Burst spikes carry stronger signal (x2) than regular (x1)
         auto st = static_cast<SpikeType>(pre_spike_type[pre]);
-        float gain = is_burst(st) ? 2.0f : 1.0f;
+        float burst_gain = is_burst(st) ? 2.0f : 1.0f;
+
+        float total_gain = burst_gain * stp_gain;
+
         int32_t start = row_ptr_[pre];
         int32_t end   = row_ptr_[pre + 1];
         for (int32_t s = start; s < end; ++s) {
-            g_[static_cast<size_t>(s)] += gain;
+            g_[static_cast<size_t>(s)] += total_gain;
         }
     }
 }
@@ -89,10 +113,15 @@ std::vector<float> SynapseGroup::step_and_compute(
         // Decay gating variable: ds/dt = -s / tau_decay
         g_[s] -= g_[s] * decay;
 
-        // I_syn = g_max * w * s * (E_rev - V_post)
-        // Positive for excitatory (E_rev=0 > V_post=-65), negative for inhibitory
+        // I_syn = g_max * w * s * B(V) * (E_rev - V_post)
+        // B(V) = 1/(1 + [Mg²⁺]/3.57 · exp(-0.062·V))  (NMDA only)
         size_t post = static_cast<size_t>(col_idx_[s]);
-        float i_syn = g_max_ * weights_[s] * g_[s] * (e_rev_ - v_post[post]);
+        float v = v_post[post];
+        float b_v = 1.0f;
+        if (mg_conc_ > 0.0f) {
+            b_v = 1.0f / (1.0f + (mg_conc_ / 3.57f) * std::exp(-0.062f * v));
+        }
+        float i_syn = g_max_ * weights_[s] * g_[s] * b_v * (e_rev_ - v);
         i_post_[post] += i_syn;
     }
 

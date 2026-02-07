@@ -54,17 +54,27 @@
   | 1M 突触 | 1.2 ms | — |
 
 ### Step 2: 皮层柱模板 (C++) ✅ (2026-02-07)
-- ✅ src/circuit/cortical_column.h/cpp — 6层通用模板 (L4/L2-3/L5/L6 + PV/SST/VIP)
-- ✅ PV+/SST+/VIP 抑制性微环路内嵌于 CorticalColumn (无需独立文件)
-- ✅ 10 组柱内突触: L4→L23, L23→L5, L5→L6, L6→L4, Exc→PV/SST/VIP, PV→Soma, SST→Apical, VIP→SST
-- ✅ 修复突触电流符号 (V-E → E-V), AMPA 产生正确去极化电流
-- ✅ 6 测试全通过 (中文详细输出):
-  - 构造验证: 540 神经元, 19352 突触
-  - 沉默: 无输入零发放
-  - **纯前馈→REGULAR**: L4→L2/3, regular=20, burst=0 ✓ (预测误差)
-  - **前馈+反馈→BURST**: regular=92, burst=343, drive=628 ✓ (预测匹配)
-  - **注意力门控**: VIP→SST去抑制 (架构正确, 效果待调参)
-  - **L5驱动**: 459发放, 452 burst驱动 ✓ (皮层下输出)
+- ✅ src/circuit/cortical_column.h/cpp — 6层通用模板, **18组突触** (AMPA+NMDA+GABA)
+- ✅ SST→L2/3 **AND** L5 apical (GABA_B), PV→L4/L5/L6 **全层** soma (GABA_A)
+- ✅ NMDA 并行慢通道 (L4→L23, L23→L5, L23 recurrent)
+- ✅ L2/3 层内 recurrent 连接 (AMPA+NMDA)
+- ✅ burst 加权传递: burst spike ×2 增益
+- ✅ 6 测试全通过 (540 神经元, 40203 突触)
+
+### Step 2.5: 地基补全 ✅ (2026-02-07)
+> 目标: 在 Step 3 (向上建) 之前, 确保 Layer 0-1 基础设施完整
+- ✅ **NMDA Mg²⁺ 电压阻断** B(V) = 1/(1+[Mg²⁺]/3.57·exp(-0.062V))
+  - 巧合检测: 需突触前谷氨酸 + 突触后去极化 → 赫布学习硬件基础
+  - 测试验证: B(-65)=0.06(阻断), B(-40)=0.23(部分), B(0)=0.78(开放)
+- ✅ **STP 集成到 SynapseGroup** — per-pre Tsodyks-Markram, deliver_spikes 中 w_eff = burst_gain × stp_gain
+- ✅ **SpikeBus 全局脉冲路由** — 跨区域延迟投递 (环形缓冲), 支持注册区域+投射
+- ✅ **DA-STDP 三因子学习** — 资格痕迹 + DA 调制, 解决信用分配/奖励延迟
+- ✅ **神经调质系统** — DA/NE/5-HT/ACh tonic+phasic, compute_effect() 计算增益/学习率/折扣/basal权重
+- ✅ **特化神经元参数集** (8种):
+  - 丘脑 Tonic (κ=0.3) / Burst (κ=0.5, T-type Ca²⁺ threshold=-50mV)
+  - TRN (纯抑制门控), MSN D1/D2 (超极化 v_rest=-80mV)
+  - 颗粒细胞 (高阈值稀疏), 浦肯野 (高频), DA神经元 (慢适应 burst)
+- ✅ **21 测试全通过** (9 neuron + 6 column + 6 foundation)
 
 ### Step 3: 核心回路 — 最小可工作大脑
 > 目标: 感觉→认知→动作的最短通路能跑通

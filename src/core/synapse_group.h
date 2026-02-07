@@ -13,6 +13,7 @@
  */
 
 #include "types.h"
+#include "../plasticity/stp.h"
 #include <vector>
 #include <cstdint>
 
@@ -65,6 +66,10 @@ public:
     const std::vector<float>& weights() const { return weights_; }
     std::vector<float>& weights() { return weights_; }
 
+    /** 启用 STP (Tsodyks-Markram 短时程可塑性), 每个突触前神经元一个 STPState */
+    void enable_stp(const STPParams& params);
+    bool has_stp() const { return stp_enabled_; }
+
 private:
     size_t n_pre_;
     size_t n_post_;
@@ -80,9 +85,15 @@ private:
     float tau_decay_;
     float e_rev_;
     float g_max_;
+    float mg_conc_;   // Mg²⁺ 浓度, >0 时启用 NMDA 电压门控 B(V)
 
     // 门控变量
     std::vector<float> g_;            // 长度 = n_synapses
+
+    // STP (optional, per pre-neuron)
+    bool stp_enabled_ = false;
+    STPParams stp_params_;
+    std::vector<STPState> stp_states_; // 长度 = n_pre (enabled 时)
 
     // 聚合输出缓冲
     std::vector<float> i_post_;       // 长度 = n_post

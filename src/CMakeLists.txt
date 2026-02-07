@@ -5,8 +5,11 @@ set(WUYUN_CORE_SOURCES
     core/population.cpp
     core/synapse_group.cpp
     core/spike_queue.cpp
+    core/neuromodulator.cpp
+    core/spike_bus.cpp
     plasticity/stdp.cpp
     plasticity/stp.cpp
+    plasticity/da_stdp.cpp
     circuit/cortical_column.cpp
 )
 

@@ -29,5 +29,13 @@ if(MSVC)
     target_compile_options(test_debug_column PRIVATE /utf-8)
 endif()
 
+# Foundation tests (NMDA, STP, SpikeBus, DA-STDP, Neuromodulator)
+add_executable(test_foundation test_foundation.cpp)
+target_link_libraries(test_foundation PRIVATE wuyun_core)
+if(MSVC)
+    target_compile_options(test_foundation PRIVATE /utf-8)
+endif()
+add_test(NAME foundation_tests COMMAND test_foundation)
+
 # Register as CTest
 add_test(NAME neuron_tests COMMAND test_neuron)
