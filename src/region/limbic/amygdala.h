@@ -63,6 +63,16 @@ struct AmygdalaConfig {
     float w_mea           = 0.8f;
     float w_coa           = 0.7f;
     float w_ab            = 0.7f;
+
+    // --- Fear conditioning STDP (La→BLA, one-shot learning) ---
+    // Biology: BLA LTP is NMDA-dependent, gated by US (pain/danger).
+    // Very fast: a single CS-US pairing can establish fear memory.
+    // (LeDoux 2000, Maren 2001)
+    bool  fear_stdp_enabled = true;
+    float fear_stdp_a_plus  = 0.10f;  // Very fast LTP (10x cortical, one-shot)
+    float fear_stdp_a_minus = -0.03f; // Weak LTD (fear is hard to extinguish)
+    float fear_stdp_tau     = 25.0f;
+    float fear_stdp_w_max   = 3.0f;   // High ceiling: strong fear associations
 };
 
 class Amygdala : public BrainRegion {
@@ -100,6 +110,26 @@ public:
     bool has_coa() const { return config_.n_coa > 0; }
     bool has_ab()  const { return config_.n_ab > 0; }
 
+    // --- Fear conditioning closed-loop interface ---
+
+    /** Inject unconditioned stimulus (pain/danger) to BLA.
+     *  Biology: US (e.g. foot shock) directly activates BLA neurons.
+     *  When paired with sensory CS (via La), La→BLA STDP strengthens
+     *  the CS→BLA association, establishing fear memory.
+     *  (LeDoux 2000: amygdala is essential for fear conditioning) */
+    void inject_us(float magnitude);
+
+    /** Get CeA fear output level [0,1].
+     *  High = strong fear response → should drive VTA/LHb for DA pause.
+     *  Biology: CeA is the main output of the amygdala,
+     *  projecting to VTA, PAG, hypothalamus for defensive behaviors. */
+    float fear_output() const;
+
+    /** Get CeA fear output as VTA inhibition signal.
+     *  Scaled version of fear_output() for direct VTA/LHb injection.
+     *  Biology: CeA → VTA/RMTg → DA pause (aversive prediction) */
+    float cea_vta_drive() const;
+
 private:
     void build_synapses();
     void aggregate_state();
@@ -133,6 +163,10 @@ private:
     std::vector<float> psp_la_;      // sensory → La
     std::vector<float> psp_itc_;     // PFC → ITC
     uint32_t pfc_source_region_ = UINT32_MAX;  // PFC region ID (for routing)
+
+    // --- Fear conditioning state ---
+    float us_strength_ = 0.0f;       // Current US drive (decays)
+    static constexpr float US_DECAY = 0.85f;
 
     std::vector<uint8_t> fired_all_;
     std::vector<int8_t>  spike_type_all_;

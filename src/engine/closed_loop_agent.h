@@ -30,6 +30,7 @@
 #include "region/neuromod/vta_da.h"
 #include "region/limbic/lateral_habenula.h"
 #include "region/limbic/hippocampus.h"
+#include "region/limbic/amygdala.h"
 #include "plasticity/homeostatic.h"
 #include <memory>
 #include <vector>
@@ -98,6 +99,10 @@ struct AgentConfig {
     bool  enable_lhb         = true;   // Enable LHb for negative RPE
     float lhb_punishment_gain = 1.5f;  // Punishment signal → LHb excitation gain
     float lhb_frustration_gain = 1.0f; // Frustrative non-reward → LHb excitation gain
+
+    // Amygdala (fear conditioning)
+    bool  enable_amygdala    = true;   // Enable amygdala fear circuit
+    float amyg_us_gain       = 1.5f;   // US magnitude scaling for BLA injection
 
     // Awake SWR Replay (experience replay via hippocampal sharp-wave ripples)
     bool  enable_replay      = true;   // Enable awake replay after reward events
@@ -175,6 +180,7 @@ public:
     VTA_DA*         vta()   const { return vta_; }
     Hippocampus*    hipp()  const { return hipp_; }
     LateralHabenula* lhb()  const { return lhb_; }
+    Amygdala*       amyg()  const { return amyg_; }
 
 private:
     AgentConfig config_;
@@ -192,6 +198,7 @@ private:
     VTA_DA*         vta_   = nullptr;
     Hippocampus*    hipp_  = nullptr;
     LateralHabenula* lhb_   = nullptr;
+    Amygdala*       amyg_   = nullptr;
 
     // State
     int    agent_step_count_ = 0;

@@ -106,6 +106,21 @@ void Amygdala::build_synapses() {
         config_.n_bla, config_.n_bla, config_.p_bla_to_bla, config_.w_bla_rec,
         AMPA_PARAMS, CompartmentType::BASAL, seed++);
 
+    // --- Enable fear conditioning STDP on La→BLA ---
+    // Biology: BLA LTP is fast (one-shot), NMDA-dependent, gated by US.
+    // Very asymmetric: strong LTP, weak LTD (fear is hard to extinguish).
+    // (LeDoux 2000, Maren 2001, Rogan et al. 1997)
+    if (config_.fear_stdp_enabled) {
+        STDPParams fear_stdp;
+        fear_stdp.a_plus   = config_.fear_stdp_a_plus;   // 0.10 (10x cortical)
+        fear_stdp.a_minus  = config_.fear_stdp_a_minus;  // -0.03 (weak LTD)
+        fear_stdp.tau_plus  = config_.fear_stdp_tau;
+        fear_stdp.tau_minus = config_.fear_stdp_tau;
+        fear_stdp.w_min     = 0.0f;
+        fear_stdp.w_max     = config_.fear_stdp_w_max;   // 3.0 (high ceiling)
+        syn_la_to_bla_.enable_stdp(fear_stdp);
+    }
+
     // --- Optional nuclei ---
     if (config_.n_mea > 0) {
         syn_la_to_mea_ = build_synapse_group(
@@ -208,6 +223,15 @@ void Amygdala::step(int32_t t, float dt) {
         for (size_t i = 0; i < cea_.size(); ++i) cea_.inject_basal(i, i_cea_ab[i]);
     }
 
+    // Inject US (unconditioned stimulus) drive to BLA
+    // US decays over steps, modeling the transient pain/danger signal
+    if (us_strength_ > 0.5f) {
+        for (size_t i = 0; i < bla_.size(); ++i) {
+            bla_.inject_basal(i, us_strength_);
+        }
+        us_strength_ *= US_DECAY;
+    }
+
     // Step all populations
     la_.step(t, dt);
     bla_.step(t, dt);
@@ -216,6 +240,13 @@ void Amygdala::step(int32_t t, float dt) {
     if (config_.n_mea > 0) mea_.step(t, dt);
     if (config_.n_coa > 0) coa_.step(t, dt);
     if (config_.n_ab > 0)  ab_.step(t, dt);
+
+    // Fear conditioning STDP: La (CS) → BLA (US response)
+    // When La fires (sensory CS) and BLA fires (US-driven), STDP strengthens
+    // the La→BLA connection. Next time the CS appears, La alone can drive BLA.
+    if (config_.fear_stdp_enabled) {
+        syn_la_to_bla_.apply_stdp(la_.fired(), bla_.fired(), t);
+    }
 
     aggregate_state();
 }
@@ -263,6 +294,47 @@ void Amygdala::inject_pfc_to_itc(const std::vector<float>& currents) {
     for (size_t i = 0; i < std::min(currents.size(), itc_.size()); ++i) {
         itc_.inject_basal(i, currents[i]);
     }
+}
+
+// =============================================================================
+// Fear conditioning closed-loop
+// =============================================================================
+
+void Amygdala::inject_us(float magnitude) {
+    // Inject unconditioned stimulus (pain/danger) directly to BLA.
+    // This causes BLA neurons to fire strongly, which when paired with
+    // La sensory input (CS), drives La→BLA STDP to strengthen the
+    // CS→fear association.
+    //
+    // Biology: US (foot shock, pain) activates BLA via direct thalamic
+    // and cortical pathways. The strong BLA activation is the "teaching
+    // signal" that establishes fear memory in one trial.
+    // (LeDoux 2000, Fanselow & Poulos 2005)
+
+    us_strength_ = magnitude * 40.0f;  // Strong drive: ensure BLA fires
+}
+
+float Amygdala::fear_output() const {
+    // CeA firing rate as fear signal [0, 1].
+    // Biology: CeA is the primary output of the amygdala fear circuit.
+    // High CeA activity → freezing, startle, autonomic arousal, DA pause.
+    size_t n_fired = 0;
+    for (size_t i = 0; i < cea_.size(); ++i) {
+        if (cea_.fired()[i]) ++n_fired;
+    }
+    return static_cast<float>(n_fired) / static_cast<float>(std::max(cea_.size(), (size_t)1));
+}
+
+float Amygdala::cea_vta_drive() const {
+    // CeA → VTA/LHb inhibition signal.
+    // Scaled fear_output for driving DA pause via VTA/LHb.
+    // Biology: CeA → RMTg (GABA) → VTA DA neurons (inhibition)
+    //          CeA → LHb (excitation) → RMTg → VTA DA (additional inhibition)
+    // Combined effect: strong DA pause for aversive learning.
+    float fear = fear_output();
+    // Only produce drive when fear is significant (> 10% CeA firing)
+    if (fear < 0.1f) return 0.0f;
+    return fear * 1.5f;  // Amplify: amygdala fear → strong VTA inhibition
 }
 
 // =============================================================================

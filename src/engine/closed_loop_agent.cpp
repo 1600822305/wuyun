@@ -136,6 +136,21 @@ void ClosedLoopAgent::build_brain() {
         engine_.add_region(std::make_unique<LateralHabenula>(lhb_cfg));
     }
 
+    // --- Amygdala: fear conditioning ---
+    // Biology: La receives visual CS, BLA learns CS-US via STDP,
+    // CeA outputs fear signal → VTA/LHb for DA pause.
+    // One-shot fear learning: single danger encounter strengthens La→BLA.
+    // (LeDoux 2000, Maren 2001)
+    if (config_.enable_amygdala) {
+        AmygdalaConfig amyg_cfg;
+        amyg_cfg.n_la  = 25 * s;
+        amyg_cfg.n_bla = 40 * s;
+        amyg_cfg.n_cea = 15 * s;
+        amyg_cfg.n_itc = 10 * s;
+        amyg_cfg.fear_stdp_enabled = true;
+        engine_.add_region(std::make_unique<Amygdala>(amyg_cfg));
+    }
+
     // --- Hippocampus: spatial memory ---
     // Skipped in fast_eval: 195 neurons (24%) with zero contribution to closed-loop
     if (!config_.fast_eval) {
@@ -190,6 +205,21 @@ void ClosedLoopAgent::build_brain() {
         engine_.add_projection("LHb", "VTA", 2);
     }
 
+    // Amygdala fear circuit projections
+    if (config_.enable_amygdala) {
+        // V1 → Amygdala La (visual CS input: "what does danger look like?")
+        // Biology: visual cortex → La via cortical pathway
+        // La receives visual patterns and learns to associate them with danger
+        engine_.add_projection("V1", "Amygdala", 2);
+        // Amygdala CeA → VTA (fear output → DA modulation)
+        // Biology: CeA → RMTg GABA → VTA DA neurons (inhibition)
+        engine_.add_projection("Amygdala", "VTA", 2);
+        // Amygdala CeA → LHb (amplify negative RPE during fear)
+        if (config_.enable_lhb) {
+            engine_.add_projection("Amygdala", "LHb", 2);
+        }
+    }
+
     // --- Neuromodulator registration ---
     engine_.register_neuromod_source("VTA", SimulationEngine::NeuromodType::DA);
 
@@ -209,6 +239,7 @@ void ClosedLoopAgent::build_brain() {
     vta_   = dynamic_cast<VTA_DA*>(engine_.find_region("VTA"));
     hipp_  = dynamic_cast<Hippocampus*>(engine_.find_region("Hippocampus"));
     lhb_   = dynamic_cast<LateralHabenula*>(engine_.find_region("LHb"));
+    amyg_  = dynamic_cast<Amygdala*>(engine_.find_region("Amygdala"));
 
     // --- Register topographic V1→dlPFC mapping (retinotopic) ---
     // Preserves spatial structure: V1 left-field → dlPFC left zone
@@ -285,6 +316,16 @@ StepResult ClosedLoopAgent::agent_step() {
         // (Lisman & Grace 2005: DA gates hippocampal memory formation)
         if (hipp_ && std::abs(pending_reward_) > 0.01f) {
             hipp_->inject_reward_tag(std::abs(pending_reward_));
+        }
+
+        // Amygdala US injection: danger → BLA activation → La→BLA STDP
+        // Biology: pain/danger (US) directly activates BLA. When paired with
+        // visual CS (already flowing via V1→La SpikeBus), STDP strengthens
+        // CS→BLA association. One trial = fear memory established.
+        // (LeDoux 2000: one-shot fear conditioning)
+        if (amyg_ && pending_reward_ < -0.01f) {
+            float us_mag = -pending_reward_ * config_.amyg_us_gain;
+            amyg_->inject_us(us_mag);
         }
 
         // LHb activation for negative rewards (punishment/danger)
@@ -401,6 +442,19 @@ StepResult ClosedLoopAgent::agent_step() {
         // LHb → VTA inhibition broadcast (every brain step during action processing)
         if (lhb_) {
             vta_->inject_lhb_inhibition(lhb_->vta_inhibition());
+        }
+        // Amygdala CeA → VTA/LHb: fear-driven DA pause
+        // Biology: when Amygdala detects threatening visual pattern (learned CS),
+        // CeA fires → drives VTA DA pause via RMTg, amplifying avoidance signal.
+        // This is the "fast fear" pathway: bypasses slow DA-STDP learning.
+        if (amyg_) {
+            float cea_drive = amyg_->cea_vta_drive();
+            if (cea_drive > 0.01f) {
+                vta_->inject_lhb_inhibition(cea_drive);  // Reuse VTA inhibition interface
+                if (lhb_) {
+                    lhb_->inject_punishment(cea_drive * 0.5f);  // CeA → LHb amplification
+                }
+            }
         }
         // DA neuromodulatory broadcast: VTA → BG (volume transmission, every step)
         bg_->set_da_level(vta_->da_output());
