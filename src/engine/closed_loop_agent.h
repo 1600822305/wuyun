@@ -42,7 +42,7 @@ namespace wuyun {
 
 struct AgentConfig {
     // Brain scale
-    int brain_scale = 1;    // 1=default, 3=large
+    int brain_scale = 10;
 
     // Perception (auto-computed from world_config.vision_radius in constructor)
     size_t vision_width  = 5;   // v21: default 5x5 local patch (vision_radius=2)
@@ -134,6 +134,13 @@ struct AgentConfig {
     size_t sleep_nrem_steps           = 15;    // v21: very light consolidation per bout
     int    sleep_replay_passes        = 1;     // Single pass (prevent over-consolidation)
     float  sleep_positive_da          = 0.35f; // v21: barely above baseline (0.3), gentle nudge
+
+    // v27: Developmental period (critical period for visual feature learning)
+    // Biology: infant visual cortex spends ~6 months self-organizing via Hebbian STDP
+    // before goal-directed behavior begins. Agent random-walks during dev period,
+    // visual STDP + predictive coding learn features, no DA-STDP reward learning.
+    size_t dev_period_steps = 2000;   // Steps of random exploration before reward learning
+    bool   enable_predictive_learning = true;  // L6 prediction + error-gated STDP
 
     // Evolution fast-eval mode
     bool fast_eval = false;  // Skip hippocampus + cortical STDP for ~40% speedup

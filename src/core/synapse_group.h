@@ -89,6 +89,19 @@ public:
                     const std::vector<uint8_t>& post_fired,
                     int32_t t);
 
+    /**
+     * v27: Error-gated STDP — 只有特定 spike_type 的 post 神经元才触发 LTP
+     * Biology: 预测编码中 L2/3 regular spike = 预测误差, burst = 匹配
+     * 只有误差(regular)触发前馈权重更新 → "学新不学旧"
+     * @param post_spike_type  突触后神经元 spike type 数组
+     * @param required_type    只有此 type 的 post spike 触发 LTP (e.g. REGULAR=0)
+     */
+    void apply_stdp_error_gated(const std::vector<uint8_t>& pre_fired,
+                                const std::vector<uint8_t>& post_fired,
+                                const std::vector<int8_t>& post_spike_type,
+                                int8_t required_type,
+                                int32_t t);
+
 private:
     size_t n_pre_;
     size_t n_post_;

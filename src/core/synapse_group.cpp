@@ -180,4 +180,52 @@ void SynapseGroup::apply_stdp(
     }
 }
 
+void SynapseGroup::apply_stdp_error_gated(
+    const std::vector<uint8_t>& pre_fired,
+    const std::vector<uint8_t>& post_fired,
+    const std::vector<int8_t>& post_spike_type,
+    int8_t required_type,
+    int32_t t
+) {
+    if (!stdp_enabled_) return;
+
+    float tf = static_cast<float>(t);
+
+    // Update last spike times (all spikes, not just error)
+    for (size_t i = 0; i < n_pre_; ++i) {
+        if (pre_fired[i]) last_spike_pre_[i] = tf;
+    }
+    for (size_t i = 0; i < n_post_; ++i) {
+        if (post_fired[i]) last_spike_post_[i] = tf;
+    }
+
+    // Error-gated: only update weights when post fires with required_type
+    for (size_t pre = 0; pre < n_pre_; ++pre) {
+        int32_t start = row_ptr_[pre];
+        int32_t end_idx = row_ptr_[pre + 1];
+
+        for (int32_t s = start; s < end_idx; ++s) {
+            size_t post = static_cast<size_t>(col_idx_[s]);
+
+            float dw = 0.0f;
+
+            // Pre fired: LTD as normal (prediction without input = weaken)
+            if (pre_fired[pre]) {
+                dw += stdp_delta_w(tf, last_spike_post_[post], stdp_params_);
+            }
+
+            // Post fired: LTP ONLY if post spike type matches required_type
+            // regular spike (error) → LTP; burst (match) → skip LTP
+            if (post_fired[post] && post_spike_type[post] == required_type) {
+                dw += stdp_delta_w(last_spike_pre_[pre], tf, stdp_params_);
+            }
+
+            if (dw != 0.0f) {
+                weights_[s] += dw;
+                weights_[s] = std::clamp(weights_[s], stdp_params_.w_min, stdp_params_.w_max);
+            }
+        }
+    }
+}
+
 } // namespace wuyun

@@ -135,6 +135,8 @@ CorticalColumn::CorticalColumn(const ColumnConfig& cfg)
     , syn_sst_to_l5_api_(EMPTY_SYN(GABA_B_PARAMS, CompartmentType::APICAL))
     // --- VIP -> SST ---
     , syn_vip_to_sst_(EMPTY_SYN(GABA_A_PARAMS, CompartmentType::SOMA))
+    // --- L6 -> L2/3 prediction (v27) ---
+    , syn_l6_to_l23_predict_(EMPTY_SYN(AMPA_PARAMS, CompartmentType::APICAL))
 {
     build_synapses();
 }
@@ -273,6 +275,11 @@ ColumnOutput CorticalColumn::step(int t, float dt) {
     deliver_and_inject(l6_pyramidal_,  syn_l6_to_l4_,     l4_stellate_,   dt);
     deliver_and_inject(l23_pyramidal_, syn_l23_recurrent_, l23_pyramidal_, dt);
 
+    // --- v27: L6→L2/3 prediction (apical) — top-down prediction within column ---
+    if (predictive_learning_) {
+        deliver_and_inject(l6_pyramidal_, syn_l6_to_l23_predict_, l23_pyramidal_, dt);
+    }
+
     // --- Excitatory NMDA pathway (parallel slow channel) ---
     deliver_and_inject(l4_stellate_,   syn_l4_to_l23_nmda_, l23_pyramidal_, dt);
     deliver_and_inject(l23_pyramidal_, syn_l23_to_l5_nmda_, l5_pyramidal_,  dt);
@@ -322,16 +329,34 @@ ColumnOutput CorticalColumn::step(int t, float dt) {
             scale_stdp(syn_l4_to_l23_);
             scale_stdp(syn_l23_recurrent_);
             scale_stdp(syn_l23_to_l5_);
+            if (predictive_learning_) scale_stdp(syn_l6_to_l23_predict_);
         }
 
-        // L4→L2/3: feedforward feature learning
-        syn_l4_to_l23_.apply_stdp(l4_stellate_.fired(), l23_pyramidal_.fired(), t);
-        // L2/3 recurrent: lateral pattern completion
+        if (predictive_learning_) {
+            // v27: ERROR-GATED STDP (Whittington & Bogacz 2017)
+            // L4→L2/3: only regular spikes (prediction errors) trigger LTP
+            // burst spikes (prediction match) do NOT update feedforward weights
+            // → "learn new features, don't overwrite already-learned ones"
+            syn_l4_to_l23_.apply_stdp_error_gated(
+                l4_stellate_.fired(), l23_pyramidal_.fired(),
+                l23_pyramidal_.spike_type(),
+                static_cast<int8_t>(SpikeType::REGULAR), t);
+
+            // L6→L2/3 prediction STDP: L6 learns to predict L2/3 activity
+            // L6 fires + L2/3 fires → LTP (good prediction)
+            // L6 fires + L2/3 silent → LTD (false prediction)
+            syn_l6_to_l23_predict_.apply_stdp(
+                l6_pyramidal_.fired(), l23_pyramidal_.fired(), t);
+        } else {
+            // Original Hebbian STDP (no error gating)
+            syn_l4_to_l23_.apply_stdp(l4_stellate_.fired(), l23_pyramidal_.fired(), t);
+        }
+
+        // L2/3 recurrent + L2/3→L5: always standard STDP (not error-gated)
         syn_l23_recurrent_.apply_stdp(l23_pyramidal_.fired(), l23_pyramidal_.fired(), t);
-        // L2/3→L5: output learning
         syn_l23_to_l5_.apply_stdp(l23_pyramidal_.fired(), l5_pyramidal_.fired(), t);
 
-        // Restore original STDP params
+        // Restore original STDP params (ACh modulation)
         if (ach_stdp_gain_ > 1.01f || ach_stdp_gain_ < 0.99f) {
             auto unscale = [&](SynapseGroup& sg) {
                 sg.stdp_params().a_plus  /= ach_stdp_gain_;
@@ -340,6 +365,7 @@ ColumnOutput CorticalColumn::step(int t, float dt) {
             unscale(syn_l4_to_l23_);
             unscale(syn_l23_recurrent_);
             unscale(syn_l23_to_l5_);
+            if (predictive_learning_) unscale(syn_l6_to_l23_predict_);
         }
     }
 
@@ -465,6 +491,40 @@ void CorticalColumn::enable_stdp() {
     syn_l23_to_l5_.enable_stdp(params);
 
     stdp_active_ = true;
+}
+
+void CorticalColumn::enable_predictive_learning() {
+    // v27: Predictive coding learning (Whittington & Bogacz 2017)
+    // L6 learns to predict L2/3 activity. L4→L2/3 STDP becomes error-gated.
+    // Requires STDP to be enabled first.
+    if (!stdp_active_) enable_stdp();
+
+    // Build L6→L2/3 prediction synapse (L6 projects to L2/3 APICAL dendrites)
+    // Biology: L6 corticothalamic neurons send collaterals to L1/L2/3 apical,
+    // providing top-down predictions within the same column
+    {
+        auto coo = make_random_connections(
+            l6_pyramidal_.size(), l23_pyramidal_.size(),
+            0.15f, 0.2f, 1, 777);
+        syn_l6_to_l23_predict_ = SynapseGroup(
+            l6_pyramidal_.size(), l23_pyramidal_.size(),
+            coo.pre, coo.post, coo.weights, coo.delays,
+            AMPA_PARAMS, CompartmentType::APICAL);
+    }
+
+    // Enable STDP on the prediction synapse
+    // L6 pre + L2/3 post → LTP (prediction matches input = good, strengthen)
+    // L6 pre + L2/3 silent → LTD (false prediction = bad, weaken)
+    STDPParams pred_params;
+    pred_params.a_plus   = config_.stdp_a_plus * 0.5f;  // Gentler than feedforward
+    pred_params.a_minus  = config_.stdp_a_minus * 0.5f;
+    pred_params.tau_plus  = config_.stdp_tau;
+    pred_params.tau_minus = config_.stdp_tau;
+    pred_params.w_min     = 0.0f;
+    pred_params.w_max     = config_.stdp_w_max;
+    syn_l6_to_l23_predict_.enable_stdp(pred_params);
+
+    predictive_learning_ = true;
 }
 
 // =============================================================================

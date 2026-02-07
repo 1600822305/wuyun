@@ -337,6 +337,15 @@ void ClosedLoopAgent::build_brain() {
         if (hipp_) hipp_->enable_homeostatic(hp);
     }
 
+    // --- v27: Enable predictive coding learning on visual hierarchy ---
+    // L6 learns to predict L2/3, L4→L2/3 STDP becomes error-gated
+    if (config_.enable_predictive_learning && config_.enable_cortical_stdp) {
+        if (v1_) v1_->column().enable_predictive_learning();
+        if (v2_) v2_->column().enable_predictive_learning();
+        if (v4_) v4_->column().enable_predictive_learning();
+        // IT intentionally excluded: NO STDP (representation stability)
+    }
+
     // --- v26: Tonic drive for visual hierarchy (Pulvinar → V2/V4/IT) ---
     // Biology: Pulvinar thalamic nucleus provides sustained activation to extrastriate
     // visual areas, preventing signal extinction through the hierarchy.
@@ -385,6 +394,14 @@ StepResult ClosedLoopAgent::agent_step() {
             run_sleep_consolidation();
             wake_step_counter_ = 0;
         }
+    }
+
+    // --- v27: Developmental period — no reward learning, just visual STDP ---
+    // Biology: critical period for visual feature self-organization
+    bool in_dev_period = (config_.dev_period_steps > 0 &&
+                          static_cast<size_t>(agent_step_count_) < config_.dev_period_steps);
+    if (in_dev_period) {
+        has_pending_reward_ = false;  // Suppress reward processing during development
     }
 
     // --- Phase A: Process pending reward (from previous action) ---

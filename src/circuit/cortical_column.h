@@ -133,12 +133,17 @@ public:
     void enable_stdp();
     bool has_stdp() const { return stdp_active_; }
 
-    /** v26: ACh modulation of STDP learning rate (Froemke et al. 2007)
-     *  Biology: NBM ACh release during salient events widens STDP window
-     *  and enhances LTP, making reward-relevant features learned faster.
-     *  gain=1.0 normal; >1.0 enhanced learning; <1.0 suppressed */
+    /** v26: ACh modulation of STDP learning rate (Froemke et al. 2007) */
     void set_ach_stdp_gain(float gain) { ach_stdp_gain_ = gain; }
     float ach_stdp_gain() const { return ach_stdp_gain_; }
+
+    /** v27: Enable predictive coding learning (Whittington & Bogacz 2017)
+     *  - L6 learns to predict L2/3 activity via STDP on L6→L2/3 apical synapses
+     *  - L4→L2/3 STDP becomes error-gated: only regular spikes (errors) trigger LTP
+     *  - burst spikes (prediction match) do NOT update feedforward weights
+     *  Requires enable_stdp() to be called first. */
+    void enable_predictive_learning();
+    bool has_predictive_learning() const { return predictive_learning_; }
 
     /** Enable homeostatic plasticity (synaptic scaling on feedforward excitatory synapses) */
     void enable_homeostatic(const HomeostaticParams& params = {});
@@ -234,6 +239,10 @@ private:
 
     // === VIP -> SST (GABA_A, disinhibition) ===
     SynapseGroup syn_vip_to_sst_;     // VIP -> SST soma
+
+    // === L6→L2/3 prediction synapse (v27: predictive coding learning) ===
+    SynapseGroup syn_l6_to_l23_predict_;  // L6→L2/3 apical (prediction signal)
+    bool predictive_learning_ = false;    // Enable L6 prediction STDP + error-gated FF STDP
 
     // === STDP state ===
     bool stdp_active_ = false;
