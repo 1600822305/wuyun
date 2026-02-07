@@ -28,20 +28,38 @@ REGION_COLORS = {
     'LGN': '#1f77b4', 'V1': '#2196F3', 'V2': '#42A5F5',
     'V4': '#64B5F6', 'IT': '#90CAF9',
     # Dorsal (teals)
-    'MT': '#009688', 'PPC': '#4DB6AC',
+    'MT': '#009688', 'PPC': '#4DB6AC', 'FEF': '#00BCD4',
+    # Sensory (light blues)
+    'S1': '#03A9F4', 'S2': '#29B6F6', 'A1': '#4FC3F7',
+    'Gustatory': '#81D4FA', 'Piriform': '#B3E5FC',
     # Decision (purples)
     'OFC': '#9C27B0', 'vmPFC': '#AB47BC', 'ACC': '#CE93D8',
     'dlPFC': '#7B1FA2',
     # Motor (reds)
     'M1': '#F44336', 'MotorThal': '#EF5350',
+    'PMC': '#E53935', 'SMA': '#EF5350',
+    # Language (pinks)
+    'Broca': '#E91E63', 'Wernicke': '#F06292',
+    # Association (indigos)
+    'PCC': '#3F51B5', 'TPJ': '#5C6BC0', 'Insula': '#7986CB',
     # Subcortical (oranges/yellows)
     'BG': '#FF9800', 'VTA': '#FFC107',
+    # Thalamic (amber)
+    'VPL': '#FFB300', 'MGN': '#FFA000', 'MD': '#FF8F00',
+    'VA': '#FF6F00', 'LP': '#F57F17', 'LD': '#F9A825',
+    'Pulvinar': '#FDD835', 'CeM': '#FFEE58', 'ILN': '#FFF176',
+    'ATN': '#FFD54F',
     # Limbic (greens)
     'Hippocampus': '#4CAF50', 'Amygdala': '#8BC34A',
+    'SeptalNucleus': '#66BB6A', 'MammillaryBody': '#81C784',
+    # Hypothalamus (deep green)
+    'Hypothalamus': '#2E7D32',
     # Cerebellum (brown)
     'Cerebellum': '#795548',
     # Neuromod (grays)
     'LC': '#607D8B', 'DRN': '#78909C', 'NBM': '#90A4AE',
+    # Consciousness (gold)
+    'GW': '#FFD700',
 }
 
 def _get_color(name):
@@ -124,20 +142,39 @@ def plot_connectivity(engine, figsize=(12, 10), save_path=None):
     # Since SpikeBus doesn't expose projection details to Python yet,
     # use the known standard brain topology
     STANDARD_PROJECTIONS = [
+        # Visual
         ('LGN', 'V1'), ('V1', 'V2'), ('V2', 'V4'), ('V4', 'IT'),
         ('V2', 'V1'), ('V4', 'V2'), ('IT', 'V4'),
         ('V1', 'MT'), ('V2', 'MT'), ('MT', 'PPC'), ('PPC', 'MT'),
         ('PPC', 'IT'), ('IT', 'PPC'),
+        # Decision
         ('IT', 'OFC'), ('OFC', 'vmPFC'), ('vmPFC', 'BG'),
         ('vmPFC', 'Amygdala'), ('ACC', 'dlPFC'), ('ACC', 'LC'),
         ('dlPFC', 'ACC'), ('IT', 'dlPFC'), ('PPC', 'dlPFC'),
         ('PPC', 'M1'), ('dlPFC', 'BG'), ('BG', 'MotorThal'),
         ('MotorThal', 'M1'), ('M1', 'Cerebellum'),
-        ('Cerebellum', 'MotorThal'), ('V1', 'Amygdala'),
-        ('dlPFC', 'Amygdala'), ('Amygdala', 'OFC'),
+        ('Cerebellum', 'MotorThal'),
+        # Limbic
+        ('V1', 'Amygdala'), ('dlPFC', 'Amygdala'), ('Amygdala', 'OFC'),
         ('dlPFC', 'Hippocampus'), ('Hippocampus', 'dlPFC'),
         ('Amygdala', 'VTA'), ('Amygdala', 'Hippocampus'),
         ('VTA', 'BG'),
+        # Sensory
+        ('VPL', 'S1'), ('S1', 'S2'), ('S2', 'PPC'),
+        ('MGN', 'A1'), ('A1', 'Wernicke'), ('Wernicke', 'Broca'),
+        # Motor hierarchy
+        ('dlPFC', 'PMC'), ('dlPFC', 'SMA'), ('PMC', 'M1'), ('SMA', 'M1'),
+        # DMN
+        ('PCC', 'vmPFC'), ('vmPFC', 'PCC'), ('TPJ', 'PCC'),
+        # GW broadcast
+        ('V1', 'GW'), ('IT', 'GW'), ('dlPFC', 'GW'), ('ACC', 'GW'),
+        ('GW', 'ILN'), ('GW', 'CeM'),
+        # Hypothalamus
+        ('Hypothalamus', 'LC'), ('Hypothalamus', 'DRN'),
+        ('Hypothalamus', 'NBM'), ('Hypothalamus', 'VTA'),
+        # Papez
+        ('Hippocampus', 'MammillaryBody'), ('MammillaryBody', 'ATN'),
+        ('ATN', 'ACC'),
     ]
 
     for src, dst in STANDARD_PROJECTIONS:
@@ -146,15 +183,39 @@ def plot_connectivity(engine, figsize=(12, 10), save_path=None):
 
     # Layout - hierarchical by subsystem
     pos = {
-        'LGN': (0, 0),
-        'V1': (1, 0), 'V2': (2, 0), 'V4': (3, -0.5), 'IT': (4, -0.5),
-        'MT': (2, 1), 'PPC': (3, 1.5),
-        'OFC': (5, -1), 'vmPFC': (6, -0.5), 'ACC': (5, 1),
-        'dlPFC': (5, 0.5), 'M1': (7, 0.5),
-        'BG': (6, 0.5), 'MotorThal': (7, 0),
-        'VTA': (5, -2), 'Hippocampus': (4, -2), 'Amygdala': (3, -2),
-        'Cerebellum': (8, -0.5),
-        'LC': (6, 2), 'DRN': (7, 2), 'NBM': (8, 2),
+        # Sensory input (left)
+        'LGN': (0, 0), 'VPL': (0, 2), 'MGN': (0, -2),
+        # Primary sensory
+        'V1': (1.5, 0), 'S1': (1.5, 2), 'A1': (1.5, -2),
+        # Secondary sensory
+        'V2': (3, 0), 'S2': (3, 2), 'Gustatory': (3, -1), 'Piriform': (3, -3),
+        # Higher visual
+        'V4': (4, -0.5), 'IT': (5, -0.5), 'MT': (3, 1), 'PPC': (4, 1.5),
+        # Language
+        'Wernicke': (5, -2.5), 'Broca': (6.5, -2.5),
+        # Executive
+        'dlPFC': (6, 0.5), 'OFC': (6, -1), 'vmPFC': (7, -0.5),
+        'ACC': (6, 1.5), 'FEF': (5, 1.5),
+        # DMN
+        'PCC': (7.5, 1.5), 'TPJ': (5, 2.5), 'Insula': (4.5, -1.5),
+        # Motor
+        'PMC': (7.5, 0.5), 'SMA': (7.5, 0), 'M1': (9, 0.5),
+        'MotorThal': (8.5, 0), 'BG': (7.5, -0.5),
+        # Thalamic
+        'Pulvinar': (2, 0.8), 'MD': (5.5, 0), 'VA': (7, 0),
+        'LP': (3.5, 1.2), 'LD': (5, 2), 'ILN': (6.5, 2.5), 'CeM': (7, 2.5),
+        'ATN': (6, 3),
+        # Limbic (bottom)
+        'Hippocampus': (4, -3.5), 'Amygdala': (3, -3.5),
+        'SeptalNucleus': (3.5, -4.5), 'MammillaryBody': (5, -4),
+        # Subcortical
+        'VTA': (5.5, -3.5), 'Cerebellum': (10, -0.5),
+        # Neuromod (top)
+        'LC': (7, 3.5), 'DRN': (8, 3.5), 'NBM': (9, 3.5),
+        # Hypothalamus (bottom-right)
+        'Hypothalamus': (7, -3.5),
+        # GW (center, prominent)
+        'GW': (6, 3),
     }
     # Use available positions
     pos = {k: v for k, v in pos.items() if k in G.nodes}
@@ -257,29 +318,38 @@ def plot_neuromod_timeline(nm_history, figsize=(12, 4), save_path=None):
 # =============================================================================
 def run_demo(duration=200, stim_duration=50, save_dir=None):
     """
-    Run a quick demo: build brain, stimulate, visualize.
+    Run a quick demo: build 48-region brain, stimulate, visualize.
 
     Args:
         duration: total simulation steps
         stim_duration: how long to apply visual stimulus
         save_dir: directory to save figures (None = just show)
     """
-    print("=== WuYun Brain Simulation Demo ===")
+    print("=== WuYun Brain Simulation Demo (48 regions) ===")
 
     # Build
     eng = pywuyun.SimulationEngine(10)
     eng.build_standard_brain()
     print(f"Built: {eng.num_regions()} regions, {eng.bus().num_projections()} projections")
 
-    # Set up recorders
+    # Key regions to record (subset for clarity)
     region_names = ['LGN', 'V1', 'V2', 'IT', 'MT', 'PPC',
-                    'dlPFC', 'OFC', 'BG', 'M1', 'Hippocampus', 'Amygdala']
+                    'dlPFC', 'ACC', 'OFC', 'BG', 'M1',
+                    'A1', 'S1', 'Broca', 'Wernicke',
+                    'Hippocampus', 'Amygdala', 'GW']
     recorders = {}
     for name in region_names:
-        recorders[name] = pywuyun.SpikeRecorder()
+        r = eng.find_region(name)
+        if r:
+            recorders[name] = pywuyun.SpikeRecorder()
 
     nm_history = []
+    gw_history = []
     lgn = eng.find_region('LGN')
+
+    # Try to get GW and Hypothalamus references
+    gw = eng.find_region('GW')
+    hypo = eng.find_region('Hypothalamus')
 
     # Run simulation
     print(f"Running {duration} steps (stim: 0-{stim_duration})...")
@@ -297,9 +367,24 @@ def run_demo(duration=200, stim_duration=50, save_dir=None):
         nm = v1.neuromod().current()
         nm_history.append({'da': nm.da, 'ne': nm.ne, 'sht': nm.sht, 'ach': nm.ach})
 
+        # Record GW state
+        if gw:
+            gw_history.append({
+                'ignited': gw.is_ignited(),
+                'salience': gw.winning_salience(),
+                'content': gw.conscious_content_name(),
+            })
+
     # Collect spike counts
     spike_counts = {name: rec.total_spikes() for name, rec in recorders.items()}
-    print("Activity:", {k: v for k, v in spike_counts.items() if v > 0})
+    active = {k: v for k, v in spike_counts.items() if v > 0}
+    print(f"Activity: {active}")
+
+    # GW summary
+    if gw:
+        print(f"GW: {gw.ignition_count()} ignitions, content='{gw.conscious_content_name()}'")
+    if hypo:
+        print(f"Hypothalamus: wake={hypo.wake_level():.2f}, stress={hypo.stress_output():.2f}")
 
     # Visualize
     prefix = save_dir + '/' if save_dir else None

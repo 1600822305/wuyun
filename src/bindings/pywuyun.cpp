@@ -294,6 +294,62 @@ PYBIND11_MODULE(pywuyun, m) {
         .def("inject_climbing_fiber", &Cerebellum::inject_climbing_fiber);
 
     // =========================================================================
+    // Hypothalamus
+    // =========================================================================
+    py::class_<HypothalamusConfig>(m, "HypothalamusConfig")
+        .def(py::init<>())
+        .def_readwrite("name", &HypothalamusConfig::name)
+        .def_readwrite("n_scn", &HypothalamusConfig::n_scn)
+        .def_readwrite("n_vlpo", &HypothalamusConfig::n_vlpo)
+        .def_readwrite("n_orexin", &HypothalamusConfig::n_orexin)
+        .def_readwrite("n_pvn", &HypothalamusConfig::n_pvn)
+        .def_readwrite("n_lh", &HypothalamusConfig::n_lh)
+        .def_readwrite("n_vmh", &HypothalamusConfig::n_vmh)
+        .def_readwrite("circadian_period", &HypothalamusConfig::circadian_period)
+        .def_readwrite("homeostatic_sleep_pressure", &HypothalamusConfig::homeostatic_sleep_pressure)
+        .def_readwrite("stress_level", &HypothalamusConfig::stress_level)
+        .def_readwrite("hunger_level", &HypothalamusConfig::hunger_level)
+        .def_readwrite("satiety_level", &HypothalamusConfig::satiety_level);
+
+    py::class_<Hypothalamus, BrainRegion>(m, "Hypothalamus", "Hypothalamus internal drive system")
+        .def(py::init<const HypothalamusConfig&>(), py::arg("config"))
+        .def("wake_level", &Hypothalamus::wake_level)
+        .def("circadian_phase", &Hypothalamus::circadian_phase)
+        .def("is_sleeping", &Hypothalamus::is_sleeping)
+        .def("stress_output", &Hypothalamus::stress_output)
+        .def("hunger_output", &Hypothalamus::hunger_output)
+        .def("satiety_output", &Hypothalamus::satiety_output)
+        .def("set_sleep_pressure", &Hypothalamus::set_sleep_pressure)
+        .def("set_stress_level", &Hypothalamus::set_stress_level)
+        .def("set_hunger_level", &Hypothalamus::set_hunger_level)
+        .def("set_satiety_level", &Hypothalamus::set_satiety_level);
+
+    // =========================================================================
+    // GlobalWorkspace
+    // =========================================================================
+    py::class_<GWConfig>(m, "GWConfig")
+        .def(py::init<>())
+        .def_readwrite("name", &GWConfig::name)
+        .def_readwrite("n_workspace", &GWConfig::n_workspace)
+        .def_readwrite("ignition_threshold", &GWConfig::ignition_threshold)
+        .def_readwrite("competition_decay", &GWConfig::competition_decay)
+        .def_readwrite("min_ignition_gap", &GWConfig::min_ignition_gap)
+        .def_readwrite("broadcast_gain", &GWConfig::broadcast_gain)
+        .def_readwrite("broadcast_duration", &GWConfig::broadcast_duration);
+
+    py::class_<GlobalWorkspace, BrainRegion>(m, "GlobalWorkspace",
+        "Global Workspace Theory (Baars/Dehaene) - consciousness via competition/ignition/broadcast")
+        .def(py::init<const GWConfig&>(), py::arg("config"))
+        .def("is_ignited", &GlobalWorkspace::is_ignited)
+        .def("conscious_content_id", &GlobalWorkspace::conscious_content_id)
+        .def("conscious_content_name", &GlobalWorkspace::conscious_content_name)
+        .def("ignition_count", &GlobalWorkspace::ignition_count)
+        .def("broadcast_remaining", &GlobalWorkspace::broadcast_remaining)
+        .def("winning_salience", &GlobalWorkspace::winning_salience)
+        .def("register_source", &GlobalWorkspace::register_source,
+             py::arg("region_id"), py::arg("name"));
+
+    // =========================================================================
     // SpikeBus
     // =========================================================================
     py::class_<SpikeBus>(m, "SpikeBus")
@@ -345,6 +401,14 @@ PYBIND11_MODULE(pywuyun, m) {
         .def("add_cerebellum", [](SimulationEngine& eng, const CerebellumConfig& cfg) -> Cerebellum* {
             eng.add_region(std::make_unique<Cerebellum>(cfg));
             return dynamic_cast<Cerebellum*>(eng.find_region(cfg.name));
+        }, py::return_value_policy::reference)
+        .def("add_hypothalamus", [](SimulationEngine& eng, const HypothalamusConfig& cfg) -> Hypothalamus* {
+            eng.add_region(std::make_unique<Hypothalamus>(cfg));
+            return dynamic_cast<Hypothalamus*>(eng.find_region(cfg.name));
+        }, py::return_value_policy::reference)
+        .def("add_global_workspace", [](SimulationEngine& eng, const GWConfig& cfg) -> GlobalWorkspace* {
+            eng.add_region(std::make_unique<GlobalWorkspace>(cfg));
+            return dynamic_cast<GlobalWorkspace*>(eng.find_region(cfg.name));
         }, py::return_value_policy::reference)
         .def("add_projection", &SimulationEngine::add_projection,
              py::arg("src"), py::arg("dst"), py::arg("delay"),
@@ -636,6 +700,16 @@ PYBIND11_MODULE(pywuyun, m) {
             eng.add_projection("Amygdala", "Hypothalamus", 2); // CeA→PVN (fear→stress)
             eng.add_projection("Insula", "Hypothalamus", 2);   // Interoception→drives
             eng.add_projection("Hypothalamus", "ACC", 2);   // Drive signals→conflict
+
+            // Register GW source names for readable conscious content
+            auto* gw_ptr = dynamic_cast<GlobalWorkspace*>(eng.find_region("GW"));
+            if (gw_ptr) {
+                const char* gw_sources[] = {"V1","IT","PPC","dlPFC","ACC","OFC","Insula","A1","S1"};
+                for (auto name : gw_sources) {
+                    auto* r = eng.find_region(name);
+                    if (r) gw_ptr->register_source(r->region_id(), name);
+                }
+            }
 
             // Neuromod sources
             using NM = SimulationEngine::NeuromodType;
