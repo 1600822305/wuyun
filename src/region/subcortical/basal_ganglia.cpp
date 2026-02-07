@@ -197,6 +197,69 @@ void BasalGanglia::build_input_maps(size_t n_input_neurons) {
     }
 }
 
+void BasalGanglia::set_topographic_cortical_source(uint32_t region_id, size_t n_neurons) {
+    topo_ctx_rid_ = region_id;
+    topo_ctx_n_ = n_neurons;
+
+    // Rebuild ctx→D1/D2 maps for this source's neuron range with topographic bias.
+    // Biology: corticostriatal projections from dlPFC maintain partial somatotopy.
+    // dlPFC neuron in "channel c" → preferentially connects to D1/D2 subgroup c.
+    // channel = (neuron_id × 4) / n_neurons  (proportional spatial mapping)
+    size_t d1_size = d1_msn_.size();
+    size_t d2_size = d2_msn_.size();
+    size_t d1_group = d1_size / 4;
+    size_t d2_group = d2_size / 4;
+
+    // Don't touch sensory slots (252-255)
+    size_t n_slots = std::min(n_neurons, static_cast<size_t>(SENSORY_SLOT_BASE));
+    n_slots = std::min(n_slots, input_map_size_);
+
+    std::mt19937 rng(888);  // Deterministic, different from random maps (seed=777)
+    std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+
+    float p_same  = 0.60f;  // 60% connection to matching action subgroup (~4.2 connections)
+    float p_other = 0.05f;  // 5% to non-matching subgroups (~1.2 connections, total ~5.4)
+
+    for (size_t i = 0; i < n_slots; ++i) {
+        int channel = static_cast<int>((i * 4) / n_neurons);
+        if (channel >= 4) channel = 3;
+
+        // Rebuild D1 map for this slot
+        ctx_to_d1_map_[i].clear();
+        for (size_t j = 0; j < d1_size; ++j) {
+            int d1_ch = static_cast<int>(j / d1_group);
+            if (d1_ch >= 4) d1_ch = 3;
+            float prob = (d1_ch == channel) ? p_same : p_other;
+            if (dist(rng) < prob) {
+                ctx_to_d1_map_[i].push_back(static_cast<uint32_t>(j));
+            }
+        }
+
+        // Rebuild D2 map for this slot
+        ctx_to_d2_map_[i].clear();
+        for (size_t j = 0; j < d2_size; ++j) {
+            int d2_ch = static_cast<int>(j / d2_group);
+            if (d2_ch >= 4) d2_ch = 3;
+            float prob = (d2_ch == channel) ? p_same : p_other;
+            if (dist(rng) < prob) {
+                ctx_to_d2_map_[i].push_back(static_cast<uint32_t>(j));
+            }
+        }
+
+        // STN map unchanged (hyperdirect is non-topographic)
+    }
+
+    // Rebuild DA-STDP weights and eligibility traces for affected slots
+    if (config_.da_stdp_enabled) {
+        for (size_t i = 0; i < n_slots; ++i) {
+            ctx_d1_w_[i].assign(ctx_to_d1_map_[i].size(), 1.0f);
+            ctx_d2_w_[i].assign(ctx_to_d2_map_[i].size(), 1.0f);
+            elig_d1_[i].assign(ctx_to_d1_map_[i].size(), 0.0f);
+            elig_d2_[i].assign(ctx_to_d2_map_[i].size(), 0.0f);
+        }
+    }
+}
+
 void BasalGanglia::step(int32_t t, float dt) {
     oscillation_.step(dt);
     neuromod_.step(dt);

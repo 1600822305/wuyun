@@ -154,6 +154,14 @@ void ClosedLoopAgent::build_brain() {
         dlpfc_->add_topographic_input(v1_->region_id(), v1_->n_neurons());
     }
 
+    // --- Register topographic dlPFC→BG mapping (corticostriatal somatotopy) ---
+    // dlPFC spatial zone → D1/D2 action subgroup (proportional mapping)
+    // Without this, random 20% connectivity scrambles direction information
+    // at the "last mile" before action selection
+    if (dlpfc_ && bg_) {
+        bg_->set_topographic_cortical_source(dlpfc_->region_id(), dlpfc_->n_neurons());
+    }
+
     // --- Enable homeostatic plasticity ---
     if (config_.enable_homeostatic) {
         HomeostaticParams hp;
@@ -329,10 +337,13 @@ StepResult ClosedLoopAgent::agent_step() {
             l5_accum[j] += m1_fired[l5_offset + j];
         }
 
-        // NOTE: Motor efference copy (mark_motor_efference) intentionally disabled.
-        // Direction-specific learning requires topographic cortical→BG mapping or
-        // cortical STDP to shape dlPFC representations. Current Go/NoGo learning
-        // from random corticostriatal mapping provides +0.19 safety improvement.
+        // Motor efference copy: mark current exploration direction in BG sensory slots.
+        // Combined with topographic V1→dlPFC→BG visual context, enables DA-STDP to
+        // learn joint "visual context + action → reward" associations.
+        // Only in late brain steps (i>=10) after visual pipeline establishes context.
+        if (i >= 10 && attractor_group >= 0) {
+            bg_->mark_motor_efference(attractor_group);
+        }
     }
 
     // B3. Decode action from M1 L5 only (biological: M1 is the motor output)

@@ -1347,6 +1347,92 @@ V1 ─拓扑─→ dlPFC ─随机─→ BG D1/D2
 
 ### 回归测试: 29/29 CTest 全通过 (0 失败, 20.2秒)
 
+---
+
+## Step 13-D+E: dlPFC→BG 拓扑映射 + 完整视觉通路验证
+
+### 问题
+
+Step 13-C 修复了视觉通路(LGN→V1→dlPFC), 但方向信息在"最后一英里"被打散:
+
+```
+V1 ─拓扑─→ dlPFC ─随机20%─→ BG D1/D2
+  ✅ 保持空间      ❌ 方向信息在此丢失
+```
+
+DA-STDP learner advantage 消失(-0.0015), 因为随机连接无法区分"食物在左"→D1 LEFT subgroup.
+
+### 修复 (3 个核心)
+
+#### ① dlPFC→BG 拓扑映射 (corticostriatal somatotopy)
+
+新增 `BasalGanglia::set_topographic_cortical_source(region_id, n_neurons)`:
+- 重建 `ctx_to_d1_map_` 和 `ctx_to_d2_map_` 为拓扑偏置连接
+- `channel = (neuron_id × 4) / n_neurons` — 比例空间映射到4个方向子群
+- `p_same=0.60` (60% 连接到匹配子群, ~4.2 connections)
+- `p_other=0.05` (5% 连接到其他子群, ~1.2 connections)
+- **78% 偏置**: 每个 dlPFC 神经元的连接集中在对应方向的 D1 子群
+- DA-STDP 权重/eligibility 基础设施不变, 自动适配新拓扑
+
+调参历程:
+- p_same=0.40/p_other=0.05: 选择性好(adv+0.0015)但 D1 驱动不足(-29%)
+- p_same=0.50/p_other=0.10: D1 恢复但选择性丢失(adv=-0.002)
+- p_same=0.60/p_other=0.05: 高匹配+低溢出, 总连接~5.4 接近原始6
+
+#### ② Motor efference copy 重新启用
+
+- 原: 注释禁用 (无拓扑映射时 efference copy 无效)
+- 新: 在 brain loop 后期(i≥10)调用 `mark_motor_efference(attractor_group)`
+- Biology: M1→striatum motor efference 提供动作特异信号
+- DA-STDP 现在可学习 "视觉上下文 + 动作 → 奖励" 联合关联
+- 仅标记 eligibility slots + 弱 PSP 注入, 不直接决定动作
+
+#### ③ Weight decay 加速 (防过拟合)
+
+- `da_stdp_w_decay`: 0.001 → **0.003** (回归速度 3x)
+- 权重回归 1.0: ~200 步 → ~67 步
+- 防止 efference copy 正反馈导致权重过度极化→遗忘振荡
+
+### 完整拓扑通路
+
+```
+3×3 Grid → VisualInput(gain=200) → LGN(选择性发放)
+  → delay=2 → V1(STDP特征学习, i=7开始发放)
+  → delay=2 → dlPFC(拓扑接收: proportional mapping)
+  → delay=2 → BG D1/D2(拓扑偏置: 78%匹配子群)
+                 + motor efference copy(动作标记)
+  → D1→GPi→MotorThal → M1 L5 → 动作
+  → VTA DA reward → DA-STDP 权重更新
+```
+
+### 结果对比
+
+| 指标 | Step 13-D+E (全拓扑) | 13-C (随机BG) | v3 (无视觉) |
+|------|---------------------|-------------|------------|
+| Learner advantage | **+0.0015** ✅ | -0.0015 | +0.017 |
+| 10k improvement | **+0.077** ✅ | +0.077 | +0.191 |
+| 5k late safety | 0.50 | 0.62 | 0.38 |
+| Food 10k | **118** (+55%) | 121 | 76 |
+| D1 fires/50步 | **189** | 178 | ~178 |
+
+**关键进展:**
+- DA-STDP learner advantage 恢复正值 (+0.0015 vs -0.0015)
+- 10k 学习稳定 (+0.077, 不再振荡)
+- 食物收集比 v3 基线 +55% (视觉通路贡献)
+- 完整端到端拓扑映射: 视觉→皮层→BG→动作
+
+### 新增 API
+
+- `BasalGanglia::set_topographic_cortical_source(region_id, n_neurons)` — 拓扑皮层→纹状体映射
+
+### 修改文件
+
+- `basal_ganglia.h`: +set_topographic_cortical_source, +topo_ctx_rid_/n_, w_decay 0.001→0.003
+- `basal_ganglia.cpp`: +set_topographic_cortical_source 实现(拓扑偏置 map 重建)
+- `closed_loop_agent.cpp`: +dlPFC→BG 拓扑注册, +efference copy 重新启用(i≥10)
+
+### 回归测试: 29/29 CTest 全通过 (0 失败, 19.2秒)
+
 ### 系统状态
 
 ```
@@ -1357,6 +1443,7 @@ V1 ─拓扑─→ dlPFC ─随机─→ BG D1/D2
           4种调质广播 · 稳态可塑性 · 规模可扩展(E/I自平衡)
           闭环Agent · GridWorld环境 · 运动探索 · VTA奖励信号
           DA-STDP闭环学习 · Eligibility Traces · 动作特异性信用分配
-          NE探索/利用调制 · 视觉通路(LGN→V1→dlPFC, ctx=2787)
-          V1→dlPFC拓扑映射 · V1在线STDP · 食物收集2x提升
+          NE探索/利用调制 · Motor Efference Copy
+          全链路拓扑映射: V1→dlPFC→BG (视觉空间→动作子群)
+          V1在线STDP · 食物收集+55% · Learner advantage恢复
 ```

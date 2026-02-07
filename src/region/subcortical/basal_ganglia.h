@@ -58,7 +58,7 @@ struct BasalGangliaConfig {
     float da_stdp_w_max    = 3.0f;    // Max connection weight
     float da_stdp_elig_decay = 0.98f; // Eligibility trace decay per step (~50 step window, 0.98^15=0.74)
     float da_stdp_max_elig = 50.0f;  // Per-synapse elig ceiling (prevents Δw explosion: 0.03×0.5×50=0.75)
-    float da_stdp_w_decay  = 0.001f;  // Weight decay toward 1.0 per step (recovery in ~200 steps)
+    float da_stdp_w_decay  = 0.003f;  // Weight decay toward 1.0 per step (recovery in ~67 steps)
 };
 
 class BasalGanglia : public BrainRegion {
@@ -99,6 +99,12 @@ public:
     void inject_sensory_context(const float signals[4]);
     /** Motor efference copy: mark action as active for elig trace, NO PSP injection */
     void mark_motor_efference(int action_group);
+
+    /** Register a cortical source for topographic (channel-aligned) corticostriatal mapping.
+     *  Rebuilds ctx→D1/D2 maps so that neurons from this source connect preferentially
+     *  to the corresponding D1/D2 action subgroup (proportional spatial mapping).
+     *  Biology: corticostriatal projections maintain partial somatotopy/retinotopy */
+    void set_topographic_cortical_source(uint32_t region_id, size_t n_neurons);
 
     /** DA-STDP 权重诊断 */
     size_t d1_weight_count() const { return ctx_d1_w_.size(); }
@@ -155,6 +161,10 @@ private:
     std::vector<std::vector<uint32_t>> ctx_to_stn_map_; // per-input neuron → STN targets (hyperdirect)
     size_t input_map_size_ = 0;
     void build_input_maps(size_t n_input_neurons);
+
+    // Topographic cortical source (dlPFC → D1/D2 channel-aligned mapping)
+    uint32_t topo_ctx_rid_ = UINT32_MAX;  // Registered topographic source region ID
+    size_t   topo_ctx_n_   = 0;           // Source neuron count
 
     // PSP 缓冲 (模拟突触时间常数)
     static constexpr float PSP_DECAY = 0.7f;

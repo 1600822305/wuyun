@@ -300,16 +300,126 @@ float evaluate_fitness(const Genome& genome, const GridWorld& world) {
 
 ## 六、实现计划
 
+### 6.1 前置条件（执行官审核意见 2026-02-07）
+
+> **基因层应在架构瓶颈修复之后再启用，否则进化会固化 workaround 而非发现正确的解决方案。**
+
+必须先完成的工作：
+
+| 前置步骤 | 内容 | 原因 |
+|---------|------|------|
+| **Step 13-D** | 修复 dlPFC→BG 拓扑映射瓶颈 | 当前随机映射是架构缺陷，不是参数问题，进化无法发现"应该用拓扑映射" |
+| **Step 13-E** | 验证完整视觉通路 LGN→V1→dlPFC→BG 的学习效果 | 确认架构正确后，进化才能优化参数而非固化 workaround |
+
+**风险说明**：如果在修复前跑进化，进化可能会：
+- 把 V1 的 `size_factor` 优化到接近 0（因为 V1 不起作用，小 V1 省计算 = 同等适应度下更优）
+- 降低 dlPFC→BG 的 `connection_probability` 到极低值（方向信息被随机映射打散）
+- 增大 M1 探索噪声（纯随机动作 + Go/NoGo 成为"最优"策略）
+
+### 6.2 v1 搜索空间缩减
+
+920 参数中大部分对 GridWorld 闭环不可观测。当前闭环 agent 只用 7-8 个区域（LGN, V1, dlPFC, M1, BG, MotorThal, VTA, Hippocampus），48 区域中的 40 个不在闭环回路中。
+
+**v1 只进化闭环涉及的 ~70 个参数：**
+
+```
+闭环参数 (~70 个):
+├── 全局基因: 10 个 (全部参与)
+├── 区域基因: 8 区域 × 10 参数 = 80 个 (只含闭环区域)
+│   ├── LGN, V1, dlPFC, M1
+│   ├── BG (D1+D2), MotorThalamus
+│   ├── VTA, Hippocampus
+│   └── 其余 40 区域: 固定默认值，不参与进化
+└── 投射基因: ~15 条闭环投射 × 4 参数 = 60 个
+    ├── LGN→V1, V1→dlPFC, dlPFC→BG, BG→MotorThal, MotorThal→M1
+    ├── VTA→BG, dlPFC→VTA
+    └── 其余 ~94 条投射: 固定默认值，不参与进化
+    
+总计: ~150 个可进化参数 (v1)
+```
+
+### 6.3 修正后的适应度函数
+
+原始适应度函数只看绝对表现，无法区分"天生趋食"和"学会趋食"。修正后显式奖励学习能力：
+
+```cpp
+float evaluate_fitness(const Genome& genome, const GridWorld& world) {
+    auto brain = build_brain_from_genome(genome);
+    ClosedLoopAgent agent(brain, world);
+    
+    // 前半段: 早期表现 (天生能力)
+    float early_food = 0, early_danger = 0;
+    for (int step = 0; step < 2500; step++) {
+        agent.step();
+        early_food += agent.got_food();
+        early_danger += agent.hit_danger();
+    }
+    float early_safety = early_food / std::max(1.0f, early_food + early_danger);
+    
+    // 后半段: 晚期表现 (学习后能力)
+    float late_food = 0, late_danger = 0;
+    float exploration = 0;
+    for (int step = 2500; step < 5000; step++) {
+        agent.step();
+        late_food += agent.got_food();
+        late_danger += agent.hit_danger();
+        exploration += agent.visited_new_cell();
+    }
+    float late_safety = late_food / std::max(1.0f, late_food + late_danger);
+    
+    // 学习改善幅度 (Baldwin效应的关键)
+    float learning_improvement = late_safety - early_safety;
+    
+    return late_safety * 1.0                // 最终表现
+         + learning_improvement * 2.0       // 学习能力 (核心!)
+         - (early_danger + late_danger) * 0.3  // 危险惩罚
+         + exploration * 0.1;               // 探索奖励
+}
+```
+
+**核心改进**：`learning_improvement * 2.0` 让进化偏好"能学习的大脑"而非"天生固定行为的大脑"。这是 Baldwin 效应的显式支持。
+
+### 6.4 拉马克反馈的修正
+
+> 拉马克反馈只写入学习速率相关参数（meta-learning），不写入具体权重。
+
+原因：具体权重反映特定环境的经验，环境变化后反而有害。但学习速率是"学习的能力"，与环境无关。
+
+```
+❌ 错误的拉马克: weight_init ← 学到的权重值
+   → 后代天生偏好"食物在右边时向右走"
+   → 食物换到左边时，反而更难学
+
+✅ 正确的拉马克: stdp_rate_multiplier ← 学习速度指标
+   → 后代天生有更合适的学习速率
+   → 无论食物在哪里，都能快速学会
+```
+
+### 6.5 修正后的实现计划
+
 | 阶段 | 内容 | 工期 | 依赖 |
 |------|------|------|------|
-| 14a | Genome 数据结构 + RegionRegistry + `build_from_genome()` | 0.5 天 | 无 |
+| **13-D** | **修复 dlPFC→BG 拓扑映射瓶颈** | 1 天 | 无 |
+| **13-E** | **验证视觉通路学习效果** | 0.5 天 | 13-D |
+| 14a | Genome 数据结构 + RegionRegistry + `build_from_genome()` | 0.5 天 | 13-E |
 | 14b | 遗传算法引擎 (选择/交叉/变异) + 版本迁移 | 0.5 天 | 14a |
-| 14c | 适应度评估 (ClosedLoopAgent + GridWorld) | 已有 | 14b |
-| 14d | 运行进化 50 代，分析最优基因组 | 运行 1-2h | 14c |
+| 14c | 修正后的适应度评估 (含学习能力度量) | 0.5 天 | 14b |
+| 14d | 运行进化 50 代 (**只含闭环 ~150 参数**) | 运行 1-2h | 14c |
 | 14e | 用进化结果替换手动参数，验证提升 | 0.5 天 | 14d |
 | 14f | 基因组序列化 (JSON 导入/导出) | 0.5 天 | 14a |
 
-**总开发工期：2 天 + 2 小时运行时间**
+**总工期：前置 1.5 天 + 基因层 2.5 天 + 运行 2 小时**
+
+### 6.6 架构 vs 参数的边界原则
+
+> 进化只优化参数，不解决架构问题。架构决策由人工完成。
+
+| 类型 | 定义 | 谁负责 | 例子 |
+|------|------|-------|------|
+| **架构决策** | 连接拓扑类型、信号流方向、功能分工 | 开发者手动 | dlPFC→BG 用拓扑映射 vs 随机连接 |
+| **参数优化** | 连接概率、权重、学习率、受体密度 | 进化自动 | dlPFC→BG 的连接概率=0.25 还是 0.35 |
+
+基因组只编码 `connection_probability`（标量参数），不编码 `connection_topology`（拓扑结构类型）。后者是架构决策，属于代码层面。
 
 ---
 
