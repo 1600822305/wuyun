@@ -29,6 +29,14 @@ try:
     if SAVE_FIGS:
         matplotlib.use('Agg')
     import matplotlib.pyplot as plt
+    # 中文字体配置
+    for font_name in ['SimHei', 'Microsoft YaHei', 'STSong', 'WenQuanYi Micro Hei']:
+        try:
+            matplotlib.rcParams['font.sans-serif'] = [font_name] + matplotlib.rcParams['font.sans-serif']
+            break
+        except Exception:
+            continue
+    matplotlib.rcParams['axes.unicode_minus'] = False  # 负号显示
     HAS_MPL = True
 except ImportError:
     HAS_MPL = False
