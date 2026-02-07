@@ -35,6 +35,8 @@ struct HippocampusConfig {
     size_t n_ca3      = 60;   // CA3 (place cells, autoassociative)
     size_t n_ca1      = 80;   // CA1 (place cells, comparator)
     size_t n_sub      = 40;   // 下托 (output)
+    size_t n_presub   = 0;    // 前下托 (head direction, →乳头体+EC)
+    size_t n_hata     = 0;    // 海马-杏仁核过渡区 (→Amygdala)
 
     // Inhibitory interneurons (one per subregion for E/I balance)
     size_t n_dg_inh   = 20;   // DG basket cells
@@ -53,6 +55,12 @@ struct HippocampusConfig {
     float p_ec_to_ca1   = 0.10f;  // EC L3 → CA1 (direct)
     // Feedback
     float p_ca3_to_dg   = 0.03f;  // CA3 → DG feedback (backprojection)
+    // Presubiculum + HATA connections (only active if n_presub/n_hata > 0)
+    float p_ca1_to_presub = 0.15f;  // CA1 → Presub
+    float p_presub_to_ec  = 0.10f;  // Presub → EC (head direction feedback)
+    float p_ca1_to_hata   = 0.10f;  // CA1 → HATA
+    float w_presub        = 0.5f;
+    float w_hata          = 0.5f;
 
     // Inhibitory
     float p_ec_to_dg_inh  = 0.30f;  // EC → DG basket (feedforward inhibition)
@@ -106,6 +114,10 @@ public:
     const NeuronPopulation& dg()  const { return dg_; }
     const NeuronPopulation& ec()  const { return ec_; }
     const NeuronPopulation& sub() const { return sub_; }
+    const NeuronPopulation& presub() const { return presub_; }
+    const NeuronPopulation& hata() const { return hata_; }
+    bool has_presub() const { return config_.n_presub > 0; }
+    bool has_hata()   const { return config_.n_hata > 0; }
 
     /** Get DG activation sparsity (fraction of DG neurons active) */
     float dg_sparsity() const;
@@ -116,12 +128,14 @@ private:
 
     HippocampusConfig config_;
 
-    // --- 5 excitatory populations ---
+    // --- 5+2 excitatory populations ---
     NeuronPopulation ec_;       // 内嗅皮层 (grid cells)
     NeuronPopulation dg_;       // 齿状回 (granule cells)
     NeuronPopulation ca3_;      // CA3 (place cells, autoassociative)
     NeuronPopulation ca1_;      // CA1 (place cells, comparator)
     NeuronPopulation sub_;      // 下托 (output)
+    NeuronPopulation presub_;   // 前下托 (optional, head direction)
+    NeuronPopulation hata_;     // HATA (optional, Hipp-Amyg transition)
 
     // --- 3 inhibitory populations (E/I balance) ---
     NeuronPopulation dg_inh_;   // DG basket cells
@@ -137,6 +151,9 @@ private:
     SynapseGroup syn_sub_to_ec_;      // Sub → EC (output loop)
     SynapseGroup syn_ec_to_ca1_;      // Direct path EC→CA1
     SynapseGroup syn_ca3_to_dg_fb_;   // CA3 → DG feedback
+    SynapseGroup syn_ca1_to_presub_;  // CA1 → Presub (optional)
+    SynapseGroup syn_presub_to_ec_;   // Presub → EC (optional)
+    SynapseGroup syn_ca1_to_hata_;    // CA1 → HATA (optional)
 
     // --- Inhibitory synapses ---
     SynapseGroup syn_ec_to_dg_inh_;   // EC → DG inh (feedforward inhibition)

@@ -18,6 +18,9 @@
 #include "region/neuromod/vta_da.h"
 #include "engine/simulation_engine.h"
 #include <cstdio>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 #include <cassert>
 #include <vector>
 #include <cmath>
@@ -361,6 +364,9 @@ static void test_backward_compat() {
 
 // =============================================================================
 int main() {
+#ifdef _WIN32
+    SetConsoleOutputCP(65001);
+#endif
     printf("============================================\n");
     printf("  悟韵 (WuYun) 工作记忆 + BG在线学习测试\n");
     printf("  Step 10: dlPFC持续性活动 + DA稳定 + BG训练\n");

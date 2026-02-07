@@ -20,6 +20,8 @@
 #include "region/neuromod/nbm_ach.h"
 #include "region/limbic/hippocampus.h"
 #include "region/limbic/amygdala.h"
+#include "region/limbic/septal_nucleus.h"
+#include "region/limbic/mammillary_body.h"
 #include "region/subcortical/cerebellum.h"
 
 namespace py = pybind11;
@@ -253,6 +255,28 @@ PYBIND11_MODULE(pywuyun, m) {
         .def("set_pfc_source_region", &Amygdala::set_pfc_source_region);
 
     // =========================================================================
+    // SeptalNucleus
+    // =========================================================================
+    py::class_<SeptalConfig>(m, "SeptalConfig")
+        .def(py::init<>())
+        .def_readwrite("name", &SeptalConfig::name);
+
+    py::class_<SeptalNucleus, BrainRegion>(m, "SeptalNucleus", "Septal nucleus theta pacemaker")
+        .def(py::init<const SeptalConfig&>(), py::arg("config"))
+        .def("ach_output", &SeptalNucleus::ach_output)
+        .def("theta_phase", &SeptalNucleus::theta_phase);
+
+    // =========================================================================
+    // MammillaryBody
+    // =========================================================================
+    py::class_<MammillaryConfig>(m, "MammillaryConfig")
+        .def(py::init<>())
+        .def_readwrite("name", &MammillaryConfig::name);
+
+    py::class_<MammillaryBody, BrainRegion>(m, "MammillaryBody", "Mammillary body (Papez circuit)")
+        .def(py::init<const MammillaryConfig&>(), py::arg("config"));
+
+    // =========================================================================
     // Cerebellum
     // =========================================================================
     py::class_<CerebellumConfig>(m, "CerebellumConfig")
@@ -374,12 +398,35 @@ PYBIND11_MODULE(pywuyun, m) {
             eng.add_region(std::make_unique<ThalamicRelay>(mt));
 
             eng.add_region(std::make_unique<VTA_DA>(VTAConfig{}));
-            eng.add_region(std::make_unique<Hippocampus>(HippocampusConfig{}));
-            eng.add_region(std::make_unique<Amygdala>(AmygdalaConfig{}));
+
+            // Hippocampus with Presubiculum + HATA
+            HippocampusConfig hipp_cfg;
+            hipp_cfg.n_presub = 25;  // Head direction cells
+            hipp_cfg.n_hata   = 15;  // Hipp-Amyg transition
+            eng.add_region(std::make_unique<Hippocampus>(hipp_cfg));
+
+            // Amygdala with MeA/CoA/AB
+            AmygdalaConfig amyg_cfg;
+            amyg_cfg.n_mea = 20;  // Social/olfactory
+            amyg_cfg.n_coa = 15;  // Olfactory
+            amyg_cfg.n_ab  = 20;  // Multimodal
+            eng.add_region(std::make_unique<Amygdala>(amyg_cfg));
+
             eng.add_region(std::make_unique<Cerebellum>(CerebellumConfig{}));
             eng.add_region(std::make_unique<LC_NE>(LCConfig{}));
             eng.add_region(std::make_unique<DRN_5HT>(DRNConfig{}));
             eng.add_region(std::make_unique<NBM_ACh>(NBMConfig{}));
+
+            // Septal Nucleus (theta pacemaker)
+            eng.add_region(std::make_unique<SeptalNucleus>(SeptalConfig{}));
+
+            // Mammillary Body (Papez circuit relay)
+            eng.add_region(std::make_unique<MammillaryBody>(MammillaryConfig{}));
+
+            // Anterior Thalamic Nucleus (Papez circuit)
+            ThalamicConfig atn;
+            atn.name = "ATN"; atn.n_relay = 20; atn.n_trn = 8;
+            eng.add_region(std::make_unique<ThalamicRelay>(atn));
 
             // Projections
             eng.add_projection("LGN", "V1", 2);
@@ -418,6 +465,14 @@ PYBIND11_MODULE(pywuyun, m) {
             eng.add_projection("Amygdala", "VTA", 2);
             eng.add_projection("Amygdala", "Hippocampus", 2);
             eng.add_projection("VTA", "BG", 1);
+
+            // Papez circuit: Hipp(Sub) -> MB -> ATN -> ACC -> EC -> Hipp
+            eng.add_projection("Hippocampus", "MammillaryBody", 2);
+            eng.add_projection("MammillaryBody", "ATN", 2);
+            eng.add_projection("ATN", "ACC", 2);
+
+            // Septal -> Hippocampus (theta pacing + ACh)
+            eng.add_projection("SeptalNucleus", "Hippocampus", 1);
 
             // Neuromod sources
             using NM = SimulationEngine::NeuromodType;

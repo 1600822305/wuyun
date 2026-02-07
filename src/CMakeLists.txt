@@ -22,6 +22,8 @@ set(WUYUN_CORE_SOURCES
     region/subcortical/cerebellum.cpp
     region/limbic/hippocampus.cpp
     region/limbic/amygdala.cpp
+    region/limbic/septal_nucleus.cpp
+    region/limbic/mammillary_body.cpp
     region/neuromod/vta_da.cpp
     region/neuromod/lc_ne.cpp
     region/neuromod/drn_5ht.cpp

@@ -16,6 +16,9 @@
 
 #include <cassert>
 #include <cstdio>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 #include <cmath>
 #include <vector>
 
@@ -234,6 +237,9 @@ WTEST(test_population_consistency) {
 // =============================================================================
 
 int main() {
+#ifdef _WIN32
+    SetConsoleOutputCP(65001);
+#endif
     printf("=== WuYun C++ Neuron Tests ===\n");
 
     printf("\n[Single Neuron]\n");

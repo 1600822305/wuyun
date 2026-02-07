@@ -35,6 +35,9 @@ struct AmygdalaConfig {
     size_t n_bla  = 80;   // 基底外侧核 (CS-US learning)
     size_t n_cea  = 30;   // 中央核 (output)
     size_t n_itc  = 20;   // 闰核 (inhibitory gate, PFC-controlled)
+    size_t n_mea  = 0;    // 内侧核 (social/olfactory, optional)
+    size_t n_coa  = 0;    // 皮质核 (olfactory, optional)
+    size_t n_ab   = 0;    // 副基底核 (multimodal, optional)
 
     // --- Connection probabilities ---
     float p_la_to_bla    = 0.20f;   // La → BLA
@@ -43,6 +46,12 @@ struct AmygdalaConfig {
     float p_bla_to_itc   = 0.15f;   // BLA → ITC
     float p_itc_to_cea   = 0.30f;   // ITC → CeA (inhibitory gate)
     float p_bla_to_bla   = 0.05f;   // BLA recurrent
+    // Optional nuclei connections (only active if n_mea/n_coa/n_ab > 0)
+    float p_la_to_mea     = 0.25f;   // La → MeA
+    float p_la_to_coa     = 0.20f;   // La → CoA
+    float p_bla_to_ab     = 0.20f;   // BLA → AB
+    float p_ab_to_cea     = 0.15f;   // AB → CeA
+    float p_mea_to_cea    = 0.15f;   // MeA → CeA
 
     // --- Synapse weights ---
     float w_la_bla       = 0.6f;
@@ -51,6 +60,9 @@ struct AmygdalaConfig {
     float w_bla_itc      = 0.5f;
     float w_itc_cea      = 2.0f;    // Inhibitory gate (positive; GABA e_rev handles sign)
     float w_bla_rec      = 0.2f;
+    float w_mea           = 0.8f;
+    float w_coa           = 0.7f;
+    float w_ab            = 0.7f;
 };
 
 class Amygdala : public BrainRegion {
@@ -81,6 +93,12 @@ public:
     const NeuronPopulation& bla() const { return bla_; }
     const NeuronPopulation& la()  const { return la_; }
     const NeuronPopulation& itc() const { return itc_; }
+    const NeuronPopulation& mea() const { return mea_; }
+    const NeuronPopulation& coa() const { return coa_; }
+    const NeuronPopulation& ab()  const { return ab_; }
+    bool has_mea() const { return config_.n_mea > 0; }
+    bool has_coa() const { return config_.n_coa > 0; }
+    bool has_ab()  const { return config_.n_ab > 0; }
 
 private:
     void build_synapses();
@@ -93,6 +111,9 @@ private:
     NeuronPopulation bla_;   // 基底外侧核 (learning)
     NeuronPopulation cea_;   // 中央核 (output)
     NeuronPopulation itc_;   // 闰核 (inhibitory gate)
+    NeuronPopulation mea_;   // 内侧核 (optional, social/olfactory)
+    NeuronPopulation coa_;   // 皮质核 (optional, olfactory)
+    NeuronPopulation ab_;    // 副基底核 (optional, multimodal)
 
     // --- Synapses ---
     SynapseGroup syn_la_to_bla_;    // La → BLA
@@ -101,6 +122,11 @@ private:
     SynapseGroup syn_bla_to_itc_;   // BLA → ITC
     SynapseGroup syn_itc_to_cea_;   // ITC → CeA (inhibitory gate)
     SynapseGroup syn_bla_rec_;      // BLA → BLA recurrent
+    SynapseGroup syn_la_to_mea_;    // La → MeA (optional)
+    SynapseGroup syn_la_to_coa_;    // La → CoA (optional)
+    SynapseGroup syn_bla_to_ab_;    // BLA → AB (optional)
+    SynapseGroup syn_ab_to_cea_;    // AB → CeA (optional)
+    SynapseGroup syn_mea_to_cea_;   // MeA → CeA (optional)
 
     // PSP buffer for cross-region input
     static constexpr float PSP_DECAY = 0.7f;

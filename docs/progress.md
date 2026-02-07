@@ -521,11 +521,43 @@
 - 21区域 | 3239神经元 | 36投射 | 4调质 | 4学习 | 预测编码 | **工作记忆**
 - **92 测试全通过** (86+6), 零回归
 
-### Step 4 剩余 (低优先级):
-- ⬜ 前下托 + HATA (H-06~07)
-- ⬜ 隔核 theta 起搏 (SP-01~02)
-- ⬜ 杏仁核扩展: MeA/CoA/AB (AM-04, AM-06~08)
-- ⬜ Papez回路: 乳头体 (HY-06) → 丘脑前核 (T-10 AV) → ACC (A-05)
+### Step 4 补全 ✅ (2026-02-07)
+> 目标: 完成Step 4遗留的低优先级项目
+
+**新增区域 (2个新文件):**
+- ✅ `SeptalNucleus` (region/limbic/septal_nucleus.h/cpp) — theta起搏器
+  - ACh胆碱能 + GABA节律神经元, theta ~6.7Hz (150ms周期)
+  - GABA burst期=40 > silent期=0, ACh输出=0.25 (tonic+phasic)
+- ✅ `MammillaryBody` (region/limbic/mammillary_body.h/cpp) — Papez回路中继
+  - 内侧核(25)→外侧核(10), medial=75→lateral=13
+
+**Papez回路 (3条新投射):**
+- ✅ Hippocampus(Sub) → MammillaryBody → ATN(丘脑前核) → ACC
+- 验证: Hipp→MB=1232, MB→ATN=53, ATN→ACC=25 (全通路信号传播)
+
+**Hippocampus扩展 (可选, 向后兼容):**
+- ✅ Presubiculum (n_presub=25): CA1→Presub→EC 头朝向反馈
+- ✅ HATA (n_hata=15): CA1→HATA 海马-杏仁核过渡区
+- 验证: CA1=321→Presub=6→HATA=2; 默认config n_neurons=505不变
+
+**Amygdala扩展 (可选, 向后兼容):**
+- ✅ MeA (n_mea=20): La→MeA→CeA (社会/嗅觉)
+- ✅ CoA (n_coa=15): La→CoA (嗅觉)
+- ✅ AB (n_ab=20): BLA→AB→CeA (多模态)
+- 验证: MeA=63, CoA=24, AB=18, CeA=57; 默认config n_neurons=180不变
+
+**隔核→海马调制:**
+- ✅ SeptalNucleus → Hippocampus 投射 (theta + ACh)
+- Hipp(+Septal)=260 vs Hipp(无Septal)=269 (调制有效)
+
+**build_standard_brain更新:**
+- 24区域 (原21 + SeptalNucleus + MammillaryBody + ATN)
+- 40投射 (原36 + 4条Papez/Septal)
+- Hipp启用presub=25/hata=15, Amyg启用mea=20/coa=15/ab=20
+
+**系统状态:**
+- **24区域** | ~3400神经元 | **40投射** | 4调质 | 4学习 | 预测编码 | 工作记忆
+- **100 测试全通过** (92+8), 零回归
 
 ### Step 5: 扩展皮层 + 丘脑高级核群
 > 目标: 完整的感觉层级 + 联合皮层 + 丘脑全部16核

@@ -51,7 +51,7 @@ static SynapseGroup build_synapse_group(
 Hippocampus::Hippocampus(const HippocampusConfig& config)
     : BrainRegion(config.name,
                   config.n_ec + config.n_dg + config.n_ca3 +
-                  config.n_ca1 + config.n_sub +
+                  config.n_ca1 + config.n_sub + config.n_presub + config.n_hata +
                   config.n_dg_inh + config.n_ca3_inh + config.n_ca1_inh)
     , config_(config)
     // Excitatory populations
@@ -60,6 +60,8 @@ Hippocampus::Hippocampus(const HippocampusConfig& config)
     , ca3_(config.n_ca3, PLACE_CELL_PARAMS())
     , ca1_(config.n_ca1, PLACE_CELL_PARAMS())
     , sub_(config.n_sub, NeuronParams{})  // Standard pyramidal defaults
+    , presub_(config.n_presub, NeuronParams{})  // Presubiculum (head direction)
+    , hata_(config.n_hata, NeuronParams{})      // HATA (Hipp-Amyg transition)
     // Inhibitory populations (PV basket)
     , dg_inh_(config.n_dg_inh, PV_BASKET_PARAMS())
     , ca3_inh_(config.n_ca3_inh, PV_BASKET_PARAMS())
@@ -73,6 +75,9 @@ Hippocampus::Hippocampus(const HippocampusConfig& config)
     , syn_sub_to_ec_(make_empty(config.n_sub, config.n_ec, AMPA_PARAMS, CompartmentType::BASAL))
     , syn_ec_to_ca1_(make_empty(config.n_ec, config.n_ca1, AMPA_PARAMS, CompartmentType::BASAL))
     , syn_ca3_to_dg_fb_(make_empty(config.n_ca3, config.n_dg, AMPA_PARAMS, CompartmentType::BASAL))
+    , syn_ca1_to_presub_(make_empty(std::max<size_t>(1,config.n_ca1), std::max<size_t>(1,config.n_presub), AMPA_PARAMS, CompartmentType::BASAL))
+    , syn_presub_to_ec_(make_empty(std::max<size_t>(1,config.n_presub), std::max<size_t>(1,config.n_ec), AMPA_PARAMS, CompartmentType::BASAL))
+    , syn_ca1_to_hata_(make_empty(std::max<size_t>(1,config.n_ca1), std::max<size_t>(1,config.n_hata), AMPA_PARAMS, CompartmentType::BASAL))
     // Inhibitory synapses
     , syn_ec_to_dg_inh_(make_empty(config.n_ec, config.n_dg_inh, AMPA_PARAMS, CompartmentType::BASAL))
     , syn_dg_to_dg_inh_(make_empty(config.n_dg, config.n_dg_inh, AMPA_PARAMS, CompartmentType::BASAL))
@@ -168,6 +173,21 @@ void Hippocampus::build_synapses() {
     syn_ca1_inh_to_ca1_ = build_synapse_group(
         config_.n_ca1_inh, config_.n_ca1, config_.p_ca1_inh_to_ca1, config_.w_inh,
         GABA_A_PARAMS, CompartmentType::BASAL, seed++);
+
+    // --- Optional: Presubiculum + HATA ---
+    if (config_.n_presub > 0) {
+        syn_ca1_to_presub_ = build_synapse_group(
+            config_.n_ca1, config_.n_presub, config_.p_ca1_to_presub, config_.w_presub,
+            AMPA_PARAMS, CompartmentType::BASAL, seed++);
+        syn_presub_to_ec_ = build_synapse_group(
+            config_.n_presub, config_.n_ec, config_.p_presub_to_ec, config_.w_presub,
+            AMPA_PARAMS, CompartmentType::BASAL, seed++);
+    }
+    if (config_.n_hata > 0) {
+        syn_ca1_to_hata_ = build_synapse_group(
+            config_.n_ca1, config_.n_hata, config_.p_ca1_to_hata, config_.w_hata,
+            AMPA_PARAMS, CompartmentType::BASAL, seed++);
+    }
 
     // --- Enable CA3 fast STDP (one-shot memory encoding) ---
     if (config_.ca3_stdp_enabled) {
@@ -278,6 +298,24 @@ void Hippocampus::step(int32_t t, float dt) {
     auto i_dg_ca3 = syn_ca3_to_dg_fb_.step_and_compute(dg_.v_soma(), dt);
     for (size_t i = 0; i < dg_.size(); ++i) dg_.inject_basal(i, i_dg_ca3[i]);
 
+    // 12. Optional: CA1 → Presubiculum → EC
+    if (config_.n_presub > 0) {
+        syn_ca1_to_presub_.deliver_spikes(ca1_.fired(), ca1_.spike_type());
+        auto i_presub = syn_ca1_to_presub_.step_and_compute(presub_.v_soma(), dt);
+        for (size_t i = 0; i < presub_.size(); ++i) presub_.inject_basal(i, i_presub[i]);
+
+        syn_presub_to_ec_.deliver_spikes(presub_.fired(), presub_.spike_type());
+        auto i_ec_presub = syn_presub_to_ec_.step_and_compute(ec_.v_soma(), dt);
+        for (size_t i = 0; i < ec_.size(); ++i) ec_.inject_basal(i, i_ec_presub[i]);
+    }
+
+    // 13. Optional: CA1 → HATA
+    if (config_.n_hata > 0) {
+        syn_ca1_to_hata_.deliver_spikes(ca1_.fired(), ca1_.spike_type());
+        auto i_hata = syn_ca1_to_hata_.step_and_compute(hata_.v_soma(), dt);
+        for (size_t i = 0; i < hata_.size(); ++i) hata_.inject_basal(i, i_hata[i]);
+    }
+
     // ========================================
     // Step all populations
     // ========================================
@@ -289,6 +327,8 @@ void Hippocampus::step(int32_t t, float dt) {
     ca1_.step(t, dt);
     ca1_inh_.step(t, dt);
     sub_.step(t, dt);
+    if (config_.n_presub > 0) presub_.step(t, dt);
+    if (config_.n_hata > 0)   hata_.step(t, dt);
 
     // ========================================
     // Online plasticity (after all neurons stepped)
@@ -357,6 +397,8 @@ void Hippocampus::aggregate_state() {
     copy_pop(ca3_);
     copy_pop(ca1_);
     copy_pop(sub_);
+    if (config_.n_presub > 0) copy_pop(presub_);
+    if (config_.n_hata > 0)   copy_pop(hata_);
     copy_pop(dg_inh_);
     copy_pop(ca3_inh_);
     copy_pop(ca1_inh_);
