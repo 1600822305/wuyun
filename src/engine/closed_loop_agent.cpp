@@ -115,6 +115,7 @@ void ClosedLoopAgent::build_brain() {
     bg_cfg.p_d2_to_gpe = 0.6f;
     bg_cfg.da_stdp_enabled = config_.enable_da_stdp;
     bg_cfg.da_stdp_lr = config_.da_stdp_lr;
+    bg_cfg.synaptic_consolidation = config_.enable_synaptic_consolidation;
     engine_.add_region(std::make_unique<BasalGanglia>(bg_cfg));
 
     // --- Motor thalamus ---
@@ -237,13 +238,17 @@ void ClosedLoopAgent::build_brain() {
         //   Slow: IT → Amygdala La (refined, invariant, cortical)
         engine_.add_projection("V1", "Amygdala", 2);   // Fast: raw visual → fear (crude but quick)
         engine_.add_projection("IT", "Amygdala", 3);   // Slow: invariant object → fear (precise)
-        // Amygdala CeA → VTA (fear output → DA modulation)
-        // Biology: CeA → RMTg GABA → VTA DA neurons (inhibition)
-        engine_.add_projection("Amygdala", "VTA", 2);
-        // Amygdala CeA → LHb (amplify negative RPE during fear)
-        if (config_.enable_lhb) {
-            engine_.add_projection("Amygdala", "LHb", 2);
-        }
+        // v33: Amygdala→VTA SpikeBus投射已移除 (错误接线)
+        // 原问题: SpikeBus把所有杏仁核脉冲(LA+BLA+CeA+ITC=15)当兴奋性送给VTA
+        //         导致DA不降反升，与生物学CeA→RMTg(GABA)→VTA(抑制)完全相反
+        // 修复: CeA→VTA抑制功能通过inject_lhb_inhibition(cea_drive)正确实现
+        // engine_.add_projection("Amygdala", "VTA", 2);  // REMOVED: 兴奋性SpikeBus ≠ 抑制性通路
+        // v33: Amygdala→LHb SpikeBus投射已移除 (同一类错误接线)
+        // 原问题: 15个杏仁核脉冲全部兴奋LHb → LHb持续抑制VTA → DA慢性压制
+        // 修复: CeA→VTA功能通过inject_lhb_inhibition(cea_drive)正确实现
+        // if (config_.enable_lhb) {
+        //     engine_.add_projection("Amygdala", "LHb", 2);
+        // }
     }
 
     // --- v30: Cerebellum projections ---
@@ -556,8 +561,16 @@ StepResult ClosedLoopAgent::agent_step() {
         if (amyg_) {
             float cea_drive = amyg_->cea_vta_drive();
             if (cea_drive > 0.01f) {
-                vta_->inject_lhb_inhibition(cea_drive);  // CeA → VTA DA pause
-                // v32: removed CeA → LHb (was double-counting)
+                vta_->inject_lhb_inhibition(cea_drive);  // CeA → VTA DA轻微抑制
+            }
+            // v33: 主动消退 — 安全步骤时PFC驱动ITC抑制CeA
+            // 生物学: mPFC在安全环境中持续激活ITC(闰细胞)，
+            //   ITC(GABA)抑制CeA → 恐惧输出降低 → 恐惧消退
+            //   (Milad & Quirk 2002, Phelps et al. 2004)
+            // 只在没有pending reward(安全)时驱动消退
+            if (!has_pending_reward_ || pending_reward_ > -0.01f) {
+                std::vector<float> itc_drive(amyg_->itc().size(), 5.0f);
+                amyg_->inject_pfc_to_itc(itc_drive);
             }
         }
         // v30: Cerebellum climbing fiber injection (every brain step)
@@ -910,54 +923,73 @@ void ClosedLoopAgent::run_negative_replay(float reward) {
 }
 
 void ClosedLoopAgent::run_awake_replay(float reward) {
-    // Awake Sharp-Wave Ripple replay — memory consolidation:
+    // v33: Awake SWR replay with INTERLEAVED positive + negative episodes
     //
-    //   When a new reward event occurs, replay OLDER successful episodes
-    //   (NOT the current one — that's learned normally via Phase A).
-    //   This combats weight decay on previously learned associations,
-    //   preventing the agent from "forgetting" old strategies.
+    //   When a new reward event occurs, replay OLDER episodes (both positive AND
+    //   negative) to consolidate learned associations AND prevent catastrophic
+    //   forgetting of avoidance behaviors.
     //
-    //   Biology: awake SWR preferentially replays remote reward-associated
-    //   sequences for consolidation, not just the immediate experience.
-    //   (Foster & Wilson 2006, Jadhav et al. 2012)
+    //   Biology: awake SWR replays both reward and aversive sequences in an
+    //   interleaved pattern, maintaining balanced Go/NoGo representations.
+    //   (Foster & Wilson 2006, Wu et al. 2017)
+    //
+    //   Without interleaving: learning to approach food overwrites danger-avoidance
+    //   weights, and vice versa → behavioral oscillation = catastrophic forgetting.
 
     if (!bg_ || !vta_ || config_.replay_passes <= 0) return;
-    if (replay_buffer_.size() < 2) return;  // Need at least 1 old episode
+    if (replay_buffer_.size() < 2) return;
 
-    // Collect older episodes with positive reward (skip most recent = current)
-    auto recent = replay_buffer_.recent(std::min(replay_buffer_.size(), (size_t)10));
-    std::vector<const Episode*> replay_candidates;
-    for (size_t i = 1; i < recent.size(); ++i) {  // Skip index 0 = current episode
-        if (recent[i]->reward > 0.05f && !recent[i]->steps.empty()) {
-            replay_candidates.push_back(recent[i]);
-        }
+    auto recent = replay_buffer_.recent(std::min(replay_buffer_.size(), (size_t)15));
+
+    // Collect positive AND negative candidates (skip index 0 = current)
+    std::vector<const Episode*> pos_candidates, neg_candidates;
+    for (size_t i = 1; i < recent.size(); ++i) {
+        if (recent[i]->steps.empty()) continue;
+        if (recent[i]->reward > 0.05f)
+            pos_candidates.push_back(recent[i]);
+        else if (recent[i]->reward < -0.05f)
+            neg_candidates.push_back(recent[i]);
     }
-    if (replay_candidates.empty()) return;
+    if (pos_candidates.empty() && neg_candidates.empty()) return;
 
-    // Save current BG state
     float saved_da = bg_->da_level();
-
-    // Replay DA: above baseline (positive consolidation signal)
     float da_baseline = 0.3f;
-    float da_replay_level = std::clamp(
-        da_baseline + reward * config_.replay_da_scale, 0.0f, 1.0f);
-
-    // Enter replay mode (suppresses weight decay in DA-STDP)
     bg_->set_replay_mode(true);
 
-    // Replay each candidate episode once
-    size_t n_replay = std::min(replay_candidates.size(), (size_t)config_.replay_passes);
-    for (size_t ep_idx = 0; ep_idx < n_replay; ++ep_idx) {
-        const Episode& ep = *replay_candidates[ep_idx];
+    // Build interleaved replay schedule: alternate positive and negative
+    // Positive episodes get more passes (they're the trigger context)
+    std::vector<std::pair<const Episode*, float>> schedule;
 
-        bg_->set_da_level(da_replay_level);
+    // Primary: positive episodes (with high DA)
+    float da_pos = std::clamp(da_baseline + reward * config_.replay_da_scale, 0.0f, 1.0f);
+    size_t n_pos = std::min(pos_candidates.size(), (size_t)config_.replay_passes);
+    for (size_t i = 0; i < n_pos; ++i) {
+        schedule.push_back({pos_candidates[i], da_pos});
+    }
 
-        // Replay later brain steps (i>=8) where visual context is established
-        size_t start_step = (ep.steps.size() > 8) ? 8 : 0;
-        for (size_t i = start_step; i < ep.steps.size(); ++i) {
-            const SpikeSnapshot& snap = ep.steps[i];
+    // v33: Interleave negative episodes (with low DA) if enabled
+    // This maintains avoidance learning while consolidating approach learning
+    if (config_.enable_interleaved_replay && config_.enable_lhb && !neg_candidates.empty()) {
+        float da_neg = std::clamp(da_baseline - std::abs(reward) * config_.negative_replay_da_scale,
+                                   0.05f, 0.25f);
+        // Insert 1-2 negative episodes between positive ones
+        size_t n_neg = std::min(neg_candidates.size(), (size_t)2);
+        for (size_t i = 0; i < n_neg; ++i) {
+            // Insert after every 2 positive episodes (interleave)
+            size_t insert_pos = std::min((i + 1) * 2, schedule.size());
+            schedule.insert(schedule.begin() + insert_pos,
+                           {neg_candidates[i], da_neg});
+        }
+    }
 
-            // --- BG consolidation (existing): dlPFC spikes → BG DA-STDP ---
+    // Execute interleaved replay schedule
+    for (const auto& [ep, da_level] : schedule) {
+        bg_->set_da_level(da_level);
+
+        size_t start_step = (ep->steps.size() > 8) ? 8 : 0;
+        for (size_t i = start_step; i < ep->steps.size(); ++i) {
+            const SpikeSnapshot& snap = ep->steps[i];
+
             if (!snap.cortical_events.empty()) {
                 bg_->receive_spikes(snap.cortical_events);
             }
@@ -965,20 +997,9 @@ void ClosedLoopAgent::run_awake_replay(float reward) {
                 bg_->mark_motor_efference(snap.action_group);
             }
             bg_->replay_learning_step(0, 1.0f);
-
-            // --- Cortical consolidation: DEFERRED ---
-            // V1 spikes are recorded in sensory_events (infrastructure ready)
-            // but NOT injected into dlPFC during awake replay because:
-            // 1. Full replay_cortical_step → LTD dominates (L4 fires, L23 doesn't)
-            // 2. PSP priming → residual contaminates next real visual input
-            // Proper cortical consolidation requires NREM sleep replay where
-            // the entire brain state is controlled (slow-wave up/down states).
-            // For awake SWR, BG-only replay is biologically correct:
-            // awake SWR primarily consolidates striatal action values.
         }
     }
 
-    // Exit replay mode and restore DA level
     bg_->set_replay_mode(false);
     bg_->set_da_level(saved_da);
 }

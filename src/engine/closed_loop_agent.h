@@ -50,43 +50,43 @@ struct AgentConfig {
     size_t vision_height = 5;
 
     // Action decoding
-    // Step 32 best: 30gen×40pop Baldwin (gen27, fitness=2.41, STDP+LHb修复后)
-    size_t brain_steps_per_action = 16;
-    size_t reward_processing_steps = 8;
+    // Step 33 best: 30gen×40pop Baldwin (gen26, fitness=2.05, consolidation+dev100)
+    size_t brain_steps_per_action = 12;
+    size_t reward_processing_steps = 7;
 
-    float reward_scale = 3.55f;
+    float reward_scale = 1.43f;
 
-    float exploration_noise = 70.3f;
+    float exploration_noise = 83.0f;
     size_t exploration_anneal_steps = 0;  // Steps over which noise reduces (0=no anneal, let BG override)
 
     // Learning
-    // Step 32 best (30gen Baldwin, STDP+LHb修复后, gen27 fitness=2.41)
+    // Step 33 best (30gen Baldwin, consolidation+dev100, gen26 fitness=2.05)
     bool enable_da_stdp     = true;
-    float da_stdp_lr        = 0.061f;
+    float da_stdp_lr        = 0.014f;
     bool enable_homeostatic = true;
     bool enable_cortical_stdp = true;
-    float cortical_stdp_a_plus  = 0.017f;  // v32: 进化后 (修复LTD/LTP比例后重新进化)
-    float cortical_stdp_a_minus = -0.010f; // v32: 0.6× LTP (进化后LTD<LTP, 鼓励增强)
-    float cortical_stdp_w_max   = 2.74f;
+    float cortical_stdp_a_plus  = 0.004f;
+    float cortical_stdp_a_minus = -0.006f;  // 1.5× LTD (mild)
+    float cortical_stdp_w_max   = 1.31f;
 
-    float lgn_gain           = 243.0f;
-    float lgn_baseline       = 3.08f;
-    float lgn_noise_amp      = 4.25f;
+    float lgn_gain           = 469.0f;
+    float lgn_baseline       = 8.72f;
+    float lgn_noise_amp      = 0.50f;
 
-    float bg_to_m1_gain      = 2.42f;
-    float attractor_drive_ratio  = 0.39f;
-    float background_drive_ratio = 0.25f;
+    float bg_to_m1_gain      = 10.76f;  // v33: evolution found BG/noise balance
+    float attractor_drive_ratio  = 0.34f;
+    float background_drive_ratio = 0.22f;
 
-    float ne_food_scale      = 6.13f;
-    float ne_floor           = 0.56f;
+    float ne_food_scale      = 1.0f;
+    float ne_floor           = 0.67f;
 
-    float homeostatic_target_rate = 7.43f;
-    float homeostatic_eta    = 0.0068f;
+    float homeostatic_target_rate = 10.94f;
+    float homeostatic_eta    = 0.00073f;  // v33: 9× lower (was erasing learned diffs!)
 
     // Brain size factors (multiplied on base neuron counts)
-    float v1_size_factor     = 1.10f;
-    float dlpfc_size_factor  = 1.37f;
-    float bg_size_factor     = 1.27f;
+    float v1_size_factor     = 1.01f;
+    float dlpfc_size_factor  = 2.17f;  // v33: larger dlPFC for better decisions
+    float bg_size_factor     = 1.33f;
 
     // Predictive coding (dlPFC → V1 attentional feedback)
     // v21: enabled by default — 5×5 vision field has enough redundancy for PC benefit.
@@ -100,14 +100,19 @@ struct AgentConfig {
     float lhb_frustration_gain = 1.0f; // Frustrative non-reward → LHb excitation gain
 
     // Amygdala (fear conditioning)
-    bool  enable_amygdala    = true;   // Enable amygdala fear circuit
+    bool  enable_amygdala    = true;   // v33: 修复过度泛化，不禁用
     float amyg_us_gain       = 1.5f;   // US magnitude scaling for BLA injection
+
+    // Synaptic consolidation / metaplasticity (v33: prevents catastrophic forgetting)
+    // Biology: STC (Frey & Morris 1997) — well-learned synapses resist decay + opposing updates
+    bool  enable_synaptic_consolidation = true;
 
     // Awake SWR Replay (experience replay via hippocampal sharp-wave ripples)
     bool  enable_replay      = true;
-    int   replay_passes      = 5;
-    float replay_da_scale    = 0.99f;
+    int   replay_passes      = 7;
+    float replay_da_scale    = 0.74f;
     size_t replay_buffer_size = 50;    // Max episodes in buffer (v21: 30→50, 10×10 has 100 positions)
+    bool  enable_interleaved_replay = true;  // v33: mix positive+negative episodes during replay
 
     // Negative experience replay (LHb-controlled avoidance learning)
     // Previously disabled: D2 over-strengthening without LHb control.
@@ -140,7 +145,7 @@ struct AgentConfig {
     // Biology: infant visual cortex spends ~6 months self-organizing via Hebbian STDP
     // before goal-directed behavior begins. Agent random-walks during dev period,
     // visual STDP + predictive coding learn features, no DA-STDP reward learning.
-    size_t dev_period_steps = 2000;   // Steps of random exploration before reward learning
+    size_t dev_period_steps = 100;    // v33: 2000→100, 快速发展期后进入奖励学习
     bool   enable_predictive_learning = true;  // L6 prediction + error-gated STDP
 
     // Evolution fast-eval mode

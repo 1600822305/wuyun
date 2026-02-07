@@ -311,7 +311,7 @@ void Amygdala::inject_us(float magnitude) {
     // signal" that establishes fear memory in one trial.
     // (LeDoux 2000, Fanselow & Poulos 2005)
 
-    us_strength_ = magnitude * 40.0f;  // Strong drive: ensure BLA fires
+    us_strength_ = magnitude * 15.0f;  // v33: 40→15，避免BLA饱和导致全面恐惧
 }
 
 float Amygdala::fear_output() const {
@@ -326,15 +326,13 @@ float Amygdala::fear_output() const {
 }
 
 float Amygdala::cea_vta_drive() const {
-    // CeA → VTA/LHb inhibition signal.
-    // Scaled fear_output for driving DA pause via VTA/LHb.
-    // Biology: CeA → RMTg (GABA) → VTA DA neurons (inhibition)
-    //          CeA → LHb (excitation) → RMTg → VTA DA (additional inhibition)
-    // Combined effect: strong DA pause for aversive learning.
+    // CeA → VTA inhibition信号
+    // v33修复: 加上限0.15，防止杏仁核完全压制DA
+    // 生物学: CeA只是DA调节的一个来源，不应独占控制权
+    // 原问题: fear=1.0时输出1.5，DA被压到0 → 所有学习被阻断
     float fear = fear_output();
-    // Only produce drive when fear is significant (> 10% CeA firing)
     if (fear < 0.1f) return 0.0f;
-    return fear * 1.5f;  // Amplify: amygdala fear → strong VTA inhibition
+    return std::min(fear * 0.3f, 0.05f);  // v33: 输出上限0.05，提示性DA调制(非控制性)
 }
 
 // =============================================================================

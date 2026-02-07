@@ -64,15 +64,15 @@ struct AmygdalaConfig {
     float w_coa           = 0.7f;
     float w_ab            = 0.7f;
 
-    // --- Fear conditioning STDP (La→BLA, one-shot learning) ---
+    // --- Fear conditioning STDP (La→BLA) ---
     // Biology: BLA LTP is NMDA-dependent, gated by US (pain/danger).
-    // Very fast: a single CS-US pairing can establish fear memory.
-    // (LeDoux 2000, Maren 2001)
+    // v33修复: 降低LTP速率+增强消退LTD，防止小网络过度泛化恐惧
+    // 原问题: a_plus=0.10 + w_max=3.0 导致一次配对即全面恐惧
     bool  fear_stdp_enabled = true;
-    float fear_stdp_a_plus  = 0.10f;  // Very fast LTP (10x cortical, one-shot)
-    float fear_stdp_a_minus = -0.03f; // Weak LTD (fear is hard to extinguish)
+    float fear_stdp_a_plus  = 0.03f;  // v33: 0.10→0.03，仍快于皮层(3x)但不会一次爆炸
+    float fear_stdp_a_minus = -0.015f; // v33: -0.03→-0.015，配合主动消退机制
     float fear_stdp_tau     = 25.0f;
-    float fear_stdp_w_max   = 3.0f;   // High ceiling: strong fear associations
+    float fear_stdp_w_max   = 1.5f;   // v33: 3.0→1.5，限制最大恐惧强度
 };
 
 class Amygdala : public BrainRegion {

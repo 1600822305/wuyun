@@ -526,6 +526,8 @@ static void test_ablation() {
         {"关 LHb",              [](AgentConfig& c) { c.enable_lhb = false; }},
         {"关 SWR replay",       [](AgentConfig& c) { c.enable_replay = false; }},
         {"关 sleep consolidation",[](AgentConfig& c){ c.enable_sleep_consolidation = false; }},
+        {"关 synaptic consol",  [](AgentConfig& c) { c.enable_synaptic_consolidation = false; }},
+        {"关 interleaved replay",[](AgentConfig& c){ c.enable_interleaved_replay = false; }},
     };
 
     int n_configs = sizeof(configs) / sizeof(configs[0]);

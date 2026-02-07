@@ -187,11 +187,15 @@ void BasalGanglia::build_input_maps(size_t n_input_neurons) {
         ctx_d2_w_.resize(n_input_neurons);
         elig_d1_.resize(n_input_neurons);
         elig_d2_.resize(n_input_neurons);
+        consol_d1_.resize(n_input_neurons);
+        consol_d2_.resize(n_input_neurons);
         for (size_t i = 0; i < n_input_neurons; ++i) {
             ctx_d1_w_[i].assign(ctx_to_d1_map_[i].size(), 1.0f);
             ctx_d2_w_[i].assign(ctx_to_d2_map_[i].size(), 1.0f);
             elig_d1_[i].assign(ctx_to_d1_map_[i].size(), 0.0f);
             elig_d2_[i].assign(ctx_to_d2_map_[i].size(), 0.0f);
+            consol_d1_[i].assign(ctx_to_d1_map_[i].size(), 0.0f);
+            consol_d2_[i].assign(ctx_to_d2_map_[i].size(), 0.0f);
         }
         input_active_.assign(n_input_neurons, 0);
     }
@@ -249,13 +253,15 @@ void BasalGanglia::set_topographic_cortical_source(uint32_t region_id, size_t n_
         // STN map unchanged (hyperdirect is non-topographic)
     }
 
-    // Rebuild DA-STDP weights and eligibility traces for affected slots
+    // Rebuild DA-STDP weights, eligibility traces, and consolidation for affected slots
     if (config_.da_stdp_enabled) {
         for (size_t i = 0; i < n_slots; ++i) {
             ctx_d1_w_[i].assign(ctx_to_d1_map_[i].size(), 1.0f);
             ctx_d2_w_[i].assign(ctx_to_d2_map_[i].size(), 1.0f);
             elig_d1_[i].assign(ctx_to_d1_map_[i].size(), 0.0f);
             elig_d2_[i].assign(ctx_to_d2_map_[i].size(), 0.0f);
+            consol_d1_[i].assign(ctx_to_d1_map_[i].size(), 0.0f);
+            consol_d2_[i].assign(ctx_to_d2_map_[i].size(), 0.0f);
         }
     }
 }
@@ -584,18 +590,25 @@ void BasalGanglia::aggregate_state() {
 }
 
 void BasalGanglia::apply_da_stdp(int32_t t) {
-    // Three-factor learning with eligibility traces:
+    // Three-factor learning with eligibility traces + synaptic consolidation:
     //   1. Co-activation (pre=cortex, post=D1/D2) increments eligibility trace
-    //   2. DA signal (RPE) modulates weight change proportional to trace
+    //   2. DA signal (RPE) modulates weight change, GATED by consolidation
     //   3. Trace decays exponentially (bridges action→reward delay)
+    //   4. Consolidation builds when weight updates are consistent (metaplasticity)
     //
-    // D1 (Go):  DA>baseline → strengthen (reinforce action)
-    // D2 (NoGo): DA>baseline → weaken (reduce inhibition of rewarded action)
-    // Biological basis: D1(Gs) vs D2(Gi) receptor asymmetry
+    // v33: Synaptic consolidation prevents catastrophic forgetting
+    //   - Well-trained synapses become resistant to both decay and opposing updates
+    //   - Biology: STC (Frey & Morris 1997), TACOS (2025 SNN metaplasticity)
+    //   - effective_lr = lr / (1 + consolidation × strength)
+    //   - effective_decay = decay / (1 + consolidation × strength)
 
     float da_error = da_level_ - config_.da_stdp_baseline;
     float lr = config_.da_stdp_lr;
     float elig_decay = config_.da_stdp_elig_decay;
+    bool use_consol = config_.synaptic_consolidation;
+    float c_rate = config_.consol_rate;
+    float c_str  = config_.consol_strength;
+    float c_decay = config_.consol_decay;
 
     // Phase 1: Update eligibility traces from co-activation
     float max_elig = config_.da_stdp_max_elig;
@@ -616,31 +629,47 @@ void BasalGanglia::apply_da_stdp(int32_t t) {
         }
     }
 
-    // Phase 2: Apply weight changes = lr * da_error * eligibility_trace
-    // Only apply when DA deviates from baseline (RPE ≠ 0)
+    // Phase 2: Apply weight changes = eff_lr * da_error * elig
+    // Consolidation gates learning: hardened synapses resist change
     if (std::abs(da_error) > 0.001f) {
         for (size_t src = 0; src < elig_d1_.size(); ++src) {
             for (size_t idx = 0; idx < elig_d1_[src].size(); ++idx) {
                 if (elig_d1_[src][idx] > 0.001f) {
-                    ctx_d1_w_[src][idx] += lr * da_error * elig_d1_[src][idx];
+                    float c = use_consol ? consol_d1_[src][idx] : 0.0f;
+                    float eff_lr = lr / (1.0f + c * c_str);
+                    float dw = eff_lr * da_error * elig_d1_[src][idx];
+                    ctx_d1_w_[src][idx] += dw;
                     ctx_d1_w_[src][idx] = std::clamp(ctx_d1_w_[src][idx],
                         config_.da_stdp_w_min, config_.da_stdp_w_max);
+                    // Build consolidation: consistent direction reinforces
+                    if (use_consol) {
+                        float dev = ctx_d1_w_[src][idx] - 1.0f;
+                        if (dw * dev > 0)  // Δw same direction as deviation from baseline
+                            consol_d1_[src][idx] += std::abs(dw) * c_rate;
+                    }
                 }
             }
             for (size_t idx = 0; idx < elig_d2_[src].size(); ++idx) {
                 if (elig_d2_[src][idx] > 0.001f) {
+                    float c = use_consol ? consol_d2_[src][idx] : 0.0f;
+                    float eff_lr = lr / (1.0f + c * c_str);
                     // D2: reverse sign
-                    ctx_d2_w_[src][idx] -= lr * da_error * elig_d2_[src][idx];
+                    float dw = -(eff_lr * da_error * elig_d2_[src][idx]);
+                    ctx_d2_w_[src][idx] += dw;
                     ctx_d2_w_[src][idx] = std::clamp(ctx_d2_w_[src][idx],
                         config_.da_stdp_w_min, config_.da_stdp_w_max);
+                    if (use_consol) {
+                        float dev = ctx_d2_w_[src][idx] - 1.0f;
+                        if (dw * dev > 0)
+                            consol_d2_[src][idx] += std::abs(dw) * c_rate;
+                    }
                 }
             }
         }
     }
 
-    // Phase 3: Decay eligibility traces + homeostatic weight decay toward 1.0
-    // During replay mode: skip weight decay (prevent over-decay from extra replay steps)
-    // but still decay eligibility traces (replay needs fresh traces each pass)
+    // Phase 3: Decay eligibility traces + consolidation-protected weight decay
+    // During replay mode: skip weight decay but still decay elig traces
     float w_decay = replay_mode_ ? 0.0f : config_.da_stdp_w_decay;
     for (size_t src = 0; src < elig_d1_.size(); ++src) {
         for (size_t idx = 0; idx < elig_d1_[src].size(); ++idx) {
@@ -649,14 +678,27 @@ void BasalGanglia::apply_da_stdp(int32_t t) {
         for (size_t idx = 0; idx < elig_d2_[src].size(); ++idx) {
             elig_d2_[src][idx] *= elig_decay;
         }
-        // Weight decay: pull toward 1.0 (prevents runaway potentiation/depression)
+        // Weight decay: pull toward 1.0, GATED by consolidation
+        // Hardened synapses resist decay: eff_decay = decay / (1 + c × strength)
         if (w_decay > 0.0f) {
             for (size_t idx = 0; idx < ctx_d1_w_[src].size(); ++idx) {
-                ctx_d1_w_[src][idx] += w_decay * (1.0f - ctx_d1_w_[src][idx]);
+                float c = use_consol ? consol_d1_[src][idx] : 0.0f;
+                float eff_decay = w_decay / (1.0f + c * c_str);
+                ctx_d1_w_[src][idx] += eff_decay * (1.0f - ctx_d1_w_[src][idx]);
+                if (use_consol) consol_d1_[src][idx] *= c_decay;
             }
             for (size_t idx = 0; idx < ctx_d2_w_[src].size(); ++idx) {
-                ctx_d2_w_[src][idx] += w_decay * (1.0f - ctx_d2_w_[src][idx]);
+                float c = use_consol ? consol_d2_[src][idx] : 0.0f;
+                float eff_decay = w_decay / (1.0f + c * c_str);
+                ctx_d2_w_[src][idx] += eff_decay * (1.0f - ctx_d2_w_[src][idx]);
+                if (use_consol) consol_d2_[src][idx] *= c_decay;
             }
+        } else if (use_consol) {
+            // Still decay consolidation during replay (very slow natural decay)
+            for (size_t idx = 0; idx < consol_d1_[src].size(); ++idx)
+                consol_d1_[src][idx] *= c_decay;
+            for (size_t idx = 0; idx < consol_d2_[src].size(); ++idx)
+                consol_d2_[src][idx] *= c_decay;
         }
     }
 

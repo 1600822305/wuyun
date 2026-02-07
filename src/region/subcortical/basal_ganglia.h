@@ -65,7 +65,21 @@ struct BasalGangliaConfig {
     float da_stdp_w_max    = 3.0f;    // Max connection weight
     float da_stdp_elig_decay = 0.98f; // Eligibility trace decay per step (~50 step window, 0.98^15=0.74)
     float da_stdp_max_elig = 50.0f;  // Per-synapse elig ceiling (prevents Δw explosion: 0.03×0.5×50=0.75)
-    float da_stdp_w_decay  = 0.003f;  // Weight decay toward 1.0 per step (recovery in ~67 steps)
+    float da_stdp_w_decay  = 0.0008f;  // v33: reduced 3.75×, was 0.003 (half-life ~860 steps)
+
+    // Synaptic consolidation / metaplasticity (prevents catastrophic forgetting)
+    // Biology: STC (Frey & Morris 1997) — repeatedly reinforced synapses become
+    //   resistant to both weight decay and opposing updates.
+    // TACOS (2025): activity-dependent metaplasticity enables continual learning in SNNs.
+    // Implementation: per-synapse consolidation score c ∈ [0,∞)
+    //   effective_lr    = lr    / (1 + c × strength)
+    //   effective_decay = decay / (1 + c × strength)
+    //   c increases when DA-STDP Δw aligns with existing weight deviation from 1.0
+    //   c naturally decays if not reinforced (allows eventual unlearning)
+    bool  synaptic_consolidation = true;
+    float consol_rate     = 10.0f;    // Build rate: c += |Δw| × consol_rate per DA-STDP update
+    float consol_decay    = 0.9995f;  // Natural decay per step (~1400 step half-life)
+    float consol_strength = 5.0f;     // Protection divisor: lr/(1+c×5), decay/(1+c×5)
 
     // D1/D2 lateral inhibition (MSN collateral GABA, Humphries et al. 2009)
     // Biology: MSN→MSN collateral synapses provide ~1-3% lateral connectivity,
@@ -208,6 +222,12 @@ private:
     // Bridges temporal gap between action (cortex→BG co-activation) and reward (DA)
     std::vector<std::vector<float>> elig_d1_;  // [src][idx] decaying trace
     std::vector<std::vector<float>> elig_d2_;  // [src][idx]
+
+    // Synaptic consolidation scores (metaplasticity)
+    // Parallel to ctx_d1_w_ / ctx_d2_w_, tracks how "hardened" each synapse is
+    std::vector<std::vector<float>> consol_d1_;  // [src][idx]
+    std::vector<std::vector<float>> consol_d2_;  // [src][idx]
+
     void apply_da_stdp(int32_t t);
 
     bool replay_mode_ = false;  // Suppress weight decay during awake replay
