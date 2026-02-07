@@ -66,7 +66,7 @@ static void test_learning_curve() {
     printf("\n--- 测试1: 学习曲线 (5000步) ---\n");
 
     AgentConfig cfg;
-    cfg.brain_steps_per_action = 10;
+    cfg.brain_steps_per_action = 15;  // Visual pipeline needs ~14 steps: LGN→V1→dlPFC→BG
     cfg.reward_processing_steps = 5;
     cfg.enable_da_stdp = true;
     cfg.da_stdp_lr = 0.03f;
@@ -120,7 +120,7 @@ static void test_learning_vs_control() {
 
     auto make_agent = [](bool enable_learning) {
         AgentConfig cfg;
-        cfg.brain_steps_per_action = 10;
+        cfg.brain_steps_per_action = 15;  // Visual pipeline needs ~14 steps
         cfg.reward_processing_steps = 5;
         cfg.enable_da_stdp = enable_learning;
         cfg.da_stdp_lr = 0.03f;
@@ -167,7 +167,7 @@ static void test_bg_diagnostics() {
     printf("\n--- 测试3: BG DA-STDP诊断 ---\n");
 
     AgentConfig cfg;
-    cfg.brain_steps_per_action = 10;
+    cfg.brain_steps_per_action = 15;  // Visual pipeline needs ~14 steps
     cfg.reward_processing_steps = 5;
     cfg.enable_da_stdp = true;
     cfg.da_stdp_lr = 0.03f;
@@ -242,7 +242,7 @@ static void test_long_training() {
     printf("\n--- 测试4: 10000步长时训练 ---\n");
 
     AgentConfig cfg;
-    cfg.brain_steps_per_action = 10;
+    cfg.brain_steps_per_action = 15;  // Visual pipeline needs ~14 steps
     cfg.reward_processing_steps = 5;
     cfg.enable_da_stdp = true;
     cfg.da_stdp_lr = 0.03f;

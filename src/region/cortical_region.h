@@ -11,6 +11,7 @@
 #include "region/brain_region.h"
 #include "circuit/cortical_column.h"
 #include <set>
+#include <unordered_map>
 
 namespace wuyun {
 
@@ -84,6 +85,13 @@ public:
     /** DA对工作记忆的增益 */
     float wm_da_gain() const { return wm_da_gain_; }
 
+    // --- 拓扑输入映射 ---
+
+    /** 注册拓扑输入源: 该源的spikes使用比例映射(preserves spatial structure)
+     *  而非默认的模取余映射(scrambles spatial info).
+     *  Biology: V1→V2→V4→IT维持partial retinotopy */
+    void add_topographic_input(uint32_t source_region_id, size_t source_n_neurons);
+
     // --- 稳态可塑性接口 ---
 
     /** 启用稳态可塑性 (突触缩放, 维持E/I平衡) */
@@ -138,6 +146,9 @@ private:
     size_t psp_fan_out_;             // Number of L4 neurons per incoming spike
 
     void aggregate_firing_state();
+
+    // --- 拓扑输入源 (region_id → source_n_neurons) ---
+    std::unordered_map<uint32_t, size_t> topo_sources_;
 
     // --- 预测编码状态 ---
     bool pc_enabled_ = false;

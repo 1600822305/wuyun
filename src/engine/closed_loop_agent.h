@@ -59,6 +59,10 @@ struct AgentConfig {
     bool enable_da_stdp     = true;   // BG DA-STDP
     float da_stdp_lr        = 0.005f; // DA-STDP learning rate (0.005×0.5×50=0.125 per food event)
     bool enable_homeostatic = true;   // Homeostatic plasticity
+    bool enable_cortical_stdp = true; // V1+dlPFC online STDP (experience-dependent representation)
+    float cortical_stdp_a_plus  = 0.005f;  // LTP (half of default 0.01, slower online learning)
+    float cortical_stdp_a_minus = -0.006f; // LTD (slightly stronger → competitive selectivity)
+    float cortical_stdp_w_max   = 1.5f;    // Max synaptic weight
 
     // GridWorld
     GridWorldConfig world_config;

@@ -961,6 +961,8 @@ REM睡眠+梦境              ← Step 11: theta + PGO + 创造性重组
 闭环Agent + GridWorld        ← Step 13-B: 感知→决策→行动→学习
      ↓
 闭环学习调优 (v3)            ← Step 13-B++: elig clamp + NE退火 + 诊断修复
+     ↓
+视觉通路修复 + 皮层STDP      ← Step 13-C: LGN→V1→dlPFC拓扑映射 + V1 STDP
 
 技术栈: C++17 核心引擎 + pybind11 → Python 实验/可视化
 Python 原型 (wuyun/) → _archived/ 算法参考
@@ -1252,15 +1254,109 @@ D1 发放: 263/50步, D2: 238/50步
 
 ### 回归测试: 29/29 CTest 全通过 (0 失败)
 
+---
+
+## Step 13-C: 视觉通路修复 + 皮层STDP + 拓扑映射
+
+### 问题诊断
+
+闭环agent的V1→dlPFC→BG视觉通路**完全断裂**:
+
+1. **LGN从不发放**: 视觉编码 gain=45, baseline=3 → 每步注入电流I≈3~45, 但LGN relay神经元 τ_m=20, 阈值需ΔV=15mV → 单次注入仅ΔV=2.25, 远不够阈值
+2. **inject_observation每3步才注入**: 电流在步间衰减殆尽, 神经元永远无法充电到阈值
+3. **V1→dlPFC空间信息被打散**: SpikeBus用 `neuron_id % L4_size` 模取余映射, 破坏所有空间结构
+4. **结论**: v3基线的+0.191改善完全来自M1→dlPFC→BG运动反馈, 不是视觉输入
+
+### 修复 (4个核心)
+
+#### ① LGN视觉编码增益
+- `gain`: 45 → **200** — 食物像素response~0.3 → I=5+60=65, V_ss=0 (远超阈值)
+- `baseline`: 3 → **5** — 空像素V_ss=-60(不发放), 只有实际视觉特征驱动LGN
+- `noise_amp`: 1.5 → **2.0** — 轻微噪声保持随机性
+
+#### ② 每步注入视觉观测
+- 原: `if (i > 0 && i % 3 == 0) inject_observation()` — 每3步一次脉冲
+- 新: **每个brain step都调用inject_observation()** — 持续驱动, LGN ~2步开始发放
+
+#### ③ V1→dlPFC拓扑映射 (retinotopic mapping)
+- 新增 `CorticalRegion::add_topographic_input(region_id, n_neurons)` 接口
+- 拓扑源使用**比例映射**: `base = (neuron_id × L4) / source_n`
+- 默认源仍用模取余: `base = neuron_id % L4`
+- 拓扑源fan-out减半: `fan = max(2, default_fan/2)` — 更窄receptive field
+- Biology: V1→V2→V4→IT层级维持partial retinotopy
+
+#### ④ V1皮层STDP + brain_steps调优
+- V1启用在线STDP: `a_plus=0.005, a_minus=-0.006, w_max=1.5`
+- dlPFC/M1不启用STDP (dlPFC需表征稳定性保护BG DA-STDP; M1靠噪声+BG偏置)
+- `brain_steps_per_action`: 10 → **15** — 视觉流水线需~14步: LGN充电→delay2→V1处理→delay2→dlPFC
+- 新增AgentConfig: `enable_cortical_stdp`, `cortical_stdp_a_plus/a_minus/w_max`
+
+### 视觉流水线时序 (brain_steps=15)
+
+```
+brain_i:  0   1   2   3   4   5   6   7   8   9  10  11  12  13  14
+LGN:          ■   ■   ■   ■   ■   ■   ■       ■   ■
+                                  LGN→V1 delay=2
+V1:                                   ■   ■■■  ■■■ ■■■ ■■■
+                                              V1→dlPFC delay=2
+dlPFC:                                              ■■■ ■■■ ■■■ ■■■
+                                                        dlPFC→BG delay=2
+BG:                                                         ■■■ ■■■
+```
+
+### 结果对比
+
+| 指标 | Step 13-C (视觉+拓扑) | v3 基线 (视觉断裂) | 变化 |
+|------|----------------------|-------------------|------|
+| 5k Late safety | **0.62** | 0.38 | +63% |
+| 5k Total food | **65** | 31 | +110% |
+| 10k Total food | **121** | 76 | +59% |
+| ctx (皮层→BG/50步) | **2787** | 1759 | +58% |
+| 10k Improvement | +0.077 | +0.191 | ⚠️ 退化 |
+| Learner advantage | -0.002 | +0.017 | ⚠️ 退化 |
+
+**关键发现:**
+- 视觉通路修复后食物收集**翻倍**, 安全率**+63%** — 视觉输入显著改善感知-运动耦合
+- DA-STDP learner advantage消失 — 视觉输入同等帮助learner和control
+- 根因: dlPFC→BG仍是随机20%连接, 方向信息在**最后一英里**被打散
+- V1 STDP在10k步内效果不明显 (权重变化太小, 不改变发放模式)
+
+### 架构瓶颈 (下一步)
+
+```
+V1 ─拓扑─→ dlPFC ─随机─→ BG D1/D2
+  ✅ 保持空间    ❌ 打散方向
+  信息            信息
+```
+
+方向特异学习需要: dlPFC→BG拓扑投射 或 BG内部方向子群竞争归一化
+
+### 新增API
+
+- `CorticalRegion::add_topographic_input(region_id, n_neurons)` — 注册拓扑输入源
+- `AgentConfig::enable_cortical_stdp` — 皮层STDP开关 (V1)
+- `AgentConfig::cortical_stdp_a_plus/a_minus/w_max` — STDP参数
+
+### 修改文件
+
+- `cortical_region.h`: +add_topographic_input, +topo_sources_, +unordered_map include
+- `cortical_region.cpp`: +topographic proportional mapping in receive_spikes, +add_topographic_input
+- `closed_loop_agent.h`: +enable_cortical_stdp, +cortical_stdp_a_plus/a_minus/w_max
+- `closed_loop_agent.cpp`: V1 STDP启用, 拓扑注册, 视觉编码增益, 每步注入
+- `test_learning_curve.cpp`: brain_steps 10→15
+
+### 回归测试: 29/29 CTest 全通过 (0 失败, 20.2秒)
+
 ### 系统状态
 
 ```
 48区域 · ~5528+神经元 · ~109投射 · 179测试 · 29 CTest suites
 完整功能: 感觉输入 · 视听编码 · 层级处理 · 双流视觉 · 语言
-          5种学习(STDP/STP/DA-STDP/CA3-STDP/稳态) · 预测编码 · 工作记忆
+          6种学习(STDP/STP/DA-STDP/CA3-STDP/稳态/皮层STDP) · 预测编码 · 工作记忆
           注意力 · GNW意识 · 内驱力 · NREM巩固 · REM梦境 · 睡眠周期管理
           4种调质广播 · 稳态可塑性 · 规模可扩展(E/I自平衡)
           闭环Agent · GridWorld环境 · 运动探索 · VTA奖励信号
           DA-STDP闭环学习 · Eligibility Traces · 动作特异性信用分配
-          NE探索/利用调制 · 皮层→BG通路验证(ctx=1759)
+          NE探索/利用调制 · 视觉通路(LGN→V1→dlPFC, ctx=2787)
+          V1→dlPFC拓扑映射 · V1在线STDP · 食物收集2x提升
 ```

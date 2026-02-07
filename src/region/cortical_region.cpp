@@ -149,6 +149,10 @@ void CorticalRegion::step(int32_t t, float dt) {
     aggregate_firing_state();
 }
 
+void CorticalRegion::add_topographic_input(uint32_t source_region_id, size_t source_n_neurons) {
+    topo_sources_[source_region_id] = source_n_neurons;
+}
+
 void CorticalRegion::receive_spikes(const std::vector<SpikeEvent>& events) {
     for (const auto& evt : events) {
         float current = is_burst(static_cast<SpikeType>(evt.spike_type))
@@ -164,10 +168,26 @@ void CorticalRegion::receive_spikes(const std::vector<SpikeEvent>& events) {
                 pc_prediction_buf_[idx] += current * 0.5f;  // Prediction weaker than sensory
             }
         } else {
-            // Feedforward → L4 PSP buffer (same as before)
-            size_t base = evt.neuron_id % psp_buffer_.size();
-            for (size_t k = 0; k < psp_fan_out_; ++k) {
-                size_t idx = (base + k) % psp_buffer_.size();
+            // Feedforward → L4 PSP buffer
+            size_t L4 = psp_buffer_.size();
+            size_t base;
+            size_t fan = psp_fan_out_;
+
+            auto it = topo_sources_.find(evt.region_id);
+            if (it != topo_sources_.end() && it->second > 0) {
+                // Topographic mapping: proportional (preserves spatial structure)
+                // Biology: V1→V2→V4→IT retinotopic mapping
+                base = (evt.neuron_id * L4) / it->second;
+                if (base >= L4) base = L4 - 1;
+                // Narrower fan-out for topographic sources (sharper receptive field)
+                fan = std::max<size_t>(2, psp_fan_out_ / 2);
+            } else {
+                // Default: modular mapping (random-ish)
+                base = evt.neuron_id % L4;
+            }
+
+            for (size_t k = 0; k < fan; ++k) {
+                size_t idx = (base + k) % L4;
                 psp_buffer_[idx] += current;
             }
         }

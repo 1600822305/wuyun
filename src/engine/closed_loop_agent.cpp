@@ -26,9 +26,9 @@ ClosedLoopAgent::ClosedLoopAgent(const AgentConfig& config)
     vcfg.input_width  = config_.vision_width;
     vcfg.input_height = config_.vision_height;
     vcfg.n_lgn_neurons = lgn_->n_neurons();
-    vcfg.gain = 45.0f;      // Strong enough to drive LGN
-    vcfg.baseline = 3.0f;
-    vcfg.noise_amp = 1.5f;
+    vcfg.gain = 200.0f;     // Strong: food pixel response ~0.3 → I=5+60=65, V_ss=0 (fires fast)
+    vcfg.baseline = 5.0f;   // Empty pixels: V_ss=-60 (below threshold, no firing)
+    vcfg.noise_amp = 2.0f;  // Slight noise for stochastic variation
     visual_encoder_ = VisualInput(vcfg);
 }
 
@@ -48,21 +48,30 @@ void ClosedLoopAgent::build_brain() {
 
     // --- Cortical regions ---
     auto add_ctx = [&](const std::string& name, size_t l4, size_t l23,
-                       size_t l5, size_t l6, size_t pv, size_t sst, size_t vip) {
+                       size_t l5, size_t l6, size_t pv, size_t sst, size_t vip,
+                       bool stdp = false) {
         ColumnConfig c;
         c.n_l4_stellate = l4 * s;  c.n_l23_pyramidal = l23 * s;
         c.n_l5_pyramidal = l5 * s; c.n_l6_pyramidal = l6 * s;
         c.n_pv_basket = pv * s;    c.n_sst_martinotti = sst * s;
         c.n_vip = vip * s;
+        if (stdp) {
+            c.stdp_enabled = true;
+            c.stdp_a_plus  = config_.cortical_stdp_a_plus;
+            c.stdp_a_minus = config_.cortical_stdp_a_minus;
+            c.stdp_w_max   = config_.cortical_stdp_w_max;
+        }
         engine_.add_region(std::make_unique<CorticalRegion>(name, c));
     };
 
-    // V1: primary visual cortex
-    add_ctx("V1", 30, 60, 30, 25, 10, 6, 3);
-    // dlPFC: decision making + working memory
-    add_ctx("dlPFC", 20, 50, 30, 20, 8, 5, 3);
-    // M1: motor output (L5 → action decoding)
-    add_ctx("M1", 20, 40, 40, 15, 8, 5, 2);
+    bool ctx_stdp = config_.enable_cortical_stdp;
+    // V1: primary visual cortex — STDP learns visual feature selectivity
+    add_ctx("V1", 30, 60, 30, 25, 10, 6, 3, ctx_stdp);
+    // dlPFC: decision making + working memory — NO STDP (representation stability
+    //        needed for BG DA-STDP to learn stable action associations)
+    add_ctx("dlPFC", 20, 50, 30, 20, 8, 5, 3, false);
+    // M1: motor output (L5 → action decoding) — NO STDP (driven by noise + BG bias)
+    add_ctx("M1", 20, 40, 40, 15, 8, 5, 2, false);
 
     // --- Basal Ganglia: action selection ---
     BasalGangliaConfig bg_cfg;
@@ -137,6 +146,13 @@ void ClosedLoopAgent::build_brain() {
     bg_    = dynamic_cast<BasalGanglia*>(engine_.find_region("BG"));
     vta_   = dynamic_cast<VTA_DA*>(engine_.find_region("VTA"));
     hipp_  = dynamic_cast<Hippocampus*>(engine_.find_region("Hippocampus"));
+
+    // --- Register topographic V1→dlPFC mapping (retinotopic) ---
+    // Preserves spatial structure: V1 left-field → dlPFC left zone
+    // Without this, neuron_id % L4_size scrambles all spatial information
+    if (v1_ && dlpfc_) {
+        dlpfc_->add_topographic_input(v1_->region_id(), v1_->n_neurons());
+    }
 
     // --- Enable homeostatic plasticity ---
     if (config_.enable_homeostatic) {
@@ -252,10 +268,11 @@ StepResult ClosedLoopAgent::agent_step() {
     float background_drive = effective_noise * 0.1f;  // Weak: other directions
 
     for (size_t i = 0; i < config_.brain_steps_per_action; ++i) {
-        // Re-inject observation every few brain steps to sustain cortical input
-        if (i > 0 && i % 3 == 0) {
-            inject_observation();
-        }
+        // Inject observation EVERY brain step to provide sustained drive to LGN.
+        // Thalamic relay neurons (tau_m=20, threshold=-50, rest=-65) need ~7 steps
+        // of sustained I=45 current to charge from rest to threshold.
+        // Previous: inject every 3 steps → single-pulse ΔV=2.25mV, never fires.
+        inject_observation();
 
         // DA neuromodulatory broadcast: VTA → BG (volume transmission, every step)
         bg_->set_da_level(vta_->da_output());
