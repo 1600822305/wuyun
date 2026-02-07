@@ -52,6 +52,9 @@ public:
     /** 获取最近的 RPE */
     float last_rpe() const { return last_rpe_; }
 
+    /** 注入LHb抑制信号 (0~1, LHb firing → RMTg GABA → VTA DA pause) */
+    void inject_lhb_inhibition(float inhibition);
+
     NeuronPopulation& neurons() { return da_neurons_; }
 
 private:
@@ -64,6 +67,10 @@ private:
     float da_level_        = 0.1f;  // tonic + phasic
     float reward_psp_      = 0.0f;  // Sustained reward drive (exponential decay)
     static constexpr float REWARD_PSP_DECAY = 0.85f;  // Slower decay for reward signal
+
+    float lhb_inhibition_   = 0.0f;  // LHb → RMTg → VTA inhibition (0~1)
+    float lhb_inh_psp_      = 0.0f;  // Sustained LHb inhibition (exponential decay)
+    static constexpr float LHB_INH_PSP_DECAY = 0.85f;
 
     // PSP buffer for cross-region input (sustained synaptic drive)
     static constexpr float PSP_DECAY = 0.7f;

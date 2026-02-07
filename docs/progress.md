@@ -1969,5 +1969,75 @@ eval_seeds: 2 → 3 (泛化性)
 48区域 · 自适应神经元数 · ~109投射 · 179测试 · 29 CTest suites
 新增: 基因层 v1 (23基因, GA引擎, 多线程并行评估)
 学习维持: improvement +0.120, late safety 0.667
-下一步: 用5000步评估重新运行进化 (预计~70min)
+```
+
+---
+
+## Step 17: LHb 负RPE 脑区 (外侧缰核)
+
+> 日期: 2026-02-08
+> 目标: 补全奖惩学习闭环 — 惩罚/期望落空 → LHb → VTA DA pause → D2 NoGo 强化
+
+### 生物学基础 (Matsumoto & Hikosaka 2007, Bromberg-Martin 2010)
+
+LHb 是大脑的"反奖励中心":
+- **负RPE编码**: 预期奖励未出现 或 遭遇惩罚 → LHb 兴奋
+- **VTA抑制**: LHb → RMTg(GABA中间神经元) → VTA DA pause
+- **D2 NoGo学习**: DA低于基线 → D2权重增强 → 抑制导致惩罚的动作
+- **互补关系**: VTA编码正RPE(食物→DA burst), LHb编码负RPE(危险→DA pause)
+
+### 新增文件
+
+- `src/region/limbic/lateral_habenula.h/cpp` — LateralHabenula 脑区类
+
+### 修改文件
+
+- `src/region/neuromod/vta_da.h/cpp` — 新增 `inject_lhb_inhibition()`, LHb抑制PSP缓冲, DA level计算整合LHb抑制
+- `src/engine/closed_loop_agent.h/cpp` — LHb区域创建/投射/接线, Phase A惩罚→LHb驱动, 期望落空检测
+- `src/CMakeLists.txt` — 添加 lateral_habenula.cpp
+
+### 信号通路
+
+```
+Phase A (奖励处理):
+  danger事件 → reward = -1.5
+    → VTA inject_reward(-1.5) → 负RPE → DA↓ (已有机制)
+    → LHb inject_punishment(1.5) → LHb burst → vta_inhibition=0.8 → VTA DA pause (新增!)
+    → DA_level ≈ 0 (远低于baseline 0.3) → da_error = -0.3
+    → D1: Δw = +lr × (-0.3) × elig → Go 弱化
+    → D2: Δw = -lr × (-0.3) × elig = +0.009 × elig → NoGo 强化
+
+期望落空 (Frustrative Non-Reward):
+  agent 学会取食后, 预期有食物但没拿到 → expected_reward_level > 0.05
+    → LHb inject_frustration(mild) → 温和DA dip → 微调D2
+
+Phase B (动作处理):
+  每个brain step: LHb → VTA抑制广播 (持续效应, 指数衰减)
+```
+
+### LHb 配置参数
+
+| 参数 | 默认值 | 含义 |
+|------|--------|------|
+| `enable_lhb` | true | 启用LHb负RPE |
+| `lhb_punishment_gain` | 1.5 | 惩罚信号→LHb兴奋增益 |
+| `lhb_frustration_gain` | 1.0 | 期望落空→LHb兴奋增益 |
+| `n_neurons` | 25×scale | LHb神经元数 |
+| `vta_inhibition_gain` | 0.8 | LHb输出→VTA抑制强度 |
+
+### VTA 修改详情
+
+- 新增 `lhb_inh_psp_` 持续抑制缓冲 (衰减常数 0.85, 与 reward_psp_ 对称)
+- DA neuron drive: `net_drive = 20 + reward_psp + psp - lhb_inh_psp` (LHb抑制扣减)
+- DA level: `total_negative = min(phasic_negative - lhb_suppression, 0)` (双重负信号)
+
+### 回归测试: 29/29 CTest 全通过, 零回归
+
+### 系统状态
+
+```
+49区域 · 自适应神经元数 · ~110投射 · 29 CTest suites
+新增: LHb 负RPE (25 neurons), LHb→VTA 抑制投射
+奖惩闭环: 食物→VTA DA burst→D1 Go 强化 + 危险→LHb→VTA DA pause→D2 NoGo 强化
+下一步: 环境扩展 或 继续补充脑区 (SNc/上丘等)
 ```

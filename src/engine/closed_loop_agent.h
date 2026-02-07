@@ -28,6 +28,7 @@
 #include "region/subcortical/basal_ganglia.h"
 #include "region/subcortical/thalamic_relay.h"
 #include "region/neuromod/vta_da.h"
+#include "region/limbic/lateral_habenula.h"
 #include "region/limbic/hippocampus.h"
 #include "plasticity/homeostatic.h"
 #include <memory>
@@ -92,6 +93,11 @@ struct AgentConfig {
     // Infrastructure ready but disabled by default: doesn't help in 3x3 visual field.
     // Enable when environment has larger, more redundant visual scenes.
     bool  enable_predictive_coding = false;
+
+    // LHb negative RPE (punishment learning via DA pause)
+    bool  enable_lhb         = true;   // Enable LHb for negative RPE
+    float lhb_punishment_gain = 1.5f;  // Punishment signal → LHb excitation gain
+    float lhb_frustration_gain = 1.0f; // Frustrative non-reward → LHb excitation gain
 
     // Awake SWR Replay (experience replay via hippocampal sharp-wave ripples)
     bool  enable_replay      = true;   // Enable awake replay after reward events
@@ -161,6 +167,7 @@ public:
     BasalGanglia*   bg()    const { return bg_; }
     VTA_DA*         vta()   const { return vta_; }
     Hippocampus*    hipp()  const { return hipp_; }
+    LateralHabenula* lhb()  const { return lhb_; }
 
 private:
     AgentConfig config_;
@@ -177,6 +184,7 @@ private:
     BasalGanglia*   bg_    = nullptr;
     VTA_DA*         vta_   = nullptr;
     Hippocampus*    hipp_  = nullptr;
+    LateralHabenula* lhb_   = nullptr;
 
     // State
     int    agent_step_count_ = 0;
@@ -197,6 +205,9 @@ private:
     Action decode_m1_action(const std::vector<int>& l5_accum) const;
     void inject_observation();
     void inject_reward(float reward);
+
+    // --- Frustration tracking (expected reward not received) ---
+    float expected_reward_level_ = 0.0f;  // Tracks recent food rate → expected reward
 
     // --- Awake SWR replay ---
     EpisodeBuffer replay_buffer_;

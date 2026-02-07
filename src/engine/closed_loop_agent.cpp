@@ -124,6 +124,18 @@ void ClosedLoopAgent::build_brain() {
     vta_cfg.n_da_neurons = 30 * s;
     engine_.add_region(std::make_unique<VTA_DA>(vta_cfg));
 
+    // --- LHb: negative RPE center ---
+    // Biology: LHb encodes negative prediction errors and aversive stimuli
+    //   LHb → RMTg(GABA) → VTA: inhibits DA release → DA pause → D2 NoGo learning
+    //   Essential for learning to AVOID danger (Matsumoto & Hikosaka 2007)
+    if (config_.enable_lhb) {
+        LHbConfig lhb_cfg;
+        lhb_cfg.n_neurons = 25 * s;
+        lhb_cfg.punishment_gain = config_.lhb_punishment_gain;
+        lhb_cfg.frustration_gain = config_.lhb_frustration_gain;
+        engine_.add_region(std::make_unique<LateralHabenula>(lhb_cfg));
+    }
+
     // --- Hippocampus: spatial memory ---
     // Skipped in fast_eval: 195 neurons (24%) with zero contribution to closed-loop
     if (!config_.fast_eval) {
@@ -167,6 +179,13 @@ void ClosedLoopAgent::build_brain() {
     // VTA DA → BG (reward signal)
     engine_.add_projection("VTA", "BG", 2);
 
+    // LHb → VTA (inhibitory, via RMTg GABA interneurons)
+    // Biology: LHb glutamatergic output excites RMTg GABAergic neurons
+    //          which then inhibit VTA DA neurons. Simplified as direct projection.
+    if (config_.enable_lhb) {
+        engine_.add_projection("LHb", "VTA", 2);
+    }
+
     // --- Neuromodulator registration ---
     engine_.register_neuromod_source("VTA", SimulationEngine::NeuromodType::DA);
 
@@ -185,6 +204,7 @@ void ClosedLoopAgent::build_brain() {
     bg_    = dynamic_cast<BasalGanglia*>(engine_.find_region("BG"));
     vta_   = dynamic_cast<VTA_DA*>(engine_.find_region("VTA"));
     hipp_  = dynamic_cast<Hippocampus*>(engine_.find_region("Hippocampus"));
+    lhb_   = dynamic_cast<LateralHabenula*>(engine_.find_region("LHb"));
 
     // --- Register topographic V1→dlPFC mapping (retinotopic) ---
     // Preserves spatial structure: V1 left-field → dlPFC left zone
@@ -255,9 +275,32 @@ StepResult ClosedLoopAgent::agent_step() {
     // --- Phase A: Process pending reward (from previous action) ---
     if (has_pending_reward_) {
         inject_reward(pending_reward_);
+
+        // LHb activation for negative rewards (punishment/danger)
+        // Biology: aversive stimuli → LHb burst → RMTg GABA → VTA DA pause
+        //          This creates a strong DA dip below tonic baseline,
+        //          enabling D2 NoGo pathway to learn "avoid this action"
+        if (lhb_ && pending_reward_ < -0.01f) {
+            float punishment_magnitude = -pending_reward_;  // Make positive
+            lhb_->inject_punishment(punishment_magnitude);
+        }
+
+        // Frustrative non-reward: expected reward didn't arrive
+        // Biology: when food is expected (high food_rate) but not received,
+        //          LHb activates to signal "worse than expected" (Bromberg-Martin 2010)
+        if (lhb_ && pending_reward_ < 0.01f && expected_reward_level_ > 0.05f) {
+            float frustration = expected_reward_level_ * 0.3f;  // Mild frustration signal
+            lhb_->inject_frustration(frustration);
+        }
+
         // Run a few steps so DA can modulate BG eligibility traces
         // DA broadcast: VTA computes DA level, BG reads it directly (volume transmission)
         for (size_t i = 0; i < config_.reward_processing_steps; ++i) {
+            // LHb → VTA inhibition: direct neuromodulatory broadcast
+            // (supplements SpikeBus projection with immediate DA level effect)
+            if (lhb_) {
+                vta_->inject_lhb_inhibition(lhb_->vta_inhibition());
+            }
             bg_->set_da_level(vta_->da_output());  // Neuromodulatory broadcast
             engine_.step();
         }
@@ -335,6 +378,10 @@ StepResult ClosedLoopAgent::agent_step() {
         // Previous: inject every 3 steps → single-pulse ΔV=2.25mV, never fires.
         inject_observation();
 
+        // LHb → VTA inhibition broadcast (every brain step during action processing)
+        if (lhb_) {
+            vta_->inject_lhb_inhibition(lhb_->vta_inhibition());
+        }
         // DA neuromodulatory broadcast: VTA → BG (volume transmission, every step)
         bg_->set_da_level(vta_->da_output());
 
@@ -414,6 +461,14 @@ StepResult ClosedLoopAgent::agent_step() {
     // Only trigger Phase A for significant rewards (food/danger), not step penalties
     pending_reward_ = result.reward * config_.reward_scale;
     has_pending_reward_ = (std::abs(result.reward) > 0.05f);
+
+    // Update expected reward level (slow-moving average of food rate)
+    // Biology: striatal tonically active neurons (TANs) track reward expectation
+    // Used by LHb for frustrative non-reward detection
+    if (agent_step_count_ > 100) {
+        float recent_food = food_rate(200);
+        expected_reward_level_ = expected_reward_level_ * 0.99f + recent_food * 0.01f;
+    }
 
     // End episode recording and trigger awake SWR replay for significant rewards
     if (config_.enable_replay) {
