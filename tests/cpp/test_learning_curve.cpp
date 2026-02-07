@@ -137,23 +137,26 @@ static TestResult test_learning_vs_control() {
     std::ostringstream out;
     out << "\n--- 测试2: 学习 vs 无学习对照 (3000步, 10x10 grid) ---\n";
 
-    auto make_agent = [](bool enable_learning) {
+    // Run learner and control in parallel (2 threads)
+    EpochStats learn_stats, ctrl_stats;
+    std::thread t_learn([&]{
         AgentConfig cfg;
-        cfg.enable_da_stdp = enable_learning;
+        cfg.enable_da_stdp = true;
         cfg.world_config.seed = 42;
-        return ClosedLoopAgent(cfg);
-    };
-
-    auto learner = make_agent(true);
-    auto control = make_agent(false);
-
-    for (int i = 0; i < 1000; ++i) {
-        learner.agent_step();
-        control.agent_step();
-    }
-
-    auto learn_stats = run_epoch(learner, 2000);
-    auto ctrl_stats  = run_epoch(control, 2000);
+        ClosedLoopAgent learner(cfg);
+        for (int i = 0; i < 1000; ++i) learner.agent_step();
+        learn_stats = run_epoch(learner, 2000);
+    });
+    std::thread t_ctrl([&]{
+        AgentConfig cfg;
+        cfg.enable_da_stdp = false;
+        cfg.world_config.seed = 42;
+        ClosedLoopAgent control(cfg);
+        for (int i = 0; i < 1000; ++i) control.agent_step();
+        ctrl_stats = run_epoch(control, 2000);
+    });
+    t_learn.join();
+    t_ctrl.join();
 
     char buf[256];
     snprintf(buf, sizeof(buf), "  Learner (DA-STDP ON):  food=%d, danger=%d, safety=%.2f, avg_r=%+.4f\n",
@@ -343,32 +346,41 @@ static TestResult test_generalization() {
     std::ostringstream out;
     out << "\n--- 测试6: 泛化能力诊断 ---\n";
 
-    float trained_safety = 0, fresh_safety = 0;
+    // 4 agents in parallel: 2 trained (seed=42→test) + 2 fresh (seed=77,123)
     int seeds[] = {77, 123};
+    EpochStats t_results[2], f_results[2];
+    std::thread threads[4];
+
+    for (int i = 0; i < 2; ++i) {
+        threads[i*2] = std::thread([&, i]{
+            AgentConfig cfg;
+            cfg.enable_da_stdp = true;
+            cfg.world_config.seed = 42;
+            ClosedLoopAgent ag(cfg);
+            run_epoch(ag, 2000);  // train
+            t_results[i] = run_epoch(ag, 500);  // test
+        });
+        threads[i*2+1] = std::thread([&, i]{
+            AgentConfig cfg;
+            cfg.enable_da_stdp = true;
+            cfg.world_config.seed = static_cast<uint32_t>(seeds[i]);
+            ClosedLoopAgent ag(cfg);
+            f_results[i] = run_epoch(ag, 500);
+        });
+    }
+    for (auto& t : threads) t.join();
+
+    float trained_safety = 0, fresh_safety = 0;
     char buf[256];
-
-    for (int s : seeds) {
-        AgentConfig cfg_t;
-        cfg_t.enable_da_stdp = true;
-        cfg_t.world_config.seed = 42;
-        ClosedLoopAgent ag_t(cfg_t);
-        run_epoch(ag_t, 2000);
-        auto t_res = run_epoch(ag_t, 500);
-
-        AgentConfig cfg_f;
-        cfg_f.enable_da_stdp = true;
-        cfg_f.world_config.seed = static_cast<uint32_t>(s);
-        ClosedLoopAgent ag_f(cfg_f);
-        auto f_res = run_epoch(ag_f, 500);
-
+    for (int i = 0; i < 2; ++i) {
         snprintf(buf, sizeof(buf),
             "    seed=%3d: trained=%.2f(f=%d,d=%d) fresh=%.2f(f=%d,d=%d) D=%+.2f\n",
-            s, t_res.safety_ratio(), t_res.food, t_res.danger,
-            f_res.safety_ratio(), f_res.food, f_res.danger,
-            t_res.safety_ratio() - f_res.safety_ratio());
+            seeds[i], t_results[i].safety_ratio(), t_results[i].food, t_results[i].danger,
+            f_results[i].safety_ratio(), f_results[i].food, f_results[i].danger,
+            t_results[i].safety_ratio() - f_results[i].safety_ratio());
         out << buf;
-        trained_safety += t_res.safety_ratio();
-        fresh_safety += f_res.safety_ratio();
+        trained_safety += t_results[i].safety_ratio();
+        fresh_safety += f_results[i].safety_ratio();
     }
 
     float avg_t = trained_safety / 2.0f;
@@ -399,7 +411,8 @@ int main() {
     SetConsoleOutputCP(65001);
 #endif
 
-    printf("=== 悟韵 闭环学习验证 (6 tests, multi-threaded) ===\n");
+    unsigned hw = std::thread::hardware_concurrency();
+    printf("=== 悟韵 闭环学习验证 (6 tests, multi-threaded, %u hw threads) ===\n", hw);
 
     auto t0 = std::chrono::steady_clock::now();
 
@@ -428,7 +441,7 @@ int main() {
     }
 
     printf("\n========================================\n");
-    printf("  通过: %d / %d  (%.1f秒, %d线程并行)\n", pass, pass + fail, elapsed, 6);
+    printf("  通过: %d / %d  (%.1f秒, peak ~12 threads on %u hw)\n", pass, pass + fail, elapsed, hw);
     printf("========================================\n");
 
     return fail > 0 ? 1 : 0;
