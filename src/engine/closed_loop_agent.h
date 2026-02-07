@@ -50,44 +50,44 @@ struct AgentConfig {
     size_t vision_height = 5;
 
     // Action decoding
-    // v29: Baldwin-evolved parameters (275s evolution, gen11, fitness=2.89)
-    size_t brain_steps_per_action = 17;   // evolved: 16.8
-    size_t reward_processing_steps = 10;  // evolved: 9.7
+    // v30: Baldwin-evolved with cerebellum (265s, gen28, fitness=2.86)
+    size_t brain_steps_per_action = 16;   // evolved: 16.2
+    size_t reward_processing_steps = 8;   // evolved: 8.2
 
     // Reward scaling
-    float reward_scale = 1.8f;  // evolved: 1.79
+    float reward_scale = 5.0f;  // evolved: 4.95 (strong reward signal for CB-BG synergy)
 
     // Exploration
-    float exploration_noise = 55.0f;  // evolved: 55.5 (back to original!)
+    float exploration_noise = 62.0f;  // evolved: 61.9
     size_t exploration_anneal_steps = 0;  // Steps over which noise reduces (0=no anneal, let BG override)
 
     // Learning
-    // Learning — Baldwin evolved (gen11)
+    // Learning — Baldwin evolved with cerebellum (gen28)
     bool enable_da_stdp     = true;
-    float da_stdp_lr        = 0.046f;   // evolved: 0.046 (was 0.03)
+    float da_stdp_lr        = 0.043f;   // evolved: 0.043
     bool enable_homeostatic = true;
     bool enable_cortical_stdp = true;
-    float cortical_stdp_a_plus  = 0.003f;  // evolved: 0.003 (was 0.005)
-    float cortical_stdp_a_minus = -0.011f; // evolved: 0.011 (was 0.006)
-    float cortical_stdp_w_max   = 2.8f;    // evolved: 2.81 (was 1.5)
+    float cortical_stdp_a_plus  = 0.016f;  // evolved: 0.016
+    float cortical_stdp_a_minus = -0.007f; // evolved: 0.007
+    float cortical_stdp_w_max   = 1.9f;    // evolved: 1.88
 
-    // Visual encoding (LGN) — evolved (safe: close to manual)
-    float lgn_gain           = 188.0f;  // evolved: 188.4 (was 200)
-    float lgn_baseline       = 4.8f;    // evolved: 4.8 (was 5, safe!)
-    float lgn_noise_amp      = 2.6f;    // evolved: 2.6 (was 2)
+    // Visual encoding (LGN) — evolved with CB
+    float lgn_gain           = 50.0f;   // evolved: 50 (CB provides own sensory path)
+    float lgn_baseline       = 19.0f;   // evolved: 18.6 (high: sustained context for CB)
+    float lgn_noise_amp      = 5.6f;    // evolved: 5.6
 
-    // Motor / BG-M1 coupling — evolved
-    float bg_to_m1_gain      = 21.0f;   // evolved: 20.8 (was 12!)
-    float attractor_drive_ratio  = 0.35f;  // evolved: 0.35 (was 0.6)
-    float background_drive_ratio = 0.24f;  // evolved: 0.24 (was 0.1)
+    // Motor / BG-M1 coupling — evolved with CB
+    float bg_to_m1_gain      = 6.3f;    // evolved: 6.3 (lower: CB DCN supplements BG)
+    float attractor_drive_ratio  = 0.34f;  // evolved: 0.34
+    float background_drive_ratio = 0.18f;  // evolved: 0.18
 
-    // NE exploration modulation — evolved
-    float ne_food_scale      = 1.0f;    // evolved: 1.0 (was 3, no NE decay!)
-    float ne_floor           = 1.0f;    // evolved: 1.0 (was 0.7, always explore!)
+    // NE exploration modulation — evolved with CB
+    float ne_food_scale      = 7.0f;    // evolved: 7.0 (with CB can exploit!)
+    float ne_floor           = 0.90f;   // evolved: 0.90
 
-    // Homeostatic plasticity — evolved
-    float homeostatic_target_rate = 5.4f;  // evolved: 5.4 (was 5)
-    float homeostatic_eta    = 0.0015f;    // evolved: 0.0015 (was 0.001)
+    // Homeostatic plasticity — evolved with CB
+    float homeostatic_target_rate = 10.0f; // evolved: 10.0
+    float homeostatic_eta    = 0.0001f;    // evolved: 0.0001
 
     // Brain size factors (multiplied on base neuron counts)
     float v1_size_factor     = 1.0f;
@@ -111,8 +111,8 @@ struct AgentConfig {
 
     // Awake SWR Replay (experience replay via hippocampal sharp-wave ripples)
     bool  enable_replay      = true;
-    int   replay_passes      = 10;    // evolved: 9.5 (was 5, more replay!)
-    float replay_da_scale    = 0.62f; // evolved: 0.62 (was 0.5)
+    int   replay_passes      = 6;     // evolved: 6.5
+    float replay_da_scale    = 1.0f;  // evolved: 1.0 (max DA during replay)
     size_t replay_buffer_size = 50;    // Max episodes in buffer (v21: 30→50, 10×10 has 100 positions)
 
     // Negative experience replay (LHb-controlled avoidance learning)
