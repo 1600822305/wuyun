@@ -22,6 +22,7 @@
 #include "region/limbic/amygdala.h"
 #include "region/limbic/septal_nucleus.h"
 #include "region/limbic/mammillary_body.h"
+#include "region/limbic/hypothalamus.h"
 #include "region/subcortical/cerebellum.h"
 
 namespace py = pybind11;
@@ -468,6 +469,9 @@ PYBIND11_MODULE(pywuyun, m) {
             // Anterior Thalamic Nucleus (Papez circuit)
             add_thal("ATN", 20, 8);
 
+            // Hypothalamus (internal drive system)
+            eng.add_region(std::make_unique<Hypothalamus>(HypothalamusConfig{}));
+
             // ============================================================
             // PROJECTIONS (~90 anatomical connections)
             // ============================================================
@@ -605,6 +609,16 @@ PYBIND11_MODULE(pywuyun, m) {
 
             // --- Septal → Hippocampus ---
             eng.add_projection("SeptalNucleus", "Hippocampus", 1);
+
+            // --- Hypothalamus drives ---
+            eng.add_projection("Hypothalamus", "LC", 2);    // Orexin→LC (wake→arousal)
+            eng.add_projection("Hypothalamus", "DRN", 2);   // Orexin→DRN (wake→serotonin)
+            eng.add_projection("Hypothalamus", "NBM", 2);   // Orexin→NBM (wake→ACh)
+            eng.add_projection("Hypothalamus", "VTA", 2);   // LH→VTA (hunger→motivation)
+            eng.add_projection("Hypothalamus", "Amygdala", 2); // PVN→CeA (stress→fear)
+            eng.add_projection("Amygdala", "Hypothalamus", 2); // CeA→PVN (fear→stress)
+            eng.add_projection("Insula", "Hypothalamus", 2);   // Interoception→drives
+            eng.add_projection("Hypothalamus", "ACC", 2);   // Drive signals→conflict
 
             // Neuromod sources
             using NM = SimulationEngine::NeuromodType;

@@ -669,20 +669,56 @@
 - **46区域** | **5409神经元** | **~90投射** | 4调质 | 4学习 | 预测编码 | 工作记忆 | 注意力
 - **121 测试全通过** (113+8), 零回归
 
-### Step 6: 调质系统 + 内驱力 + 小脑
-> 目标: 全局调制 + 内部状态 + 运动/认知预测
-**6a. 完整调质系统 (NextBrain脑干核团):**
-- ⬜ 5-HT: DR (MB-05) + MnR (MB-08)
-- ⬜ NE: LC (HB-01)
-- ⬜ ACh: PTg (MB-09) + LDTg (MB-10) + BF (BF-01)
-**6b. 下丘脑内驱力:**
-- ⬜ 睡眠开关: VLPO (HY-07) ⟷ orexin (HY-02)
-- ⬜ 应激: PVN (HY-04) → HPA轴
-- ⬜ 节律: SCN (HY-01)
-- ⬜ 摄食/饱腹: LH (HY-02) / VMH (HY-03)
-**6c. 小脑 (NextBrain 8小叶区):**
+### Step 6: 下丘脑内驱力系统 ✅ (2026-02-07)
+> 目标: 内在动机引擎 — 睡眠/觉醒/应激/摄食
+
+**Hypothalamus 类 (region/limbic/hypothalamus.h/cpp):**
+6个核团, 89个神经元:
+- **SCN** (n=20) — 昼夜节律起搏器, 正弦振荡 (可配置周期)
+- **VLPO** (n=15) — 睡眠促进, GABA/galanin→抑制觉醒中枢
+- **Orexin** (n=15) — 觉醒稳定, →LC/DRN/NBM (防止嗜睡发作)
+- **PVN** (n=15) — 应激反应, CRH→HPA轴→Amygdala
+- **LH** (n=12) — 摄食/饥饿驱力, →VTA (饥饿→动机)
+- **VMH** (n=12) — 饱腹/能量平衡
+
+**内部回路:**
+- Sleep-wake flip-flop (Saper 2005): VLPO⟷Orexin互相抑制
+- SCN→VLPO昼夜门控 (cosine振荡)
+- LH⟷VMH摄食平衡 (互相GABA抑制)
+- 外部可控: set_sleep_pressure/stress_level/hunger_level/satiety_level
+
+**8条新投射 (→~98条总投射):**
+- Orexin→LC/DRN/NBM (觉醒→调质广播)
+- Hypothalamus→VTA (饥饿→动机DA)
+- Hypothalamus↔Amygdala (应激↔恐惧)
+- Insula→Hypothalamus (内感受→驱力)
+- Hypothalamus→ACC (驱力→冲突监控)
+
+**7项测试全部通过:**
+1. SCN昼夜振荡 + 相位推进
+2. Flip-flop: 低压力→wake=0.909, 高压力→wake=0.102
+3. 睡眠压力: wake 0.911→0.208 + VLPO=30
+4. Orexin稳定: spikes=60, wake=0.977
+5. PVN应激: low=0, high=15 spikes + output=0.8
+6. LH⟷VMH: 饥饿→LH=24,VMH=0; 饱腹→LH=0,VMH=24
+7. 全系统集成: 7区域 + Orexin→LC + wake=0.909
+
+**生物学对应:**
+- Saper et al. (2005) Sleep-wake flip-flop switch
+- Sakurai (2007) Orexin/hypocretin neural circuit
+- Ulrich-Lai & Herman (2009) HPA stress axis
+
+**系统状态:**
+- **47区域** | **5498神经元** | **~98投射** | 4调质 | 4学习 | 预测编码 | 工作记忆 | 注意力 | **内驱力**
+- **128 测试全通过** (121+7), 零回归
+
+### Step 6 剩余 (低优先级):
+**6a. 调质系统扩展:**
+- ⬜ 5-HT细分: DR (MB-05) + MnR (MB-08)
+- ⬜ ACh细分: PTg (MB-09) + LDTg (MB-10) + BF (BF-01)
+**6b. 小脑扩展:**
 - ⬜ 运动小脑: 前叶+VIIIa/b+绒球 (CB-01, CB-06~07)
-- ⬜ 认知小脑: Crus I/II + VIIb (CB-03~05) — 工作记忆/推理
+- ⬜ 认知小脑: Crus I/II + VIIb (CB-03~05)
 - ⬜ 蚓部 (CB-08) + 过渡区 (CB-02)
 
 ### Step 7: 连接组学布线
