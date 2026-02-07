@@ -53,5 +53,13 @@ if(MSVC)
 endif()
 add_test(NAME foundation_tests COMMAND test_foundation)
 
+# Integrated brain tests (Step 4.5)
+add_executable(test_integrated_brain test_integrated_brain.cpp)
+target_link_libraries(test_integrated_brain PRIVATE wuyun_core)
+if(MSVC)
+    target_compile_options(test_integrated_brain PRIVATE /utf-8)
+endif()
+add_test(NAME integrated_brain_tests COMMAND test_integrated_brain)
+
 # Register as CTest
 add_test(NAME neuron_tests COMMAND test_neuron)

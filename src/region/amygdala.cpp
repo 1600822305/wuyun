@@ -56,6 +56,7 @@ Amygdala::Amygdala(const AmygdalaConfig& config)
     , syn_bla_rec_(make_empty(config.n_bla, config.n_bla, AMPA_PARAMS, CompartmentType::BASAL))
     // PSP buffer
     , psp_la_(config.n_la, 0.0f)
+    , psp_itc_(config.n_itc, 0.0f)
     // Aggregate state
     , fired_all_(n_neurons_, 0)
     , spike_type_all_(n_neurons_, 0)
@@ -105,10 +106,15 @@ void Amygdala::step(int32_t t, float dt) {
     oscillation_.step(dt);
     neuromod_.step(dt);
 
-    // Inject PSP buffer into La
+    // Inject PSP buffer into La (sensory input)
     for (size_t i = 0; i < psp_la_.size(); ++i) {
         if (psp_la_[i] > 0.5f) la_.inject_basal(i, psp_la_[i]);
         psp_la_[i] *= PSP_DECAY;
+    }
+    // Inject PSP buffer into ITC (PFC top-down for extinction)
+    for (size_t i = 0; i < psp_itc_.size(); ++i) {
+        if (psp_itc_[i] > 0.5f) itc_.inject_basal(i, psp_itc_[i]);
+        psp_itc_[i] *= PSP_DECAY;
     }
 
     // 1. La → BLA
@@ -157,6 +163,17 @@ void Amygdala::step(int32_t t, float dt) {
 void Amygdala::receive_spikes(const std::vector<SpikeEvent>& events) {
     for (const auto& evt : events) {
         float current = is_burst(static_cast<SpikeType>(evt.spike_type)) ? 30.0f : 20.0f;
+
+        // PFC spikes → ITC (top-down extinction control)
+        if (evt.region_id == pfc_source_region_) {
+            size_t base = evt.neuron_id % psp_itc_.size();
+            for (size_t k = 0; k < 3 && (base + k) < psp_itc_.size(); ++k) {
+                psp_itc_[base + k] += current;
+            }
+            continue;
+        }
+
+        // All other spikes → La (sensory input)
         size_t base = evt.neuron_id % psp_la_.size();
         for (size_t k = 0; k < 3 && (base + k) < psp_la_.size(); ++k) {
             psp_la_[base + k] += current;

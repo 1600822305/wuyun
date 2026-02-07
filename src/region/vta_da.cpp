@@ -9,6 +9,7 @@ VTA_DA::VTA_DA(const VTAConfig& config)
     , config_(config)
     , da_neurons_(config.n_da_neurons, DOPAMINE_NEURON_PARAMS())
     , da_level_(config.tonic_rate)
+    , psp_da_(config.n_da_neurons, 0.0f)
     , fired_(config.n_da_neurons, 0)
     , spike_type_(config.n_da_neurons, 0)
 {}
@@ -24,9 +25,12 @@ void VTA_DA::step(int32_t t, float dt) {
     // Negative RPE → pause (inhibition, below tonic)
     float rpe_current = last_rpe_ * config_.phasic_gain * 50.0f;
 
-    for (size_t i = 0; i < da_neurons_.size(); ++i) {
-        // Tonic baseline drive
-        da_neurons_.inject_basal(i, 5.0f + rpe_current);
+    // Inject PSP buffer (cross-region input, sustained)
+    for (size_t i = 0; i < psp_da_.size(); ++i) {
+        float psp_input = psp_da_[i] > 0.5f ? psp_da_[i] : 0.0f;
+        // Tonic baseline drive + RPE + cross-region PSP
+        da_neurons_.inject_basal(i, 5.0f + rpe_current + psp_input);
+        psp_da_[i] *= PSP_DECAY;
     }
 
     da_neurons_.step(t, dt);
@@ -49,11 +53,13 @@ void VTA_DA::step(int32_t t, float dt) {
 }
 
 void VTA_DA::receive_spikes(const std::vector<SpikeEvent>& events) {
-    // Excitatory input from other regions (e.g., LHb for negative RPE)
+    // Arriving spikes → PSP buffer (sustained drive via exponential decay)
     for (const auto& evt : events) {
-        size_t target = evt.neuron_id % da_neurons_.size();
-        float current = is_burst(static_cast<SpikeType>(evt.spike_type)) ? 10.0f : 5.0f;
-        da_neurons_.inject_basal(target, current);
+        float current = is_burst(static_cast<SpikeType>(evt.spike_type)) ? 20.0f : 12.0f;
+        size_t base = evt.neuron_id % psp_da_.size();
+        for (size_t k = 0; k < 3 && (base + k) < psp_da_.size(); ++k) {
+            psp_da_[base + k] += current;
+        }
     }
 }
 

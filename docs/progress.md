@@ -148,6 +148,30 @@
 - **ITC 消退**: CeA无消退=27, CeA有消退=1 (96%抑制) ✓
 - **33 测试全通过** (9 neuron + 6 column + 6 foundation + 5 minimal_brain + 7 memory_emotion)
 
+### Step 4.5: 整合大脑 — 9区域闭环 ✅ (2026-02-07)
+> 目标: 海马+杏仁核接入主回路，形成感觉→情感→记忆→决策→动作闭环
+
+**新增 6 条跨区域投射:**
+- ✅ V1 → Amygdala(La): 视觉威胁快速评估 (delay=2)
+- ✅ dlPFC → Amygdala(ITC): 恐惧消退/情绪调控 (delay=2)
+- ✅ dlPFC → Hippocampus(EC): 认知驱动记忆编码 (delay=3)
+- ✅ Hippocampus(Sub) → dlPFC: 回忆影响决策 (delay=3)
+- ✅ Amygdala(CeA) → VTA: 情绪调制奖励信号 (delay=2)
+- ✅ Amygdala(BLA) → Hippocampus(EC): 情绪标记增强记忆 (delay=2)
+
+**架构改进:**
+- ✅ Amygdala `receive_spikes` 来源路由: PFC→ITC, 其他→La (`pfc_source_region_`)
+- ✅ VTA 添加 PSP 缓冲: 跨区域脉冲持续累积 (DA神经元平衡态低于阈值，需 PSP 驱动)
+
+**端到端验证 (7 测试全通过):**
+- 构造: 9 区域, 1591 神经元, 13 投射
+- 沉默: 无输入=0 发放 ✓
+- **视觉→杏仁核**: V1=4896 → Amyg=3477 (CeA=119) ✓
+- **情绪标记记忆增强**: 中性Hipp=10633, 情绪Hipp=12617 (+19%) ✓
+- **杏仁核→VTA**: VTA基线=0, VTA+情绪=284 ✓
+- **PFC→ITC路由**: dlPFC=4533 → ITC=1628 (SpikeBus 正确路由) ✓
+- **40 测试全通过** (9+6+6+5+7+7)
+
 ### Step 4 剩余 (低优先级):
 - ⬜ 前下托 + HATA (H-06~07)
 - ⬜ 隔核 theta 起搏 (SP-01~02)

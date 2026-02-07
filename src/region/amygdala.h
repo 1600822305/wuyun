@@ -23,6 +23,7 @@
 #include "region/brain_region.h"
 #include "core/population.h"
 #include "core/synapse_group.h"
+#include <climits>
 
 namespace wuyun {
 
@@ -72,6 +73,9 @@ public:
     /** Inject PFC top-down to ITC (PFC→闰核, 恐惧消退调控) */
     void inject_pfc_to_itc(const std::vector<float>& currents);
 
+    /** Set PFC source region ID (for routing PFC spikes → ITC in receive_spikes) */
+    void set_pfc_source_region(uint32_t rid) { pfc_source_region_ = rid; }
+
     /** Get CeA output (fear/stress response readout) */
     const NeuronPopulation& cea() const { return cea_; }
     const NeuronPopulation& bla() const { return bla_; }
@@ -100,7 +104,9 @@ private:
 
     // PSP buffer for cross-region input
     static constexpr float PSP_DECAY = 0.7f;
-    std::vector<float> psp_la_;
+    std::vector<float> psp_la_;      // sensory → La
+    std::vector<float> psp_itc_;     // PFC → ITC
+    uint32_t pfc_source_region_ = UINT32_MAX;  // PFC region ID (for routing)
 
     std::vector<uint8_t> fired_all_;
     std::vector<int8_t>  spike_type_all_;

@@ -63,6 +63,10 @@ private:
     float last_rpe_        = 0.0f;
     float da_level_        = 0.1f;  // tonic + phasic
 
+    // PSP buffer for cross-region input (sustained synaptic drive)
+    static constexpr float PSP_DECAY = 0.7f;
+    std::vector<float> psp_da_;
+
     std::vector<uint8_t> fired_;
     std::vector<int8_t>  spike_type_;
 };
