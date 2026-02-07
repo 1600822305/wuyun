@@ -18,11 +18,11 @@
 
 #include "engine/simulation_engine.h"
 #include "region/cortical_region.h"
-#include "region/thalamic_relay.h"
-#include "region/basal_ganglia.h"
-#include "region/vta_da.h"
-#include "region/hippocampus.h"
-#include "region/amygdala.h"
+#include "region/subcortical/thalamic_relay.h"
+#include "region/subcortical/basal_ganglia.h"
+#include "region/neuromod/vta_da.h"
+#include "region/limbic/hippocampus.h"
+#include "region/limbic/amygdala.h"
 #include <cstdio>
 #include <cmath>
 #include <memory>

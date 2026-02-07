@@ -11,8 +11,8 @@
  *   5. BG DA-STDP: 奖励改变动作选择偏好
  */
 
-#include "region/hippocampus.h"
-#include "region/basal_ganglia.h"
+#include "region/limbic/hippocampus.h"
+#include "region/subcortical/basal_ganglia.h"
 #include "plasticity/stdp.h"
 #include "plasticity/da_stdp.h"
 #include <cstdio>

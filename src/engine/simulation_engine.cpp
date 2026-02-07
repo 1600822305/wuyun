@@ -1,8 +1,8 @@
 #include "engine/simulation_engine.h"
-#include "region/vta_da.h"
-#include "region/lc_ne.h"
-#include "region/drn_5ht.h"
-#include "region/nbm_ach.h"
+#include "region/neuromod/vta_da.h"
+#include "region/neuromod/lc_ne.h"
+#include "region/neuromod/drn_5ht.h"
+#include "region/neuromod/nbm_ach.h"
 #include <algorithm>
 
 namespace wuyun {

@@ -1,4 +1,4 @@
-#include "region/thalamic_relay.h"
+#include "region/subcortical/thalamic_relay.h"
 #include <random>
 #include <algorithm>
 

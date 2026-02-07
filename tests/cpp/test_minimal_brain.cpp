@@ -15,9 +15,9 @@
 
 #include "engine/simulation_engine.h"
 #include "region/cortical_region.h"
-#include "region/thalamic_relay.h"
-#include "region/basal_ganglia.h"
-#include "region/vta_da.h"
+#include "region/subcortical/thalamic_relay.h"
+#include "region/subcortical/basal_ganglia.h"
+#include "region/neuromod/vta_da.h"
 #include <cstdio>
 #include <memory>
 #include <numeric>

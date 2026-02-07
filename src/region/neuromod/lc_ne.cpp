@@ -1,4 +1,4 @@
-#include "region/lc_ne.h"
+#include "region/neuromod/lc_ne.h"
 #include <algorithm>
 #include <cmath>
 

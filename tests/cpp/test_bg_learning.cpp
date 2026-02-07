@@ -10,7 +10,7 @@
  *   4. 反转学习: 奖励从A切换到B → 权重应逐渐反转
  */
 
-#include "region/basal_ganglia.h"
+#include "region/subcortical/basal_ganglia.h"
 #include <cstdio>
 #include <cmath>
 #include <vector>

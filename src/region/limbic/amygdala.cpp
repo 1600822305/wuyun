@@ -1,4 +1,4 @@
-#include "region/amygdala.h"
+#include "region/limbic/amygdala.h"
 #include <random>
 #include <algorithm>
 

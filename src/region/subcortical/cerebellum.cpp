@@ -1,4 +1,4 @@
-#include "region/cerebellum.h"
+#include "region/subcortical/cerebellum.h"
 #include <algorithm>
 #include <cmath>
 #include <random>

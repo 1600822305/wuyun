@@ -8,8 +8,8 @@
 #include <windows.h>
 #endif
 
-#include "region/hippocampus.h"
-#include "region/amygdala.h"
+#include "region/limbic/hippocampus.h"
+#include "region/limbic/amygdala.h"
 #include "engine/simulation_engine.h"
 
 using namespace wuyun;

@@ -19,9 +19,9 @@
  */
 
 #include "region/cortical_region.h"
-#include "region/thalamic_relay.h"
-#include "region/lc_ne.h"
-#include "region/nbm_ach.h"
+#include "region/subcortical/thalamic_relay.h"
+#include "region/neuromod/lc_ne.h"
+#include "region/neuromod/nbm_ach.h"
 #include "engine/simulation_engine.h"
 #include <cstdio>
 #include <cstdlib>

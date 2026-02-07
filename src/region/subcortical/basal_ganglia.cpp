@@ -1,4 +1,4 @@
-#include "region/basal_ganglia.h"
+#include "region/subcortical/basal_ganglia.h"
 #include <random>
 #include <algorithm>
 #include <climits>

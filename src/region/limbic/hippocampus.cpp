@@ -1,4 +1,4 @@
-#include "region/hippocampus.h"
+#include "region/limbic/hippocampus.h"
 #include <random>
 #include <algorithm>
 #include <cmath>

@@ -17,15 +17,15 @@ set(WUYUN_CORE_SOURCES
     circuit/cortical_column.cpp
     region/brain_region.cpp
     region/cortical_region.cpp
-    region/thalamic_relay.cpp
-    region/basal_ganglia.cpp
-    region/vta_da.cpp
-    region/lc_ne.cpp
-    region/drn_5ht.cpp
-    region/nbm_ach.cpp
-    region/cerebellum.cpp
-    region/hippocampus.cpp
-    region/amygdala.cpp
+    region/subcortical/thalamic_relay.cpp
+    region/subcortical/basal_ganglia.cpp
+    region/subcortical/cerebellum.cpp
+    region/limbic/hippocampus.cpp
+    region/limbic/amygdala.cpp
+    region/neuromod/vta_da.cpp
+    region/neuromod/lc_ne.cpp
+    region/neuromod/drn_5ht.cpp
+    region/neuromod/nbm_ach.cpp
     engine/simulation_engine.cpp
 )
 
