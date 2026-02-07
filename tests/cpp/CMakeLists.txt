@@ -245,5 +245,13 @@ if(MSVC)
 endif()
 add_test(NAME learning_curve_tests COMMAND test_learning_curve)
 
+# Step 25: DA-STDP minimal task diagnostics
+add_executable(test_minimal_tasks test_minimal_tasks.cpp)
+target_link_libraries(test_minimal_tasks PRIVATE wuyun_core)
+if(MSVC)
+    target_compile_options(test_minimal_tasks PRIVATE /utf-8)
+endif()
+add_test(NAME minimal_tasks_tests COMMAND test_minimal_tasks)
+
 # Register as CTest
 add_test(NAME neuron_tests COMMAND test_neuron)
