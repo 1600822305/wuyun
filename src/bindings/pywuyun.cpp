@@ -166,7 +166,11 @@ PYBIND11_MODULE(pywuyun, m) {
         .def("prediction_error", &CorticalRegion::prediction_error)
         .def("precision_sensory", &CorticalRegion::precision_sensory)
         .def("precision_prior", &CorticalRegion::precision_prior)
-        .def("predictive_coding_enabled", &CorticalRegion::predictive_coding_enabled);
+        .def("predictive_coding_enabled", &CorticalRegion::predictive_coding_enabled)
+        .def("enable_working_memory", &CorticalRegion::enable_working_memory)
+        .def("working_memory_enabled", &CorticalRegion::working_memory_enabled)
+        .def("wm_persistence", &CorticalRegion::wm_persistence)
+        .def("wm_da_gain", &CorticalRegion::wm_da_gain);
 
     // =========================================================================
     // ThalamicConfig + ThalamicRelay

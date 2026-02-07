@@ -64,6 +64,18 @@ public:
     float precision_sensory() const { return pc_precision_sensory_; }
     float precision_prior()   const { return pc_precision_prior_; }
 
+    // --- 工作记忆接口 ---
+
+    /** 启用工作记忆 (L2/3循环自持 + DA稳定) */
+    void enable_working_memory();
+    bool working_memory_enabled() const { return wm_enabled_; }
+
+    /** 当前工作记忆持续性 (活跃L2/3比例, 0~1) */
+    float wm_persistence() const;
+
+    /** DA对工作记忆的增益 */
+    float wm_da_gain() const { return wm_da_gain_; }
+
 private:
     CorticalColumn column_;
     ColumnOutput   last_output_;
@@ -91,6 +103,15 @@ private:
     float pc_error_smooth_      = 0.0f;       // 指数平滑的预测误差
     static constexpr float PC_ERROR_SMOOTH = 0.1f;  // 平滑率
     static constexpr float PC_PRED_DECAY   = 0.7f;  // 预测缓冲衰减
+
+    // --- 工作记忆状态 ---
+    bool wm_enabled_ = false;
+    std::vector<float> wm_recurrent_buf_;    // L2/3 sized 循环缓冲
+    float wm_da_gain_ = 1.0f;               // DA调制增益
+    static constexpr float WM_RECURRENT_STR = 8.0f;  // 基础循环电流
+    static constexpr float WM_DECAY         = 0.85f; // 循环衰减 (慢于PSP)
+    static constexpr float WM_DA_SENSITIVITY= 2.0f;  // DA效应强度
+    static constexpr float WM_FAN_OUT       = 5.0f;  // 循环扩散范围
 };
 
 } // namespace wuyun

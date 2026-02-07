@@ -133,5 +133,13 @@ if(MSVC)
 endif()
 add_test(NAME learning_tests COMMAND test_learning)
 
+# Working memory + BG online learning tests (Step 10)
+add_executable(test_working_memory test_working_memory.cpp)
+target_link_libraries(test_working_memory PRIVATE wuyun_core)
+if(MSVC)
+    target_compile_options(test_working_memory PRIVATE /utf-8)
+endif()
+add_test(NAME working_memory_tests COMMAND test_working_memory)
+
 # Register as CTest
 add_test(NAME neuron_tests COMMAND test_neuron)

@@ -39,6 +39,20 @@ void CorticalRegion::step(int32_t t, float dt) {
         pc_precision_prior_ = std::max(0.2f, 1.0f - 0.8f * ach);
     }
 
+    // === Working memory: inject recurrent buffer into L2/3 basal ===
+    if (wm_enabled_) {
+        float da = neuromod_.current().da;
+        wm_da_gain_ = 1.0f + WM_DA_SENSITIVITY * da;
+
+        auto& l23 = column_.l23();
+        for (size_t i = 0; i < wm_recurrent_buf_.size(); ++i) {
+            if (wm_recurrent_buf_[i] > 0.5f) {
+                l23.inject_basal(i, wm_recurrent_buf_[i] * wm_da_gain_);
+            }
+            wm_recurrent_buf_[i] *= WM_DECAY;
+        }
+    }
+
     // Inject decaying PSP buffer into L4 basal (feedforward sensory input)
     auto& l4 = column_.l4();
     for (size_t i = 0; i < psp_buffer_.size(); ++i) {
@@ -72,6 +86,21 @@ void CorticalRegion::step(int32_t t, float dt) {
 
     // Step the cortical column
     last_output_ = column_.step(t, dt);
+
+    // === Working memory: L2/3 firing feeds back into recurrent buffer ===
+    if (wm_enabled_) {
+        auto& l23 = column_.l23();
+        const auto& l23_fired = l23.fired();
+        size_t fan = static_cast<size_t>(WM_FAN_OUT);
+        for (size_t i = 0; i < l23.size(); ++i) {
+            if (l23_fired[i]) {
+                for (size_t k = 0; k <= fan; ++k) {
+                    size_t idx = (i + k) % l23.size();
+                    wm_recurrent_buf_[idx] += WM_RECURRENT_STR;
+                }
+            }
+        }
+    }
 
     // Aggregate firing state from all populations
     aggregate_firing_state();
@@ -166,6 +195,20 @@ void CorticalRegion::enable_predictive_coding() {
 
 void CorticalRegion::add_feedback_source(uint32_t region_id) {
     pc_feedback_sources_.insert(region_id);
+}
+
+void CorticalRegion::enable_working_memory() {
+    wm_enabled_ = true;
+    wm_recurrent_buf_.assign(column_.l23().size(), 0.0f);
+}
+
+float CorticalRegion::wm_persistence() const {
+    if (!wm_enabled_) return 0.0f;
+    size_t active = 0;
+    for (float v : wm_recurrent_buf_) {
+        if (v > 1.0f) active++;
+    }
+    return static_cast<float>(active) / static_cast<float>(wm_recurrent_buf_.size());
 }
 
 } // namespace wuyun

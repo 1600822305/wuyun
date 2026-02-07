@@ -491,6 +491,36 @@
 - ⚠️ 需改进: BG需训练权重(工作记忆), PFC消退需选择性连接(注意力)
 - 生成: 4张可视化图 (go_nogo/fear/stroop/summary)
 
+### Step 10: 工作记忆 + BG在线学习 ✅ (2026-02-07)
+> 目标: dlPFC持续性活动 + DA稳定 + BG门控训练
+
+**工作记忆机制 (修改 CorticalRegion, 零新文件):**
+- ✅ `enable_working_memory()` — 可选启用, 向后完全兼容
+- ✅ L2/3循环自持: 发放→`wm_recurrent_buf_`→下一步注入L2/3 basal
+- ✅ DA稳定: `wm_da_gain_ = 1.0 + 2.0 * DA` (D1受体机制)
+- ✅ `wm_persistence()` — 活跃L2/3比例 (0~1)
+
+**BG在线学习 (利用已有DA-STDP):**
+- ✅ `set_da_source_region(UINT32_MAX)` 禁用自动路由, 手动控制DA
+- ✅ 训练: 高DA奖励 → D1(Go)权重LTP
+- ✅ 测试: D1(训练后)=61 > D1(未训练)=55
+
+**验证结果:**
+- 工作记忆基础: 刺激期301→持续期109 spikes (活动自持)
+- DA持续性: DA=0.1→0, DA=0.3→4, DA=0.6→555 (DA稳定WM)
+- WM vs 无WM: 4 vs 0 (WM机制有效)
+- WM+BG联合: 延迟期BG=308, dlPFC持续性=1.0 (维持→决策)
+- 向后兼容: 无WM时行为完全一致
+
+**生物学对应:**
+- dlPFC L2/3循环 = 持续性活动 (Goldman-Rakic 1995)
+- DA D1 = 增强NMDA循环电流 (Seamans & Yang 2004)
+- BG门控 = DA调制的Go/NoGo选择 (Frank 2005)
+
+**系统状态:**
+- 21区域 | 3239神经元 | 36投射 | 4调质 | 4学习 | 预测编码 | **工作记忆**
+- **92 测试全通过** (86+6), 零回归
+
 ### Step 4 剩余 (低优先级):
 - ⬜ 前下托 + HATA (H-06~07)
 - ⬜ 隔核 theta 起搏 (SP-01~02)
