@@ -137,26 +137,23 @@ static TestResult test_learning_vs_control() {
     std::ostringstream out;
     out << "\n--- 测试2: 学习 vs 无学习对照 (3000步, 10x10 grid) ---\n";
 
-    // Run learner and control in parallel (2 threads)
     EpochStats learn_stats, ctrl_stats;
-    std::thread t_learn([&]{
+    {
         AgentConfig cfg;
         cfg.enable_da_stdp = true;
         cfg.world_config.seed = 42;
         ClosedLoopAgent learner(cfg);
         for (int i = 0; i < 1000; ++i) learner.agent_step();
         learn_stats = run_epoch(learner, 2000);
-    });
-    std::thread t_ctrl([&]{
+    }
+    {
         AgentConfig cfg;
         cfg.enable_da_stdp = false;
         cfg.world_config.seed = 42;
         ClosedLoopAgent control(cfg);
         for (int i = 0; i < 1000; ++i) control.agent_step();
         ctrl_stats = run_epoch(control, 2000);
-    });
-    t_learn.join();
-    t_ctrl.join();
+    }
 
     char buf[256];
     snprintf(buf, sizeof(buf), "  Learner (DA-STDP ON):  food=%d, danger=%d, safety=%.2f, avg_r=%+.4f\n",
@@ -346,29 +343,26 @@ static TestResult test_generalization() {
     std::ostringstream out;
     out << "\n--- 测试6: 泛化能力诊断 ---\n";
 
-    // 4 agents in parallel: 2 trained (seed=42→test) + 2 fresh (seed=77,123)
     int seeds[] = {77, 123};
     EpochStats t_results[2], f_results[2];
-    std::thread threads[4];
 
     for (int i = 0; i < 2; ++i) {
-        threads[i*2] = std::thread([&, i]{
+        {
             AgentConfig cfg;
             cfg.enable_da_stdp = true;
             cfg.world_config.seed = 42;
             ClosedLoopAgent ag(cfg);
-            run_epoch(ag, 2000);  // train
-            t_results[i] = run_epoch(ag, 500);  // test
-        });
-        threads[i*2+1] = std::thread([&, i]{
+            run_epoch(ag, 2000);
+            t_results[i] = run_epoch(ag, 500);
+        }
+        {
             AgentConfig cfg;
             cfg.enable_da_stdp = true;
             cfg.world_config.seed = static_cast<uint32_t>(seeds[i]);
             ClosedLoopAgent ag(cfg);
             f_results[i] = run_epoch(ag, 500);
-        });
+        }
     }
-    for (auto& t : threads) t.join();
 
     float trained_safety = 0, fresh_safety = 0;
     char buf[256];
@@ -416,45 +410,30 @@ int main() {
 
     auto t0 = std::chrono::steady_clock::now();
 
-    // Launch all 6 tests in parallel
+    // Run tests sequentially (immediate output, brain uses OpenMP internally)
     TestResult results[6];
-    std::thread threads[6];
-
-    // Track completion for progress reporting
-    std::atomic<int> done{0};
+    std::function<TestResult()> tests[] = {
+        test_learning_curve, test_learning_vs_control, test_bg_diagnostics,
+        test_long_training, test_large_env, test_generalization
+    };
     const char* names[] = {"学习曲线5k", "学习vs对照", "BG诊断", "长训10k", "大环境15x15", "泛化"};
 
-    auto run_test = [&](int idx, std::function<TestResult()> fn) {
-        printf("  [开始] 测试%d: %s\n", idx+1, names[idx]);
+    int pass = 0, fail = 0;
+    for (int i = 0; i < 6; ++i) {
+        auto ts = std::chrono::steady_clock::now();
+        results[i] = tests[i]();
+        auto te = std::chrono::steady_clock::now();
+        double sec = std::chrono::duration<double>(te - ts).count();
+        printf("%s  (%.1f秒)\n", results[i].output.c_str(), sec);
         fflush(stdout);
-        results[idx] = fn();
-        int d = ++done;
-        printf("  [完成] 测试%d: %s (%d/6)\n", idx+1, names[idx], d);
-        fflush(stdout);
-    };
-
-    threads[0] = std::thread([&]{ run_test(0, test_learning_curve); });
-    threads[1] = std::thread([&]{ run_test(1, test_learning_vs_control); });
-    threads[2] = std::thread([&]{ run_test(2, test_bg_diagnostics); });
-    threads[3] = std::thread([&]{ run_test(3, test_long_training); });
-    threads[4] = std::thread([&]{ run_test(4, test_large_env); });
-    threads[5] = std::thread([&]{ run_test(5, test_generalization); });
-
-    // Wait for all
-    for (auto& t : threads) t.join();
+        if (results[i].passed) pass++; else fail++;
+    }
 
     auto t1 = std::chrono::steady_clock::now();
     double elapsed = std::chrono::duration<double>(t1 - t0).count();
 
-    // Print results sequentially (clean output)
-    int pass = 0, fail = 0;
-    for (int i = 0; i < 6; ++i) {
-        printf("%s", results[i].output.c_str());
-        if (results[i].passed) pass++; else fail++;
-    }
-
     printf("\n========================================\n");
-    printf("  通过: %d / %d  (%.1f秒, peak ~12 threads on %u hw)\n", pass, pass + fail, elapsed, hw);
+    printf("  通过: %d / %d  (总计 %.1f秒, OpenMP %u threads)\n", pass, pass + fail, elapsed, hw);
     printf("========================================\n");
 
     return fail > 0 ? 1 : 0;
