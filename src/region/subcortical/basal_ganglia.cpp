@@ -301,6 +301,65 @@ void BasalGanglia::step(int32_t t, float dt) {
         psp_stn_[i] *= PSP_DECAY;
     }
 
+    // --- D1/D2 lateral inhibition: MSN collateral GABA competition ---
+    // Biology: striatal MSN have GABAergic collateral synapses (~1-3% connectivity)
+    // that implement local competition between action channels.
+    // Implementation: count recent firing per subgroup, most active subgroup
+    // sends inhibitory current to competing subgroups.
+    // Effect: "向左走" 被奖励 → D1-LEFT 活跃 → 抑制 D1-RIGHT/UP/DOWN
+    //         → 方向选择性在权重中逐渐涌现
+    if (config_.lateral_inhibition && d1_msn_.size() >= 4) {
+        size_t d1_group = d1_msn_.size() / 4;
+        size_t d2_group = d2_msn_.size() / 4;
+
+        // Count fires per subgroup from last step
+        int d1_fires[4] = {0, 0, 0, 0};
+        int d2_fires[4] = {0, 0, 0, 0};
+        for (int g = 0; g < 4; ++g) {
+            size_t start = g * d1_group;
+            size_t end = (g < 3) ? (g + 1) * d1_group : d1_msn_.size();
+            for (size_t j = start; j < end; ++j)
+                if (d1_msn_.fired()[j]) d1_fires[g]++;
+        }
+        for (int g = 0; g < 4; ++g) {
+            size_t start = g * d2_group;
+            size_t end = (g < 3) ? (g + 1) * d2_group : d2_msn_.size();
+            for (size_t j = start; j < end; ++j)
+                if (d2_msn_.fired()[j]) d2_fires[g]++;
+        }
+
+        // Find max D1 subgroup
+        int max_d1 = *std::max_element(d1_fires, d1_fires + 4);
+        if (max_d1 > 0) {
+            float inh = config_.lateral_inh_strength;
+            for (int g = 0; g < 4; ++g) {
+                if (d1_fires[g] < max_d1) {
+                    // Losing D1 subgroup gets inhibited (GABA: negative current)
+                    float suppress = -inh * static_cast<float>(max_d1 - d1_fires[g]);
+                    size_t start = g * d1_group;
+                    size_t end = (g < 3) ? (g + 1) * d1_group : d1_msn_.size();
+                    for (size_t j = start; j < end; ++j)
+                        d1_msn_.inject_basal(j, suppress);
+                }
+            }
+        }
+
+        // Same for D2 (losing NoGo channels get suppressed → winner NoGo dominates)
+        int max_d2 = *std::max_element(d2_fires, d2_fires + 4);
+        if (max_d2 > 0) {
+            float inh = config_.lateral_inh_strength;
+            for (int g = 0; g < 4; ++g) {
+                if (d2_fires[g] < max_d2) {
+                    float suppress = -inh * static_cast<float>(max_d2 - d2_fires[g]);
+                    size_t start = g * d2_group;
+                    size_t end = (g < 3) ? (g + 1) * d2_group : d2_msn_.size();
+                    for (size_t j = start; j < end; ++j)
+                        d2_msn_.inject_basal(j, suppress);
+                }
+            }
+        }
+    }
+
     // GPi/GPe get tonic excitation (they fire spontaneously)
     for (size_t i = 0; i < gpi_.size(); ++i) gpi_.inject_basal(i, 8.0f);
     for (size_t i = 0; i < gpe_.size(); ++i) gpe_.inject_basal(i, 6.0f);

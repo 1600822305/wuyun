@@ -22,10 +22,10 @@ int main(int argc, char* argv[]) {
     if (argc >= 2) n_gen = static_cast<size_t>(std::atoi(argv[1]));
     if (argc >= 3) n_pop = static_cast<size_t>(std::atoi(argv[2]));
 
-    printf("=== WuYun Genome Layer v1: Evolution ===\n");
+    printf("=== WuYun Genome Layer v1: Evolution (Step 22) ===\n");
     printf("  Population: %zu, Generations: %zu\n", n_pop, n_gen);
     printf("  Genes: 23 closed-loop parameters\n");
-    printf("  Eval: 3000 steps x 2 seeds\n");
+    printf("  Eval: 5000 steps x 3 seeds (10x10 grid, 5x5 vision)\n");
     printf("  Fitness: late_safety + improvement*2 - danger*0.002 + food*0.001\n\n");
 
     EvolutionConfig ecfg;
@@ -35,16 +35,12 @@ int main(int argc, char* argv[]) {
     ecfg.mutation_rate = 0.15f;
     ecfg.mutation_sigma = 0.10f;
     ecfg.elite_fraction = 0.10f;
-    ecfg.eval_steps = 3000;
-    ecfg.eval_seeds = {42, 77};
+    ecfg.eval_steps = 5000;                    // v22: 3000→5000, capture full learning curve
+    ecfg.eval_seeds = {42, 77, 123};           // v22: 2→3 seeds for generalization
     ecfg.ga_seed = 2024;
 
-    // Default GridWorld (5x5, 3 food, 2 danger)
-    ecfg.world_config.width = 5;
-    ecfg.world_config.height = 5;
-    ecfg.world_config.n_food = 3;
-    ecfg.world_config.n_danger = 2;
-    ecfg.world_config.vision_radius = 1;
+    // v22: use default 10x10 grid, 5x5 vision, 5 food, 3 danger
+    // (GridWorldConfig defaults are already correct since Step 21)
 
     EvolutionEngine engine(ecfg);
 

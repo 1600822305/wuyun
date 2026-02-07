@@ -3,8 +3,8 @@
  * GridWorld — 简单2D格子世界
  *
  * 功能:
- *   - NxN 网格, Agent 可移动
- *   - 3x3 局部视野 (编码为 9 像素灰度)
+ *   - NxN 网格 (默认 10×10), Agent 可移动
+ *   - 可配置局部视野 (默认 5×5, vision_radius=2)
  *   - 食物 (奖励 +1), 危险 (惩罚 -1), 墙壁 (无法通过)
  *   - 食物被吃后在随机位置重生
  *
@@ -12,8 +12,8 @@
  *   EMPTY=0, FOOD=1, DANGER=2, WALL=3
  *
  * 视觉编码:
- *   EMPTY=0.0, FOOD=0.8, DANGER=0.3, WALL=0.1, AGENT=0.5 (自身位置)
- *   → 3x3 patch → VisualInput center-surround → LGN
+ *   EMPTY=0.0, FOOD=0.9, DANGER=0.3, WALL=0.1, AGENT=0.6 (自身位置)
+ *   → NxN patch → VisualInput center-surround → LGN
  */
 
 #include <vector>
@@ -41,10 +41,10 @@ enum class Action : uint8_t {
 struct GridWorldConfig {
     size_t width       = 10;
     size_t height      = 10;
-    size_t n_food      = 3;     // 食物数量
-    size_t n_danger    = 2;     // 危险数量
+    size_t n_food      = 5;     // 食物数量 (v21: 3→5, 更丰富的觅食环境)
+    size_t n_danger    = 3;     // 危险数量 (v21: 2→3, 3%密度, 可学习的回避挑战)
     uint32_t seed      = 42;    // 随机种子
-    int    vision_radius = 1;   // 视野半径 (1=3x3, 2=5x5, 3=7x7)
+    int    vision_radius = 2;   // 视野半径 (v21: 1→2, 3×3→5×5, 释放PC/睡眠/空间记忆)
 
     // 视觉编码值
     float vis_empty    = 0.0f;
@@ -77,7 +77,7 @@ public:
     /** Agent 执行动作, 返回结果 */
     StepResult act(Action action);
 
-    /** 获取 3x3 局部视野 (长度=9, 行优先) */
+    /** 获取 NxN 局部视野 (N=2*vision_radius+1, 行优先) */
     std::vector<float> observe() const;
 
     /** 获取完整视野 (长度=width*height, 用于可视化) */

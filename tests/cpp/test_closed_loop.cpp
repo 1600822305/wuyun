@@ -76,19 +76,25 @@ static void test_gridworld_observation() {
     cfg.width = 5; cfg.height = 5;
     cfg.n_food = 1; cfg.n_danger = 0;
     cfg.seed = 123;
+    // vision_radius defaults to 2 (5×5 patch) since v21
 
     GridWorld world(cfg);
 
     auto obs = world.observe();
-    TEST_ASSERT(obs.size() == 9, "3x3 observation");
+    size_t expected_obs = cfg.vision_pixels();  // (2*radius+1)^2
+    TEST_ASSERT(obs.size() == expected_obs, "NxN observation matches config");
 
     // Center should be agent
-    printf("  3x3 patch: [");
-    for (size_t i = 0; i < 9; ++i) printf("%.1f%s", obs[i], i<8?", ":"");
+    size_t center = obs.size() / 2;
+    size_t show_n = obs.size() < 9 ? obs.size() : 9;
+    printf("  %zux%zu patch (center=%zu): [", cfg.vision_side(), cfg.vision_side(), center);
+    for (size_t i = 0; i < show_n; ++i)
+        printf("%.1f%s", obs[i], i < show_n - 1 ? ", " : "");
+    if (obs.size() > 9) printf(", ...");
     printf("]\n");
 
     // Agent position (center of patch) = vis_agent
-    TEST_ASSERT(std::abs(obs[4] - cfg.vis_agent) < 0.01f, "Center is agent");
+    TEST_ASSERT(std::abs(obs[center] - cfg.vis_agent) < 0.01f, "Center is agent");
 
     // Full observation
     auto full = world.full_observation();

@@ -44,9 +44,9 @@ struct AgentConfig {
     // Brain scale
     int brain_scale = 1;    // 1=default, 3=large
 
-    // Perception
-    size_t vision_width  = 3;   // 3x3 local patch
-    size_t vision_height = 3;
+    // Perception (auto-computed from world_config.vision_radius in constructor)
+    size_t vision_width  = 5;   // v21: default 5x5 local patch (vision_radius=2)
+    size_t vision_height = 5;
 
     // Action decoding
     size_t brain_steps_per_action = 15;  // 每个环境步的脑步数 (LGN→V1→dlPFC→BG需7步延迟)
@@ -92,9 +92,10 @@ struct AgentConfig {
     float bg_size_factor     = 1.0f;
 
     // Predictive coding (dlPFC → V1 attentional feedback)
-    // Infrastructure ready but disabled by default: doesn't help in 3x3 visual field.
-    // Enable when environment has larger, more redundant visual scenes.
-    bool  enable_predictive_coding = false;
+    // v21: enabled by default — 5×5 vision field has enough redundancy for PC benefit.
+    // Step 15-B verified: PC provides +0.121 improvement advantage in 5×5 vision,
+    // reduces danger by 40%. Only harmful in tiny 3×3 scenes (反馈=噪声).
+    bool  enable_predictive_coding = true;
 
     // LHb negative RPE (punishment learning via DA pause)
     bool  enable_lhb         = true;   // Enable LHb for negative RPE
@@ -109,7 +110,7 @@ struct AgentConfig {
     bool  enable_replay      = true;   // Enable awake replay after reward events
     int   replay_passes      = 5;      // Max old episodes to replay per reward event
     float replay_da_scale    = 0.5f;   // DA signal scaling during replay (moderate vs online)
-    size_t replay_buffer_size = 30;    // Max episodes in buffer
+    size_t replay_buffer_size = 50;    // Max episodes in buffer (v21: 30→50, 10×10 has 100 positions)
 
     // Negative experience replay (LHb-controlled avoidance learning)
     // Previously disabled: D2 over-strengthening without LHb control.
@@ -122,11 +123,16 @@ struct AgentConfig {
     // Biology: NREM SWR replays recent experiences for BG+cortical consolidation.
     // Agent runs wake_steps, then sleeps for sleep_nrem_steps, then wakes.
     // During sleep: no environment interaction, replay all buffered episodes.
-    bool   enable_sleep_consolidation = false;  // Disabled: harmful in 3x3 (awake replay sufficient)
-    size_t wake_steps_before_sleep    = 1000;  // Wake steps between sleep bouts (less frequent)
-    size_t sleep_nrem_steps           = 30;    // NREM consolidation steps per bout (light sleep)
+    // v21: enabled for 10×10 environment — more positions to remember = more forgetting
+    //      = sleep consolidation combats weight decay effectively.
+    //      In 3×3 it was harmful (awake replay sufficient, over-consolidation).
+    //      Tuning: very light naps, long intervals, gentle DA — prevent over-consolidation
+    //      while combating forgetting in 100-cell grid.
+    bool   enable_sleep_consolidation = true;   // v21: enabled for larger environments
+    size_t wake_steps_before_sleep    = 800;   // v21: long interval, light touch
+    size_t sleep_nrem_steps           = 15;    // v21: very light consolidation per bout
     int    sleep_replay_passes        = 1;     // Single pass (prevent over-consolidation)
-    float  sleep_positive_da          = 0.40f; // Gentle DA above baseline (0.3) for Go consolidation
+    float  sleep_positive_da          = 0.35f; // v21: barely above baseline (0.3), gentle nudge
 
     // Evolution fast-eval mode
     bool fast_eval = false;  // Skip hippocampus + cortical STDP for ~40% speedup

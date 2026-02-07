@@ -59,6 +59,14 @@ struct BasalGangliaConfig {
     float da_stdp_elig_decay = 0.98f; // Eligibility trace decay per step (~50 step window, 0.98^15=0.74)
     float da_stdp_max_elig = 50.0f;  // Per-synapse elig ceiling (prevents Δw explosion: 0.03×0.5×50=0.75)
     float da_stdp_w_decay  = 0.003f;  // Weight decay toward 1.0 per step (recovery in ~67 steps)
+
+    // D1/D2 lateral inhibition (MSN collateral GABA, Humphries et al. 2009)
+    // Biology: MSN→MSN collateral synapses provide ~1-3% lateral connectivity,
+    // creating competition between action channels. The winning channel (most active D1 subgroup)
+    // suppresses competing channels → direction selectivity emerges.
+    // Without this, all D1 subgroups receive similar cortical input and converge to same weights.
+    bool  lateral_inhibition = true;    // Enable D1/D2 inter-subgroup competition
+    float lateral_inh_strength = 8.0f; // GABA-mediated inhibitory current to losing subgroups
 };
 
 class BasalGanglia : public BrainRegion {

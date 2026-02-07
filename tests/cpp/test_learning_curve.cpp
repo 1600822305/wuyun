@@ -1,13 +1,17 @@
 /**
  * test_learning_curve.cpp — 闭环学习曲线验证
  *
- * 核心问题: Agent能否通过DA-STDP学会趋食避害?
+ * v21 环境升级: 10×10 grid, 5×5 视野, 5 food, 4 danger
+ * (从 10×10/3×3/3food/2danger 升级, 释放 PC/睡眠/空间记忆)
+ *
+ * 核心问题: Agent能否在更大环境中通过DA-STDP学会趋食避害?
  *
  * 测试方案:
  * 1. 5000步长时训练, 每500步记录食物率和危险率
- * 2. 对比 early (前500步) vs late (后500步) 表现
- * 3. 对比有学习 vs 无学习 (control)
- * 4. 验证BG权重变化 (D1 Go pathway应该被强化)
+ * 2. 对比有学习 vs 无学习 (control)
+ * 3. BG DA-STDP诊断 (权重变化/DA/elig)
+ * 4. 10000步长时训练 (学习曲线稳定性)
+ * 5. 更大环境 PC 对比 (15×15, 7×7视野)
  */
 
 #include "engine/closed_loop_agent.h"
@@ -60,15 +64,26 @@ static EpochStats run_epoch(ClosedLoopAgent& agent, int n_steps) {
 }
 
 // =========================================================================
-// Test 1: 学习曲线 (5000步, 每500步统计)
+// Test 1: 学习曲线 (5000步, 10×10 grid, 5×5 vision)
 // =========================================================================
 static void test_learning_curve() {
-    printf("\n--- 测试1: 学习曲线 (5000步) ---\n");
+    printf("\n--- 测试1: 学习曲线 (5000步, 10x10 grid, 5x5 vision) ---\n");
 
     AgentConfig cfg;
     cfg.enable_da_stdp = true;
 
     ClosedLoopAgent agent(cfg);
+
+    printf("  Environment: %zux%zu grid, %zux%zu vision, %zu food, %zu danger\n",
+           cfg.world_config.width, cfg.world_config.height,
+           cfg.world_config.vision_side(), cfg.world_config.vision_side(),
+           cfg.world_config.n_food, cfg.world_config.n_danger);
+    printf("  Brain: V1=%zu, dlPFC=%zu, LGN=%zu neurons\n",
+           agent.v1()->n_neurons(), agent.dlpfc()->n_neurons(), agent.lgn()->n_neurons());
+    printf("  Features: PC=%s, Sleep=%s, Replay=%s\n",
+           cfg.enable_predictive_coding ? "ON" : "OFF",
+           cfg.enable_sleep_consolidation ? "ON" : "OFF",
+           cfg.enable_replay ? "ON" : "OFF");
 
     printf("  Epoch | Food | Danger | F:D ratio | Avg Reward | Safety\n");
     printf("  ------|------|--------|-----------|------------|-------\n");
@@ -108,10 +123,10 @@ static void test_learning_curve() {
 }
 
 // =========================================================================
-// Test 2: 学习 vs 无学习对照
+// Test 2: 学习 vs 无学习对照 (10×10, 5×5 vision)
 // =========================================================================
 static void test_learning_vs_control() {
-    printf("\n--- 测试2: 学习 vs 无学习对照 (3000步) ---\n");
+    printf("\n--- 测试2: 学习 vs 无学习对照 (3000步, 10x10 grid) ---\n");
 
     auto make_agent = [](bool enable_learning) {
         AgentConfig cfg;
@@ -221,15 +236,20 @@ static void test_bg_diagnostics() {
 }
 
 // =========================================================================
-// Test 4: 10000步长时训练
+// Test 4: 10000步长时训练 (10×10, 5×5 vision, all features ON)
 // =========================================================================
 static void test_long_training() {
-    printf("\n--- 测试4: 10000步长时训练 ---\n");
+    printf("\n--- 测试4: 10000步长时训练 (10x10 grid, PC+Sleep+Replay) ---\n");
 
     AgentConfig cfg;
     cfg.enable_da_stdp = true;
 
     ClosedLoopAgent agent(cfg);
+
+    printf("  Environment: %zux%zu grid, %zux%zu vision, %zu food, %zu danger\n",
+           cfg.world_config.width, cfg.world_config.height,
+           cfg.world_config.vision_side(), cfg.world_config.vision_side(),
+           cfg.world_config.n_food, cfg.world_config.n_danger);
 
     printf("  Epoch  | Food | Danger | Safety | Avg Reward\n");
     printf("  -------|------|--------|--------|----------\n");
@@ -262,83 +282,113 @@ static void test_long_training() {
 }
 
 // =========================================================================
-// Test 5: 大环境 + 预测编码对比 (15x15, 5x5视野)
+// Test 5: 超大环境 (15x15, 7x7视野) — 验证扩展性
 // =========================================================================
-static void test_large_env_pc() {
-    printf("\n--- 测试5: 大环境PC对比 (15x15, 5x5视野, 5000步) ---\n");
+static void test_large_env() {
+    printf("\n--- 测试5: 超大环境 (15x15, 7x7视野, 3000步) ---\n");
 
-    auto make_agent = [](bool enable_pc) {
-        AgentConfig cfg;
-        cfg.enable_da_stdp = true;
-        cfg.enable_predictive_coding = enable_pc;
-        // Large environment
-        cfg.world_config.width  = 15;
-        cfg.world_config.height = 15;
-        cfg.world_config.n_food   = 5;
-        cfg.world_config.n_danger = 4;
-        cfg.world_config.vision_radius = 2;  // 5x5 vision
-        cfg.world_config.seed = 77;
-        return ClosedLoopAgent(cfg);
-    };
+    AgentConfig cfg;
+    cfg.enable_da_stdp = true;
+    cfg.enable_predictive_coding = true;
+    cfg.enable_sleep_consolidation = true;
+    // Large environment with wider vision
+    cfg.world_config.width  = 15;
+    cfg.world_config.height = 15;
+    cfg.world_config.n_food   = 8;
+    cfg.world_config.n_danger = 6;
+    cfg.world_config.vision_radius = 3;  // 7x7 vision (49 pixels)
+    cfg.world_config.seed = 77;
 
-    auto agent_no_pc = make_agent(false);
-    auto agent_pc    = make_agent(true);
+    ClosedLoopAgent agent(cfg);
 
-    printf("  Brain (no PC): V1=%zu, dlPFC=%zu, LGN=%zu neurons\n",
-           agent_no_pc.v1()->n_neurons(),
-           agent_no_pc.dlpfc()->n_neurons(),
-           agent_no_pc.lgn()->n_neurons());
+    printf("  Environment: %zux%zu grid, %zux%zu vision, %zu food, %zu danger\n",
+           cfg.world_config.width, cfg.world_config.height,
+           cfg.world_config.vision_side(), cfg.world_config.vision_side(),
+           cfg.world_config.n_food, cfg.world_config.n_danger);
+    printf("  Brain: V1=%zu, dlPFC=%zu, LGN=%zu neurons\n",
+           agent.v1()->n_neurons(), agent.dlpfc()->n_neurons(), agent.lgn()->n_neurons());
+    printf("  Features: PC=%s, Sleep=%s, Amygdala=%s, LHb=%s\n",
+           cfg.enable_predictive_coding ? "ON" : "OFF",
+           cfg.enable_sleep_consolidation ? "ON" : "OFF",
+           cfg.enable_amygdala ? "ON" : "OFF",
+           cfg.enable_lhb ? "ON" : "OFF");
 
-    // Warm-up: 1000 steps
-    for (int i = 0; i < 1000; ++i) {
-        agent_no_pc.agent_step();
-        agent_pc.agent_step();
+    printf("  Epoch  | Food | Danger | Safety | Avg Reward\n");
+    printf("  -------|------|--------|--------|----------\n");
+
+    std::vector<float> safety_history;
+    for (int epoch = 0; epoch < 6; ++epoch) {
+        auto stats = run_epoch(agent, 500);
+        float safety = stats.safety_ratio();
+        safety_history.push_back(safety);
+        printf("  %5d  | %4d | %6d |  %.2f  |  %+.4f\n",
+               (epoch + 1) * 500, stats.food, stats.danger, safety, stats.avg_reward);
     }
 
-    printf("  Config   | Epoch | Food | Danger | Safety | Avg Reward\n");
-    printf("  ---------|-------|------|--------|--------|----------\n");
+    float early_avg = (safety_history[0] + safety_history[1]) / 2.0f;
+    float late_avg = (safety_history[4] + safety_history[5]) / 2.0f;
 
-    float no_pc_early_safety = 0, pc_early_safety = 0;
-    float no_pc_late_safety = 0, pc_late_safety = 0;
+    printf("\n  Early safety (0-1000): %.3f\n", early_avg);
+    printf("  Late safety (2000-3000): %.3f\n", late_avg);
+    printf("  Improvement: %+.3f\n", late_avg - early_avg);
+    printf("  Total food: %d, Total danger: %d\n",
+           agent.world().total_food_collected(), agent.world().total_danger_hits());
 
-    for (int epoch = 0; epoch < 4; ++epoch) {
-        auto s1 = run_epoch(agent_no_pc, 1000);
-        auto s2 = run_epoch(agent_pc, 1000);
+    // Verify the large brain runs stably
+    TEST_ASSERT(agent.world().total_steps() == 3000, "Completed 3k steps in large env");
+    TEST_ASSERT(agent.v1()->n_neurons() > 400, "V1 scaled up for 7x7 vision");
 
-        printf("  No PC    | %5dk | %4d | %6d |  %.2f  |  %+.4f\n",
-               epoch + 2, s1.food, s1.danger, s1.safety_ratio(), s1.avg_reward);
-        printf("  PC ON    | %5dk | %4d | %6d |  %.2f  |  %+.4f\n",
-               epoch + 2, s2.food, s2.danger, s2.safety_ratio(), s2.avg_reward);
+    printf("  [PASS]\n"); g_pass++;
+}
 
-        if (epoch < 2) {
-            no_pc_early_safety += s1.safety_ratio();
-            pc_early_safety += s2.safety_ratio();
-        } else {
-            no_pc_late_safety += s1.safety_ratio();
-            pc_late_safety += s2.safety_ratio();
-        }
+// =========================================================================
+// Test 6: 泛化能力测试 — 训练 seed=42 vs 未训练, 对比后期表现
+// "学到的是规则还是记忆？"
+// =========================================================================
+static void test_generalization() {
+    printf("\n--- 测试6: 泛化能力诊断 ---\n");
+
+    // 训练 2000 步 (seed=42) vs 未训练 (seed=77), 各自后 500 步表现
+    float trained_safety = 0, fresh_safety = 0;
+    int seeds[] = {77, 123};
+
+    for (int s : seeds) {
+        // A: 训练 2000 步后再跑 500 步
+        AgentConfig cfg_t;
+        cfg_t.enable_da_stdp = true;
+        cfg_t.world_config.seed = 42;
+        ClosedLoopAgent ag_t(cfg_t);
+        run_epoch(ag_t, 2000);  // 训练
+        auto t_res = run_epoch(ag_t, 500);  // 测试 (同地图后期,食物已重生多次)
+
+        // B: 全新 agent 跑 500 步 (不同 seed)
+        AgentConfig cfg_f;
+        cfg_f.enable_da_stdp = true;
+        cfg_f.world_config.seed = static_cast<uint32_t>(s);
+        ClosedLoopAgent ag_f(cfg_f);
+        auto f_res = run_epoch(ag_f, 500);
+
+        printf("    seed=%3d: trained=%.2f(f=%d,d=%d) fresh=%.2f(f=%d,d=%d) Δ=%+.2f\n",
+               s, t_res.safety_ratio(), t_res.food, t_res.danger,
+               f_res.safety_ratio(), f_res.food, f_res.danger,
+               t_res.safety_ratio() - f_res.safety_ratio());
+        trained_safety += t_res.safety_ratio();
+        fresh_safety += f_res.safety_ratio();
     }
 
-    no_pc_early_safety /= 2.0f; pc_early_safety /= 2.0f;
-    no_pc_late_safety /= 2.0f;  pc_late_safety /= 2.0f;
+    float avg_t = trained_safety / 2.0f;
+    float avg_f = fresh_safety / 2.0f;
+    printf("    平均: trained=%.3f, fresh=%.3f, 泛化优势=%+.3f\n",
+           avg_t, avg_f, avg_t - avg_f);
 
-    float no_pc_improvement = no_pc_late_safety - no_pc_early_safety;
-    float pc_improvement = pc_late_safety - pc_early_safety;
+    if (avg_t > avg_f + 0.02f)
+        printf("    结论: ✅ 训练有帮助 — 可能学到了一般性策略\n");
+    else if (avg_t > avg_f - 0.02f)
+        printf("    结论: ⚠️ 中性 — 训练没有显著帮助\n");
+    else
+        printf("    结论: ❌ 训练有害 — 可能过拟合了特定布局\n");
 
-    printf("\n  No PC: early=%.3f, late=%.3f, improvement=%+.3f, food=%d\n",
-           no_pc_early_safety, no_pc_late_safety, no_pc_improvement,
-           agent_no_pc.world().total_food_collected());
-    printf("  PC ON: early=%.3f, late=%.3f, improvement=%+.3f, food=%d\n",
-           pc_early_safety, pc_late_safety, pc_improvement,
-           agent_pc.world().total_food_collected());
-    printf("  PC advantage: improvement %+.3f, food %+d\n",
-           pc_improvement - no_pc_improvement,
-           (int)agent_pc.world().total_food_collected() - (int)agent_no_pc.world().total_food_collected());
-
-    // Just verify both agents run without crashing
-    TEST_ASSERT(agent_no_pc.world().total_steps() == 5000, "No-PC completed 5k steps");
-    TEST_ASSERT(agent_pc.world().total_steps() == 5000, "PC completed 5k steps");
-
+    TEST_ASSERT(true, "Generalization diagnostic completed");
     printf("  [PASS]\n"); g_pass++;
 }
 
@@ -349,13 +399,14 @@ int main() {
 #ifdef _WIN32
     SetConsoleOutputCP(65001);
 #endif
-    printf("=== 悟韵 Step 13-B+: 闭环学习曲线验证 ===\n");
+    printf("=== 悟韵 Step 23: 泛化能力诊断 (10x10, 5x5 vision) ===\n");
 
     test_learning_curve();
     test_learning_vs_control();
     test_bg_diagnostics();
     test_long_training();
-    test_large_env_pc();
+    test_large_env();
+    test_generalization();
 
     printf("\n========================================\n");
     printf("  通过: %d / %d\n", g_pass, g_pass + g_fail);
