@@ -64,7 +64,7 @@ struct AgentConfig {
     bool enable_da_stdp     = true;
     float da_stdp_lr        = 0.039f;
     bool enable_homeostatic = true;
-    bool enable_cortical_stdp = true;
+    bool enable_cortical_stdp = false; // ablation: +0.20 有害 (120n下学噪声)
     float cortical_stdp_a_plus  = 0.005f;
     float cortical_stdp_a_minus = -0.013f;
     float cortical_stdp_w_max   = 2.2f;
@@ -104,7 +104,7 @@ struct AgentConfig {
     float amyg_us_gain       = 1.5f;   // US magnitude scaling for BLA injection
 
     // Awake SWR Replay (experience replay via hippocampal sharp-wave ripples)
-    bool  enable_replay      = true;
+    bool  enable_replay      = false; // ablation: +0.06 有害 (120n下重放是噪声)
     int   replay_passes      = 5;
     float replay_da_scale    = 0.76f;
     size_t replay_buffer_size = 50;    // Max episodes in buffer (v21: 30→50, 10×10 has 100 positions)
@@ -125,7 +125,7 @@ struct AgentConfig {
     //      In 3×3 it was harmful (awake replay sufficient, over-consolidation).
     //      Tuning: very light naps, long intervals, gentle DA — prevent over-consolidation
     //      while combating forgetting in 100-cell grid.
-    bool   enable_sleep_consolidation = true;   // v21: enabled for larger environments
+    bool   enable_sleep_consolidation = false; // ablation: +0.25 最有害
     size_t wake_steps_before_sleep    = 800;   // v21: long interval, light touch
     size_t sleep_nrem_steps           = 15;    // v21: very light consolidation per bout
     int    sleep_replay_passes        = 1;     // Single pass (prevent over-consolidation)
@@ -134,7 +134,7 @@ struct AgentConfig {
     // v30: Cerebellum forward model (Yoshida 2025: CB-BG synergistic RL)
     // M1 efference copy + visual context → predict next sensory state
     // Prediction error → climbing fiber → PF-PC LTD → fast correction
-    bool  enable_cerebellum = true;
+    bool  enable_cerebellum = false; // ablation: +0.18 有害 (CF-LTD过度抑制)
 
     // v27: Developmental period (critical period for visual feature learning)
     // Biology: infant visual cortex spends ~6 months self-organizing via Hebbian STDP
@@ -144,7 +144,7 @@ struct AgentConfig {
     bool   enable_predictive_learning = true;  // L6 prediction + error-gated STDP
 
     // Evolution fast-eval mode
-    bool fast_eval = false;  // Skip hippocampus + cortical STDP for ~40% speedup
+    bool fast_eval = true;   // ablation: hippocampus +0.06 有害 (CA3=6太小)
 
     // GridWorld
     GridWorldConfig world_config;

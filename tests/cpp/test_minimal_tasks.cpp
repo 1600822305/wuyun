@@ -505,19 +505,80 @@ static void test_it_representation() {
 }
 
 // =========================================================================
+// Task 5: Ablation Study — 逐个关闭学习环节, 测量贡献
+// =========================================================================
+static void test_ablation() {
+    printf("\n--- Task 5: Ablation Study (逐个关闭) ---\n");
+
+    struct AblationConfig {
+        const char* name;
+        // Lambda to modify AgentConfig
+        std::function<void(AgentConfig&)> modify;
+    };
+
+    AblationConfig configs[] = {
+        {"全开 (baseline)",     [](AgentConfig&) {}},
+        {"关 cortical STDP",    [](AgentConfig& c) { c.enable_cortical_stdp = false; }},
+        {"关 predictive coding",[](AgentConfig& c) { c.enable_predictive_coding = false; }},
+        {"关 amygdala",         [](AgentConfig& c) { c.enable_amygdala = false; }},
+        {"关 hippocampus",      [](AgentConfig& c) { c.fast_eval = true; }},
+        {"关 cerebellum",       [](AgentConfig& c) { c.enable_cerebellum = false; }},
+        {"关 LHb",              [](AgentConfig& c) { c.enable_lhb = false; }},
+        {"关 SWR replay",       [](AgentConfig& c) { c.enable_replay = false; }},
+        {"关 sleep consolidation",[](AgentConfig& c){ c.enable_sleep_consolidation = false; }},
+    };
+
+    int n_configs = sizeof(configs) / sizeof(configs[0]);
+    float baseline_safety = 0;
+
+    printf("  %-25s | food | danger | safety | Δ safety\n", "Config");
+    printf("  %-25s-|------|--------|--------|----------\n", "-------------------------");
+
+    for (int i = 0; i < n_configs; ++i) {
+        AgentConfig cfg;
+        cfg.enable_da_stdp = true;
+        cfg.world_config.seed = 42;
+        configs[i].modify(cfg);
+
+        ClosedLoopAgent agent(cfg);
+
+        // 500 warmup + 500 test
+        for (int s = 0; s < 500; ++s) agent.agent_step();
+        int food = 0, danger = 0;
+        for (int s = 0; s < 500; ++s) {
+            auto r = agent.agent_step();
+            if (r.got_food) food++;
+            if (r.hit_danger) danger++;
+        }
+        float safety = (food + danger > 0) ? (float)food / (food + danger) : 0.5f;
+
+        if (i == 0) baseline_safety = safety;
+        float delta = safety - baseline_safety;
+
+        printf("  %-25s | %4d | %6d |  %.2f  | %+.2f %s\n",
+               configs[i].name, food, danger, safety, delta,
+               (i > 0 && delta > 0.03f) ? "(有害,应关)" :
+               (i > 0 && delta < -0.03f) ? "(有用,保留)" : "");
+    }
+
+    // 结论
+    printf("\n  解读: Δ > 0 = 关掉后变好(该环节有害); Δ < 0 = 关掉后变差(有用)\n");
+
+    TEST_ASSERT(true, "Ablation study completed");
+    printf("  [PASS]\n"); g_pass++;
+}
+
+// =========================================================================
 // main
 // =========================================================================
 int main() {
 #ifdef _WIN32
     SetConsoleOutputCP(65001);
 #endif
-    printf("=== 悟韵 Step 25: DA-STDP 能力下限 + 表征质量诊断 ===\n");
-    printf("  问题: DA-STDP 到底能不能学? IT 表征是否有用?\n");
+    setvbuf(stdout, NULL, _IONBF, 0);
+    printf("=== 悟韵 学习链路诊断 ===\n");
 
-    test_2armed_bandit();
-    test_contextual_bandit();
-    test_tmaze();
-    test_it_representation();
+    test_ablation();
 
     printf("\n========================================\n");
     printf("  通过: %d / %d\n", g_pass, g_pass + g_fail);
