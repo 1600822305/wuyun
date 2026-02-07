@@ -44,26 +44,35 @@ ClosedLoopAgent::ClosedLoopAgent(const AgentConfig& config)
 void ClosedLoopAgent::build_brain() {
     int s = config_.brain_scale;
 
-    // --- Thalamic relay: LGN (visual input gate) ---
-    // Scale LGN proportionally to vision size: ~3.3 LGN neurons per pixel
-    size_t n_vis_pixels = config_.vision_width * config_.vision_height;
-    size_t lgn_per_pixel = 3;  // ~3 LGN neurons per input pixel (ON/OFF + margin)
-    size_t lgn_base = std::max<size_t>(30, n_vis_pixels * lgn_per_pixel);
-    ThalamicConfig lgn_cfg;
-    lgn_cfg.name = "LGN";
-    lgn_cfg.n_relay = lgn_base * s;
-    lgn_cfg.n_trn   = (lgn_base / 3) * s;
-    engine_.add_region(std::make_unique<ThalamicRelay>(lgn_cfg));
+    // ===================================================================
+    // INFORMATION-DRIVEN NEURON ALLOCATION
+    // Each neuron has a clear information-theoretic purpose.
+    // n_pix pixels → 4 actions. No wasted neurons.
+    // Architecture (6-layer column, STDP, DA-STDP) is unchanged.
+    // ===================================================================
 
-    // --- Cortical regions ---
-    auto add_ctx = [&](const std::string& name, size_t l4, size_t l23,
-                       size_t l5, size_t l6, size_t pv, size_t sst, size_t vip,
-                       bool stdp = false) {
+    size_t n_pix = config_.vision_width * config_.vision_height;  // 25 for 5×5
+    size_t n_act = 4;  // UP/DOWN/LEFT/RIGHT
+
+    // Helper: create CorticalRegion from total neuron count N
+    // Distributes N across 7 populations maintaining biological ratios
+    auto add_ctx = [&](const std::string& name, size_t N, bool stdp = false) {
         ColumnConfig c;
-        c.n_l4_stellate = l4 * s;  c.n_l23_pyramidal = l23 * s;
-        c.n_l5_pyramidal = l5 * s; c.n_l6_pyramidal = l6 * s;
-        c.n_pv_basket = pv * s;    c.n_sst_martinotti = sst * s;
-        c.n_vip = vip * s;
+        c.n_l4_stellate    = std::max<size_t>(2, N * 25 / 100) * s;  // 25%
+        c.n_l23_pyramidal  = std::max<size_t>(3, N * 35 / 100) * s;  // 35%
+        c.n_l5_pyramidal   = std::max<size_t>(2, N * 20 / 100) * s;  // 20%
+        c.n_l6_pyramidal   = std::max<size_t>(2, N * 12 / 100) * s;  // 12%
+        c.n_pv_basket      = std::max<size_t>(2, N * 4 / 100) * s;   // 4%
+        c.n_sst_martinotti = std::max<size_t>(1, N * 3 / 100) * s;   // 3%
+        c.n_vip            = std::max<size_t>(1, N * 1 / 100) * s;   // 1%
+        // Higher connection probability for small networks (ensures sufficient connections)
+        if (N <= 30) {
+            c.p_l4_to_l23 = 0.5f;   // was 0.2
+            c.p_l23_to_l5 = 0.5f;
+            c.p_l5_to_l6  = 0.5f;
+            c.p_l6_to_l4  = 0.5f;
+            c.p_l23_recurrent = 0.3f;
+        }
         if (stdp) {
             c.stdp_enabled = true;
             c.stdp_a_plus  = config_.cortical_stdp_a_plus;
@@ -74,125 +83,85 @@ void ClosedLoopAgent::build_brain() {
     };
 
     bool ctx_stdp = config_.enable_cortical_stdp && !config_.fast_eval;
-    // ===== Visual hierarchy: V1 → V2 → V4 → IT (ventral "what" pathway) =====
-    // Biology: each level extracts increasingly invariant features
-    //   V1: edge/orientation → V2: texture/contour → V4: shape/color → IT: object identity
-    // IT output is position-invariant → generalizes across food/danger locations
-    float vis_scale = static_cast<float>(n_vis_pixels) / 9.0f;  // 1.0 for 3×3, ~2.8 for 5×5
-    float v1f = config_.v1_size_factor;
 
-    // V1: primary visual — STDP learns oriented edge filters
-    size_t v1_l4  = static_cast<size_t>(30 * vis_scale * v1f);
-    size_t v1_l23 = static_cast<size_t>(60 * vis_scale * v1f);
-    size_t v1_l5  = static_cast<size_t>(30 * vis_scale * v1f);
-    size_t v1_l6  = static_cast<size_t>(25 * vis_scale * v1f);
-    size_t v1_pv  = static_cast<size_t>(10 * vis_scale * v1f);
-    size_t v1_sst = static_cast<size_t>(6 * vis_scale * v1f);
-    add_ctx("V1", v1_l4, v1_l23, v1_l5, v1_l6, v1_pv, v1_sst, 3, ctx_stdp);
+    // --- LGN: 1 relay per pixel (ON/OFF encoded in gain, not neuron count) ---
+    ThalamicConfig lgn_cfg;
+    lgn_cfg.name = "LGN";
+    lgn_cfg.n_relay = n_pix * s;                               // 25 for 5×5
+    lgn_cfg.n_trn   = std::max<size_t>(3, n_pix / 3) * s;     // 8
+    engine_.add_region(std::make_unique<ThalamicRelay>(lgn_cfg));
 
-    // V2: secondary visual — STDP learns texture/contour combinations
-    // ~70% of V1 size (biological: V2 < V1)
-    float v2_scale = vis_scale * 0.7f;
-    add_ctx("V2",
-        static_cast<size_t>(25 * v2_scale), static_cast<size_t>(45 * v2_scale),
-        static_cast<size_t>(22 * v2_scale), static_cast<size_t>(18 * v2_scale),
-        static_cast<size_t>(8 * v2_scale),  static_cast<size_t>(5 * v2_scale),
-        static_cast<size_t>(2 * v2_scale), ctx_stdp);
+    // --- Visual hierarchy: each level compresses information ---
+    add_ctx("V1",  n_pix,                             ctx_stdp);  // 25: 1 per pixel
+    add_ctx("V2",  std::max<size_t>(8, n_pix*6/10),   ctx_stdp);  // 15: texture combinations
+    add_ctx("V4",  std::max<size_t>(6, n_pix*3/10),   ctx_stdp);  // 8: shape features
+    add_ctx("IT",  std::max<size_t>(8, n_act * 2),     false);     // 8: object categories (stable)
 
-    // V4: intermediate visual — STDP learns shape/color conjunctions
-    // ~50% of V1 size
-    float v4_scale = vis_scale * 0.5f;
-    add_ctx("V4",
-        static_cast<size_t>(20 * v4_scale), static_cast<size_t>(35 * v4_scale),
-        static_cast<size_t>(18 * v4_scale), static_cast<size_t>(14 * v4_scale),
-        static_cast<size_t>(6 * v4_scale),  static_cast<size_t>(4 * v4_scale),
-        static_cast<size_t>(2 * v4_scale), ctx_stdp);
+    // --- Decision + motor ---
+    add_ctx("dlPFC", n_act * 3,  false);   // 12: 4 directions × 3 (approach/avoid/neutral)
+    add_ctx("M1",    n_act * 5,  false);   // 20: need ≥4 L5 neurons for winner-take-all
 
-    // IT: inferotemporal — NO STDP (stable object identity representations)
-    // ~35% of V1 size, provides position-invariant "what" signal to dlPFC
-    // Biology: IT neurons respond to object identity regardless of position/size
-    float it_scale = vis_scale * 0.35f;
-    add_ctx("IT",
-        static_cast<size_t>(15 * it_scale), static_cast<size_t>(30 * it_scale),
-        static_cast<size_t>(15 * it_scale), static_cast<size_t>(12 * it_scale),
-        static_cast<size_t>(5 * it_scale),  static_cast<size_t>(3 * it_scale),
-        static_cast<size_t>(2 * it_scale), false);  // NO STDP: representation stability for BG
-
-    // dlPFC: decision making + working memory — NO STDP
-    // Receives from IT (invariant objects) instead of V1 (raw pixels)
-    float dlpfc_scale = std::sqrt(vis_scale) * config_.dlpfc_size_factor;
-    size_t dl_l4  = static_cast<size_t>(20 * dlpfc_scale);
-    size_t dl_l23 = static_cast<size_t>(50 * dlpfc_scale);
-    size_t dl_l5  = static_cast<size_t>(30 * dlpfc_scale);
-    size_t dl_l6  = static_cast<size_t>(20 * dlpfc_scale);
-    size_t dl_pv  = static_cast<size_t>(8 * dlpfc_scale);
-    size_t dl_sst = static_cast<size_t>(5 * dlpfc_scale);
-    add_ctx("dlPFC", dl_l4, dl_l23, dl_l5, dl_l6, dl_pv, dl_sst, 3, false);
-    // M1: motor output (L5 → action decoding) — NO STDP (driven by noise + BG bias)
-    add_ctx("M1", 20, 40, 40, 15, 8, 5, 2, false);
-
-    // --- Basal Ganglia: action selection ---
+    // --- Basal Ganglia: 4 Go + 4 NoGo = minimal action selection ---
     BasalGangliaConfig bg_cfg;
     bg_cfg.name = "BG";
-    float bgf = config_.bg_size_factor;
-    bg_cfg.n_d1_msn = static_cast<size_t>(30 * bgf) * s;
-    bg_cfg.n_d2_msn = static_cast<size_t>(30 * bgf) * s;
-    bg_cfg.n_gpi = static_cast<size_t>(10 * bgf) * s;
-    bg_cfg.n_gpe = static_cast<size_t>(10 * bgf) * s;
-    bg_cfg.n_stn = static_cast<size_t>(8 * bgf) * s;
+    bg_cfg.n_d1_msn = n_act * 2 * s;  // 8: 4 directions × 2 Go neurons
+    bg_cfg.n_d2_msn = n_act * 2 * s;  // 8: 4 directions × 2 NoGo neurons
+    bg_cfg.n_gpi = n_act * s;         // 4: 1 per action
+    bg_cfg.n_gpe = n_act * s;         // 4
+    bg_cfg.n_stn = std::max<size_t>(4, n_act) * s;  // 4
+    bg_cfg.p_ctx_to_d1 = 0.5f;   // Higher connectivity for small network
+    bg_cfg.p_ctx_to_d2 = 0.5f;
+    bg_cfg.p_d1_to_gpi = 0.6f;
+    bg_cfg.p_d2_to_gpe = 0.6f;
     bg_cfg.da_stdp_enabled = config_.enable_da_stdp;
     bg_cfg.da_stdp_lr = config_.da_stdp_lr;
     engine_.add_region(std::make_unique<BasalGanglia>(bg_cfg));
 
-    // --- Motor thalamus: BG → M1 relay ---
+    // --- Motor thalamus ---
     ThalamicConfig mthal_cfg;
     mthal_cfg.name = "MotorThal";
-    mthal_cfg.n_relay = 20 * s;
-    mthal_cfg.n_trn   = 6 * s;
+    mthal_cfg.n_relay = n_act * 2 * s;  // 8
+    mthal_cfg.n_trn   = std::max<size_t>(2, n_act / 2) * s;  // 2
     engine_.add_region(std::make_unique<ThalamicRelay>(mthal_cfg));
 
-    // --- VTA: dopamine / reward signal ---
+    // --- VTA: dopamine ---
     VTAConfig vta_cfg;
-    vta_cfg.n_da_neurons = 30 * s;
+    vta_cfg.n_da_neurons = std::max<size_t>(4, n_act) * s;  // 4
     engine_.add_region(std::make_unique<VTA_DA>(vta_cfg));
 
     // --- LHb: negative RPE center ---
     // Biology: LHb encodes negative prediction errors and aversive stimuli
     //   LHb → RMTg(GABA) → VTA: inhibits DA release → DA pause → D2 NoGo learning
     //   Essential for learning to AVOID danger (Matsumoto & Hikosaka 2007)
+    // --- LHb: negative RPE (minimal: 4 neurons) ---
     if (config_.enable_lhb) {
         LHbConfig lhb_cfg;
-        lhb_cfg.n_neurons = 25 * s;
+        lhb_cfg.n_neurons = std::max<size_t>(4, n_act) * s;
         lhb_cfg.punishment_gain = config_.lhb_punishment_gain;
         lhb_cfg.frustration_gain = config_.lhb_frustration_gain;
         engine_.add_region(std::make_unique<LateralHabenula>(lhb_cfg));
     }
 
-    // --- Amygdala: fear conditioning ---
-    // Biology: La receives visual CS, BLA learns CS-US via STDP,
-    // CeA outputs fear signal → VTA/LHb for DA pause.
-    // One-shot fear learning: single danger encounter strengthens La→BLA.
-    // (LeDoux 2000, Maren 2001)
+    // --- Amygdala: fear conditioning (minimal: 4+6+3+2 = 15 neurons) ---
     if (config_.enable_amygdala) {
         AmygdalaConfig amyg_cfg;
-        amyg_cfg.n_la  = 25 * s;
-        amyg_cfg.n_bla = 40 * s;
-        amyg_cfg.n_cea = 15 * s;
-        amyg_cfg.n_itc = 10 * s;
+        amyg_cfg.n_la  = std::max<size_t>(4, n_act) * s;
+        amyg_cfg.n_bla = std::max<size_t>(6, n_act + 2) * s;
+        amyg_cfg.n_cea = std::max<size_t>(3, n_act - 1) * s;
+        amyg_cfg.n_itc = 2 * s;
         amyg_cfg.fear_stdp_enabled = true;
         engine_.add_region(std::make_unique<Amygdala>(amyg_cfg));
     }
 
-    // --- Hippocampus: spatial memory ---
-    // Skipped in fast_eval: 195 neurons (24%) with zero contribution to closed-loop
+    // --- Hippocampus: spatial memory (minimal: compressed) ---
     if (!config_.fast_eval) {
         HippocampusConfig hipp_cfg;
-        hipp_cfg.n_ec  = 40 * s;
-        hipp_cfg.n_dg  = 80 * s;
-        hipp_cfg.n_ca3 = 30 * s;
-        hipp_cfg.n_ca1 = 30 * s;
-        hipp_cfg.n_sub = 15 * s;
-        hipp_cfg.ca3_stdp_enabled = true;  // Memory encoding
+        hipp_cfg.n_ec  = std::max<size_t>(6, n_act + 2) * s;
+        hipp_cfg.n_dg  = std::max<size_t>(10, n_pix / 3) * s;
+        hipp_cfg.n_ca3 = std::max<size_t>(6, n_act + 2) * s;
+        hipp_cfg.n_ca1 = std::max<size_t>(6, n_act + 2) * s;
+        hipp_cfg.n_sub = std::max<size_t>(3, n_act - 1) * s;
+        hipp_cfg.ca3_stdp_enabled = true;
         engine_.add_region(std::make_unique<Hippocampus>(hipp_cfg));
     }
 
@@ -639,8 +608,8 @@ StepResult ClosedLoopAgent::agent_step() {
         // Motor efference copy: mark current exploration direction in BG sensory slots.
         // Combined with visual hierarchy IT→dlPFC→BG context, enables DA-STDP to
         // learn joint "visual context + action → reward" associations.
-        // v24: i>=14 (was 10): visual pipeline LGN→V1→V2→V4→IT→dlPFC needs ~12 steps
-        if (i >= 14 && attractor_group >= 0) {
+        // v28: i>=10: smaller network propagates faster
+        if (i >= 10 && attractor_group >= 0) {
             bg_->mark_motor_efference(attractor_group);
         }
     }

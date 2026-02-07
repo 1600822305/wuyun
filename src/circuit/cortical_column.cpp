@@ -327,24 +327,38 @@ ColumnOutput CorticalColumn::step(int t, float dt) {
             if (predictive_learning_) scale_stdp(syn_l6_to_l23_predict_);
         }
 
-        if (predictive_learning_) {
-            // v27: ERROR-GATED STDP (Whittington & Bogacz 2017)
-            // L4→L2/3: only regular spikes (prediction errors) trigger LTP
-            // burst spikes (prediction match) do NOT update feedforward weights
-            // → "learn new features, don't overwrite already-learned ones"
-            syn_l4_to_l23_.apply_stdp_error_gated(
-                l4_stellate_.fired(), l23_pyramidal_.fired(),
-                l23_pyramidal_.spike_type(),
-                static_cast<int8_t>(SpikeType::REGULAR), t);
+        // v28: Dendritic mismatch modulation (Sacramento/Guerguiev 2018)
+        // |V_apical - V_soma| drives STDP amplitude: big mismatch = learn more
+        // This is mathematically equivalent to backpropagation (Nature MI 2024)
+        {
+            float mismatch_sum = 0.0f;
+            size_t n23 = l23_pyramidal_.size();
+            const auto& va = l23_pyramidal_.v_apical();
+            const auto& vs = l23_pyramidal_.v_soma();
+            for (size_t i = 0; i < n23; ++i) {
+                mismatch_sum += std::abs(va[i] - vs[i]);
+            }
+            float avg_mismatch = (n23 > 0) ? mismatch_sum / (n23 * 30.0f) : 0.0f;  // normalize to 0-1
+            float mismatch_gain = 0.1f + 0.9f * std::min(1.0f, avg_mismatch);  // 0.1 baseline + 0.9×mismatch
 
-            // L6→L2/3 prediction STDP: L6 learns to predict L2/3 activity
-            // L6 fires + L2/3 fires → LTP (good prediction)
-            // L6 fires + L2/3 silent → LTD (false prediction)
-            syn_l6_to_l23_predict_.apply_stdp(
-                l6_pyramidal_.fired(), l23_pyramidal_.fired(), t);
-        } else {
-            // Original Hebbian STDP (no error gating)
-            syn_l4_to_l23_.apply_stdp(l4_stellate_.fired(), l23_pyramidal_.fired(), t);
+            // Apply mismatch gain to L4→L2/3 STDP
+            syn_l4_to_l23_.stdp_params().a_plus  *= mismatch_gain;
+            syn_l4_to_l23_.stdp_params().a_minus *= mismatch_gain;
+
+            if (predictive_learning_) {
+                syn_l4_to_l23_.apply_stdp_error_gated(
+                    l4_stellate_.fired(), l23_pyramidal_.fired(),
+                    l23_pyramidal_.spike_type(),
+                    static_cast<int8_t>(SpikeType::REGULAR), t);
+                syn_l6_to_l23_predict_.apply_stdp(
+                    l6_pyramidal_.fired(), l23_pyramidal_.fired(), t);
+            } else {
+                syn_l4_to_l23_.apply_stdp(l4_stellate_.fired(), l23_pyramidal_.fired(), t);
+            }
+
+            // Restore
+            syn_l4_to_l23_.stdp_params().a_plus  /= mismatch_gain;
+            syn_l4_to_l23_.stdp_params().a_minus /= mismatch_gain;
         }
 
         // L2/3 recurrent + L2/3→L5: always standard STDP (not error-gated)

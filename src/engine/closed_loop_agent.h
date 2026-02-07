@@ -49,15 +49,15 @@ struct AgentConfig {
     size_t vision_height = 5;
 
     // Action decoding
-    // v24: 15→20, visual hierarchy LGN→V1→V2→V4→IT→dlPFC→BG needs ~14 steps pipeline
-    size_t brain_steps_per_action = 20;
+    // v28: 20→15, smaller network propagates faster
+    size_t brain_steps_per_action = 15;
     size_t reward_processing_steps = 5;  // 奖励处理步数 (DA传播到BG)
 
     // Reward scaling
     float reward_scale = 1.5f;  // reward → VTA inject_reward multiplier
 
-    // Exploration
-    float exploration_noise = 55.0f;  // M1 L5 noise amplitude
+    // Exploration (scaled for M1 L5 neuron count)
+    float exploration_noise = 80.0f;  // v28: 55→80, small M1 needs stronger drive
     size_t exploration_anneal_steps = 0;  // Steps over which noise reduces (0=no anneal, let BG override)
 
     // Learning
