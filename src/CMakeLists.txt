@@ -20,6 +20,8 @@ set(WUYUN_CORE_SOURCES
     region/thalamic_relay.cpp
     region/basal_ganglia.cpp
     region/vta_da.cpp
+    region/hippocampus.cpp
+    region/amygdala.cpp
     engine/simulation_engine.cpp
 )
 

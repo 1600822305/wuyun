@@ -106,17 +106,53 @@
 - **TRN 门控**: 正常=60, TRN抑制=3 (95%抑制) ✓
 - **26 测试全通过** (9 neuron + 6 column + 6 foundation + 5 minimal_brain)
 
-### Step 4: 记忆与情感回路
-> 目标: 能学习、能记住、能赋予情感价值
-**4a. 海马记忆系统:**
-- ⬜ EC→DG→CA3→CA1→Subiculum (H-01~05)
+### Step 3.5: 反作弊修复 ✅ (2026-02-07)
+> 根据 00_design_principles.md §6 审计
+
+- ✅ BG `receive_spikes` 中 `id%5` hyperdirect 硬编码 → 构造时随机稀疏映射表 (`ctx_to_d1/d2/stn_map_`)
+- ✅ DA→BG 调制走 SpikeBus: VTA 脉冲 → BG `receive_spikes` 自动推算 DA 水平 (`da_spike_accum_` + 指数平滑)
+- ✅ VTA→BG 投射添加到 SimulationEngine (delay=1)
+- ✅ 7 条投射 (原6条 + VTA→BG), 26 测试全通过
+
+### Step 4: 海马记忆 + 杏仁核情感 ✅ (2026-02-07)
+> 目标: 情景记忆编码/回忆 + 恐惧条件化/消退
+
+**4a. 海马体 (Hippocampus):**
+- ✅ `Hippocampus` 类 — 5 兴奋性群体 (EC/DG/CA3/CA1/Sub) + 3 抑制性群体 (DG_inh/CA3_inh/CA1_inh)
+- ✅ 三突触通路: EC→DG(perforant) → CA3(mossy fiber) → CA1(Schaffer) → Sub
+- ✅ CA3 自联想循环连接 (~2% 概率, 模式补全基底)
+- ✅ EC→CA1 直接通路 (绕过 DG/CA3, 投射到 apical)
+- ✅ DG 稀疏编码: 高阈值颗粒细胞 (v_rest=-75, threshold=-45) + 前馈+反馈抑制
+- ✅ EC→DG_inh 前馈抑制 (feedforward inhibition, 与 EC→DG 同步)
+- ✅ 8 组兴奋性突触 + 6 组抑制性突触 (含 GABA_A 分流抑制)
+- 神经元类型: GRID_CELL, GRANULE_CELL, PLACE_CELL, PV_BASKET
+
+**4b. 杏仁核 (Amygdala):**
+- ✅ `Amygdala` 类 — 4 群体 (La/BLA/CeA/ITC)
+- ✅ 恐惧条件化通路: La(输入) → BLA(学习) → CeA(输出)
+- ✅ La→CeA 快速直接通路
+- ✅ ITC 恐惧消退门控: PFC→ITC → ITC抑制CeA (GABA_A)
+- ✅ BLA 自联想循环 (维持价值表征)
+
+**关键bug修复:**
+- ✅ **GABA 权重符号**: 发现所有 GABA 突触不应用负权重 (公式 `I = g_max * w * g * (e_rev - v)` 中反转电位已处理符号方向; 负权重造成双重否定=兴奋)
+- ✅ DG 颗粒细胞 v_rest=-75 < GABA_A e_rev=-70: GABA_A 在 DG 上是分流抑制 (shunting), 仅在 v>-70 时有效
+
+**端到端验证 (7 测试全通过):**
+- 海马构造: 505 神经元 (EC=80, DG=200, CA3=60, CA1=80, Sub=40, inh=45)
+- 海马沉默: 无输入=0 发放 ✓
+- **三突触传播**: EC=271→DG=5904→CA3=1396→CA1=331→Sub=23 ✓
+- **DG 稀疏**: 稳态平均 18.6% (前馈+反馈抑制 E/I 平衡) ✓
+- 杏仁核构造+沉默: 180 神经元 ✓
+- **恐惧通路**: La=50→BLA=28→CeA=17 ✓
+- **ITC 消退**: CeA无消退=27, CeA有消退=1 (96%抑制) ✓
+- **33 测试全通过** (9 neuron + 6 column + 6 foundation + 5 minimal_brain + 7 memory_emotion)
+
+### Step 4 剩余 (低优先级):
 - ⬜ 前下托 + HATA (H-06~07)
 - ⬜ 隔核 theta 起搏 (SP-01~02)
-**4b. 杏仁核情感系统 (NextBrain 8核):**
-- ⬜ La→BLA→CeA 核心通路 (AM-01, AM-02, AM-05)
-- ⬜ ITC门控 + MeA/CoA (AM-04, AM-06~08) — 恐惧消退
-**4c. Papez记忆回路:**
-- ⬜ 乳头体 (HY-06) → 丘脑前核 (T-10 AV) → ACC (A-05)
+- ⬜ 杏仁核扩展: MeA/CoA/AB (AM-04, AM-06~08)
+- ⬜ Papez回路: 乳头体 (HY-06) → 丘脑前核 (T-10 AV) → ACC (A-05)
 
 ### Step 5: 扩展皮层 + 丘脑高级核群
 > 目标: 完整的感觉层级 + 联合皮层 + 丘脑全部16核
