@@ -61,6 +61,14 @@ if(MSVC)
 endif()
 add_test(NAME integrated_brain_tests COMMAND test_integrated_brain)
 
+# Visual hierarchy tests (Step 5a)
+add_executable(test_visual_hierarchy test_visual_hierarchy.cpp)
+target_link_libraries(test_visual_hierarchy PRIVATE wuyun_core)
+if(MSVC)
+    target_compile_options(test_visual_hierarchy PRIVATE /utf-8)
+endif()
+add_test(NAME visual_hierarchy_tests COMMAND test_visual_hierarchy)
+
 # Neuromodulator broadcast tests
 add_executable(test_neuromod_broadcast test_neuromod_broadcast.cpp)
 target_link_libraries(test_neuromod_broadcast PRIVATE wuyun_core)
