@@ -493,18 +493,19 @@ PYBIND11_MODULE(pywuyun, m) {
         }, py::arg("name"), py::arg("type"),
            "Register neuromod source (type: 0=DA, 1=NE, 2=5HT, 3=ACh)")
         // Convenience: build standard 21-region brain
-        .def("build_standard_brain", [](SimulationEngine& eng) {
+        .def("build_standard_brain", [](SimulationEngine& eng, int scale) {
+            size_t s = static_cast<size_t>(std::max(1, scale));
             // LGN
             ThalamicConfig lgn_cfg;
-            lgn_cfg.name = "LGN"; lgn_cfg.n_relay = 50; lgn_cfg.n_trn = 15;
+            lgn_cfg.name = "LGN"; lgn_cfg.n_relay = 50*s; lgn_cfg.n_trn = 15*s;
             eng.add_region(std::make_unique<ThalamicRelay>(lgn_cfg));
 
             auto add_ctx = [&](const std::string& name, size_t l4, size_t l23,
                                size_t l5, size_t l6, size_t pv, size_t sst, size_t vip) {
                 ColumnConfig c;
-                c.n_l4_stellate = l4; c.n_l23_pyramidal = l23;
-                c.n_l5_pyramidal = l5; c.n_l6_pyramidal = l6;
-                c.n_pv_basket = pv; c.n_sst_martinotti = sst; c.n_vip = vip;
+                c.n_l4_stellate = l4*s; c.n_l23_pyramidal = l23*s;
+                c.n_l5_pyramidal = l5*s; c.n_l6_pyramidal = l6*s;
+                c.n_pv_basket = pv*s; c.n_sst_martinotti = sst*s; c.n_vip = vip*s;
                 eng.add_region(std::make_unique<CorticalRegion>(name, c));
             };
 
@@ -547,14 +548,14 @@ PYBIND11_MODULE(pywuyun, m) {
             add_ctx("Wernicke",18, 45, 25, 18, 7,  4, 2);  // Speech comprehension
 
             BasalGangliaConfig bg;
-            bg.name = "BG"; bg.n_d1_msn = 50; bg.n_d2_msn = 50;
-            bg.n_gpi = 15; bg.n_gpe = 15; bg.n_stn = 10;
+            bg.name = "BG"; bg.n_d1_msn = 50*s; bg.n_d2_msn = 50*s;
+            bg.n_gpi = 15*s; bg.n_gpe = 15*s; bg.n_stn = 10*s;
             eng.add_region(std::make_unique<BasalGanglia>(bg));
 
             // === Thalamic nuclei ===
             auto add_thal = [&](const std::string& name, size_t relay, size_t trn) {
                 ThalamicConfig tc;
-                tc.name = name; tc.n_relay = relay; tc.n_trn = trn;
+                tc.name = name; tc.n_relay = relay*s; tc.n_trn = trn*s;
                 eng.add_region(std::make_unique<ThalamicRelay>(tc));
             };
             add_thal("MotorThal", 30, 10);   // VA/VL motor relay
@@ -572,36 +573,62 @@ PYBIND11_MODULE(pywuyun, m) {
 
             // Hippocampus with Presubiculum + HATA
             HippocampusConfig hipp_cfg;
-            hipp_cfg.n_presub = 25;  // Head direction cells
-            hipp_cfg.n_hata   = 15;  // Hipp-Amyg transition
+            hipp_cfg.n_ec  = static_cast<size_t>(80*s);
+            hipp_cfg.n_dg  = static_cast<size_t>(120*s);
+            hipp_cfg.n_ca3 = static_cast<size_t>(60*s);
+            hipp_cfg.n_ca1 = static_cast<size_t>(60*s);
+            hipp_cfg.n_sub = static_cast<size_t>(30*s);
+            hipp_cfg.n_presub = 25*s;
+            hipp_cfg.n_hata   = 15*s;
             eng.add_region(std::make_unique<Hippocampus>(hipp_cfg));
 
             // Amygdala with MeA/CoA/AB
             AmygdalaConfig amyg_cfg;
-            amyg_cfg.n_mea = 20;  // Social/olfactory
-            amyg_cfg.n_coa = 15;  // Olfactory
-            amyg_cfg.n_ab  = 20;  // Multimodal
+            amyg_cfg.n_la  = static_cast<size_t>(50*s);
+            amyg_cfg.n_bla = static_cast<size_t>(80*s);
+            amyg_cfg.n_cea = static_cast<size_t>(30*s);
+            amyg_cfg.n_itc = static_cast<size_t>(20*s);
+            amyg_cfg.n_mea = 20*s;
+            amyg_cfg.n_coa = 15*s;
+            amyg_cfg.n_ab  = 20*s;
             eng.add_region(std::make_unique<Amygdala>(amyg_cfg));
 
-            eng.add_region(std::make_unique<Cerebellum>(CerebellumConfig{}));
-            eng.add_region(std::make_unique<LC_NE>(LCConfig{}));
-            eng.add_region(std::make_unique<DRN_5HT>(DRNConfig{}));
-            eng.add_region(std::make_unique<NBM_ACh>(NBMConfig{}));
+            CerebellumConfig cb_cfg;
+            cb_cfg.n_granule = static_cast<size_t>(200*s);
+            cb_cfg.n_purkinje = static_cast<size_t>(30*s);
+            cb_cfg.n_dcn = static_cast<size_t>(20*s);
+            cb_cfg.n_mli = static_cast<size_t>(15*s);
+            cb_cfg.n_golgi = static_cast<size_t>(10*s);
+            eng.add_region(std::make_unique<Cerebellum>(cb_cfg));
+
+            LCConfig lc_cfg; lc_cfg.n_ne_neurons = static_cast<size_t>(15*s);
+            eng.add_region(std::make_unique<LC_NE>(lc_cfg));
+            DRNConfig drn_cfg; drn_cfg.n_5ht_neurons = static_cast<size_t>(20*s);
+            eng.add_region(std::make_unique<DRN_5HT>(drn_cfg));
+            NBMConfig nbm_cfg; nbm_cfg.n_ach_neurons = static_cast<size_t>(15*s);
+            eng.add_region(std::make_unique<NBM_ACh>(nbm_cfg));
 
             // Septal Nucleus (theta pacemaker)
-            eng.add_region(std::make_unique<SeptalNucleus>(SeptalConfig{}));
+            SeptalConfig sep_cfg; sep_cfg.n_ach = static_cast<size_t>(20*s); sep_cfg.n_gaba = static_cast<size_t>(15*s);
+            eng.add_region(std::make_unique<SeptalNucleus>(sep_cfg));
 
             // Mammillary Body (Papez circuit relay)
-            eng.add_region(std::make_unique<MammillaryBody>(MammillaryConfig{}));
+            MammillaryConfig mb_cfg; mb_cfg.n_medial = static_cast<size_t>(20*s); mb_cfg.n_lateral = static_cast<size_t>(10*s);
+            eng.add_region(std::make_unique<MammillaryBody>(mb_cfg));
 
             // Anterior Thalamic Nucleus (Papez circuit)
             add_thal("ATN", 20, 8);
 
             // Hypothalamus (internal drive system)
-            eng.add_region(std::make_unique<Hypothalamus>(HypothalamusConfig{}));
+            HypothalamusConfig hypo_cfg;
+            hypo_cfg.n_scn = static_cast<size_t>(20*s); hypo_cfg.n_vlpo = static_cast<size_t>(15*s);
+            hypo_cfg.n_orexin = static_cast<size_t>(15*s); hypo_cfg.n_pvn = static_cast<size_t>(15*s);
+            hypo_cfg.n_lh = static_cast<size_t>(12*s); hypo_cfg.n_vmh = static_cast<size_t>(12*s);
+            eng.add_region(std::make_unique<Hypothalamus>(hypo_cfg));
 
             // Global Workspace (consciousness)
-            eng.add_region(std::make_unique<GlobalWorkspace>(GWConfig{}));
+            GWConfig gw_cfg; gw_cfg.n_workspace = static_cast<size_t>(30*s);
+            eng.add_region(std::make_unique<GlobalWorkspace>(gw_cfg));
 
             // ============================================================
             // PROJECTIONS (~90 anatomical connections)
@@ -788,7 +815,9 @@ PYBIND11_MODULE(pywuyun, m) {
             auto* amyg_ptr = dynamic_cast<Amygdala*>(eng.find_region("Amygdala"));
             auto* pfc_ptr = eng.find_region("dlPFC");
             if (amyg_ptr && pfc_ptr) amyg_ptr->set_pfc_source_region(pfc_ptr->region_id());
-        }, "Build standard brain with all regions, projections and neuromodulators");
+        }, py::arg("scale") = 1,
+           "Build standard brain with all regions, projections and neuromodulators.\n"
+           "scale=1: ~5500 neurons (default), scale=3: ~16k, scale=8: ~44k");
 
     // =========================================================================
     // NeuromodType enum

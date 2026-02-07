@@ -205,5 +205,13 @@ if(MSVC)
 endif()
 add_test(NAME sensory_input_tests COMMAND test_sensory_input)
 
+# Step 10 scale emergent property tests
+add_executable(test_scale_emergent test_scale_emergent.cpp)
+target_link_libraries(test_scale_emergent PRIVATE wuyun_core)
+if(MSVC)
+    target_compile_options(test_scale_emergent PRIVATE /utf-8)
+endif()
+add_test(NAME scale_emergent_tests COMMAND test_scale_emergent)
+
 # Register as CTest
 add_test(NAME neuron_tests COMMAND test_neuron)

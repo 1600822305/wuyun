@@ -855,6 +855,41 @@
 - **48区域** | **5528神经元** | **~109投射** | 4调质 | 4学习 | 预测编码 | WM | 注意力 | 内驱力 | GNW | 睡眠/重放 | **感觉输入**
 - **149 测试全通过** (142+7), 零回归
 
+### Step 10: 规模扩展验证 — ✅ 完成
+
+**核心改动:** `build_standard_brain(scale)` 参数化放大
+
+**规模预设:**
+- `scale=1`: ~5,500 神经元 (默认, 向后兼容)
+- `scale=3`: ~16,500 神经元
+- `scale=8`: ~44,000 神经元
+
+**实现:**
+- 所有区域神经元数量乘以 `scale` 因子
+- 皮层: L4/L23/L5/L6/PV/SST/VIP 全部缩放
+- 皮下: BG D1/D2/GPi/GPe/STN, 丘脑 Relay/TRN
+- 边缘: 海马 EC/DG/CA3/CA1/Sub, 杏仁核 LA/BLA/CeA/ITC
+- 调质: VTA DA, LC NE, DRN 5-HT, NBM ACh
+- 小脑: Granule/Purkinje/DCN/MLI/Golgi
+- GW workspace 神经元也缩放
+
+**测试 (test_scale_emergent.cpp, 5测试):**
+1. V1规模扩展: 270→810 neurons, spikes 1111→5573 (5.0x, 超线性)
+2. BG Go/NoGo: 420 neurons, 训练=4185 > 测试=721
+3. CA3模式补全: 180 CA3, 补全比率=1.02 (>>0.30 阈值)
+4. 工作记忆: 606 neurons, 刺激=868 spikes
+5. 全脑 scale=3: 3768 neurons子集, 0.80 ms/step
+
+**涌现发现:**
+- V1 活动超线性增长 (5x vs 3x neurons) → 更密集的网络产生更多协同激活
+- CA3 模式补全在大网络中接近完美 (比率1.02 ≈ 100%) → 自联想记忆容量随规模增长
+- BG 训练/测试差异显著 (4185 vs 721) → DA-STDP 在大规模下仍然有效
+
+**系统状态:**
+- **48区域** | **scale=1: ~5.5k / scale=3: ~16.5k / scale=8: ~44k 神经元** | **~109投射**
+- 4调质 | 4学习 | 预测编码 | WM | 注意力 | 内驱力 | GNW | 睡眠/重放 | 感觉输入 | **规模可扩展**
+- **154 测试全通过** (149+5), 零回归
+
 ---
 
 ## 架构备忘
@@ -875,6 +910,8 @@ C++ 工程骨架 + 基础验证  ← Step 1: CMake + core/ + pybind11
 睡眠/海马重放             ← Step 8: SWR + 皮层慢波 + 记忆巩固
      ↓
 感觉输入接口              ← Step 9: VisualInput + AuditoryInput
+     ↓
+规模扩展验证              ← Step 10: scale=1/3/8, 涌现特性
 
 技术栈: C++17 核心引擎 + pybind11 → Python 实验/可视化
 Python 原型 (wuyun/) → _archived/ 算法参考
