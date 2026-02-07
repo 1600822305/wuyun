@@ -58,28 +58,7 @@ STDP 自组织 (86 神经元发展选择性), BG DA-STDP (动作选择+反转学
 9 区域端到端学习 (3 套学习系统同时运行)。Papez 回路, Septal theta。
 **里程碑: 从"通电的硬件"变为"能学习的系统"。** 100 测试通过。
 
-### Step 5 系列: 脑区扩展 + 预测编码 + Python ✅ (2026-02-07)
-> 详细文档: [steps/step05_expansion.md](steps/step05_expansion.md)
-
-信号衰减修复, 调质广播 (LC/DRN/NBM), 视觉层级 (V2/V4/IT),
-小脑 (CF-LTD), 决策皮层 (OFC/vmPFC/ACC), 背侧视觉 (MT/PPC),
-预测编码, Python pybind11 可视化。46 区域扩展。121 测试通过。
-
-### Step 6-12: 认知功能 + 睡眠 + 注意力 ✅ (2026-02-07)
-> 详细文档: [steps/step06_10_cognitive.md](steps/step06_10_cognitive.md)
-
-下丘脑内驱力, GNW 意识, 认知任务 (Stroop/Go-NoGo),
-工作记忆 (dlPFC L2/3 循环), 注意力 (VIP 去抑制),
-NREM SWR + REM 睡眠, 感觉输入接口, 规模扩展。
-48 区域, ~5500 神经元, 161 测试通过。
-
----
-
-## 闭环 Agent 开发 (Step 13-30)
-
-> 以下 Step 按实际完成时间排列。详细内容将逐步拆分到 docs/steps/。
-
-### Step 13-A: 稳态可塑性集成 ✅ (2026-02-07)
+### 修复: V1→dlPFC→BG 信号衰减 ✅ (2026-02-07)
 > 问题: CorticalRegion::receive_spikes fan-out=3, current=25f → PSP稳态3.1f ≪ 阈值15f
 
 **根因分析:**
