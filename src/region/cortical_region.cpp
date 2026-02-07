@@ -12,6 +12,9 @@ CorticalRegion::CorticalRegion(const std::string& name, const ColumnConfig& conf
     , fired_(n_neurons_, 0)
     , spike_type_(n_neurons_, 0)
     , psp_buffer_(config.n_l4_stellate, 0.0f)
+    , psp_current_regular_(config.input_psp_regular)
+    , psp_current_burst_(config.input_psp_burst)
+    , psp_fan_out_(std::max<size_t>(3, static_cast<size_t>(config.n_l4_stellate * config.input_fan_out_frac)))
 {}
 
 void CorticalRegion::step(int32_t t, float dt) {
@@ -37,13 +40,14 @@ void CorticalRegion::step(int32_t t, float dt) {
 
 void CorticalRegion::receive_spikes(const std::vector<SpikeEvent>& events) {
     // Route arriving spikes to PSP buffer (sustained over multiple steps)
-    // Each spike adds to the PSP buffer which decays exponentially,
-    // simulating the synaptic post-synaptic potential time course
+    // Fan-out: each spike activates ~30% of L4 (biological cortico-cortical convergence)
     for (const auto& evt : events) {
-        float current = is_burst(static_cast<SpikeType>(evt.spike_type)) ? 40.0f : 25.0f;
+        float current = is_burst(static_cast<SpikeType>(evt.spike_type))
+                        ? psp_current_burst_ : psp_current_regular_;
         size_t base = evt.neuron_id % psp_buffer_.size();
-        for (size_t k = 0; k < 3 && (base + k) < psp_buffer_.size(); ++k) {
-            psp_buffer_[base + k] += current;
+        for (size_t k = 0; k < psp_fan_out_; ++k) {
+            size_t idx = (base + k) % psp_buffer_.size();
+            psp_buffer_[idx] += current;
         }
     }
 }

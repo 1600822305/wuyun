@@ -77,6 +77,11 @@ struct ColumnConfig {
     float w_l6_to_l4         = 0.3f;  // Prediction loop (weaker initially)
     float w_recurrent        = 0.2f;  // L2/3 recurrent (weak)
 
+    // --- Cross-region PSP input parameters ---
+    float input_psp_regular  = 35.0f;  // PSP current per regular spike
+    float input_psp_burst    = 55.0f;  // PSP current per burst spike
+    float input_fan_out_frac = 0.3f;   // Fraction of L4 activated per spike
+
     // --- Cortical STDP (online learning) ---
     bool  stdp_enabled       = false;  // Enable STDP on excitatory synapses
     float stdp_a_plus        = 0.01f;  // LTP amplitude (standard cortical)

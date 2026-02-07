@@ -59,6 +59,9 @@ private:
     // 每个到达脉冲维持数步的电流注入 (指数衰减)
     static constexpr float PSP_DECAY = 0.7f;  // 每步衰减为 70%
     std::vector<float> psp_buffer_;  // 每个 L4 神经元的残余 PSP 电流
+    float  psp_current_regular_;     // PSP current per regular spike
+    float  psp_current_burst_;       // PSP current per burst spike
+    size_t psp_fan_out_;             // Number of L4 neurons per incoming spike
 
     void aggregate_firing_state();
 };
