@@ -106,6 +106,14 @@ public:
      *  Biology: corticostriatal projections maintain partial somatotopy/retinotopy */
     void set_topographic_cortical_source(uint32_t region_id, size_t n_neurons);
 
+    /** Awake SWR replay mode: suppress weight decay during replay steps */
+    void set_replay_mode(bool m) { replay_mode_ = m; }
+    bool replay_mode() const { return replay_mode_; }
+
+    /** Lightweight replay step: only D1/D2 firing + DA-STDP, no GPi/GPe/STN.
+     *  Call receive_spikes() first to inject cortical spikes, then this. */
+    void replay_learning_step(int32_t t, float dt = 1.0f);
+
     /** DA-STDP 权重诊断 */
     size_t d1_weight_count() const { return ctx_d1_w_.size(); }
     const std::vector<float>& d1_weights_for(size_t src) const { return ctx_d1_w_[src]; }
@@ -186,6 +194,8 @@ private:
     std::vector<std::vector<float>> elig_d1_;  // [src][idx] decaying trace
     std::vector<std::vector<float>> elig_d2_;  // [src][idx]
     void apply_da_stdp(int32_t t);
+
+    bool replay_mode_ = false;  // Suppress weight decay during awake replay
 };
 
 } // namespace wuyun

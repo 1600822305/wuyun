@@ -437,6 +437,41 @@ void BasalGanglia::mark_motor_efference(int action_group) {
     }
 }
 
+void BasalGanglia::replay_learning_step(int32_t t, float dt) {
+    // Lightweight replay: only D1/D2 firing + DA-STDP update.
+    // Does NOT step GPi/GPe/STN or process internal synapses.
+    // Avoids disrupting BG motor output state during replay.
+
+    // MSN up-state drive + DA modulation (same as normal step)
+    float up = config_.msn_up_state_drive;
+    float da_delta = da_level_ - config_.da_stdp_baseline;
+    float da_base = 15.0f;
+    float da_gain = 50.0f;
+    float da_exc_d1 = up + da_base + da_delta * da_gain;
+    float da_exc_d2 = up + da_base - da_delta * da_gain;
+    for (size_t i = 0; i < d1_msn_.size(); ++i) d1_msn_.inject_basal(i, da_exc_d1);
+    for (size_t i = 0; i < d2_msn_.size(); ++i) d2_msn_.inject_basal(i, da_exc_d2);
+
+    // Inject decaying PSP from receive_spikes (cortical replay input)
+    for (size_t i = 0; i < psp_d1_.size(); ++i) {
+        if (psp_d1_[i] > 0.5f) d1_msn_.inject_basal(i, psp_d1_[i]);
+        psp_d1_[i] *= PSP_DECAY;
+    }
+    for (size_t i = 0; i < psp_d2_.size(); ++i) {
+        if (psp_d2_[i] > 0.5f) d2_msn_.inject_basal(i, psp_d2_[i]);
+        psp_d2_[i] *= PSP_DECAY;
+    }
+
+    // Step only D1 and D2 (they need to fire for eligibility trace formation)
+    d1_msn_.step(t, dt);
+    d2_msn_.step(t, dt);
+
+    // DA-STDP: update weights (replay_mode_ suppresses weight decay)
+    if (config_.da_stdp_enabled) {
+        apply_da_stdp(t);
+    }
+}
+
 void BasalGanglia::submit_spikes(SpikeBus& bus, int32_t t) {
     bus.submit_spikes(region_id_, fired_all_, spike_type_all_, t);
 }
@@ -537,7 +572,9 @@ void BasalGanglia::apply_da_stdp(int32_t t) {
     }
 
     // Phase 3: Decay eligibility traces + homeostatic weight decay toward 1.0
-    float w_decay = config_.da_stdp_w_decay;
+    // During replay mode: skip weight decay (prevent over-decay from extra replay steps)
+    // but still decay eligibility traces (replay needs fresh traces each pass)
+    float w_decay = replay_mode_ ? 0.0f : config_.da_stdp_w_decay;
     for (size_t src = 0; src < elig_d1_.size(); ++src) {
         for (size_t idx = 0; idx < elig_d1_[src].size(); ++idx) {
             elig_d1_[src][idx] *= elig_decay;

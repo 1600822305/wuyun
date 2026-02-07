@@ -18,6 +18,7 @@ ClosedLoopAgent::ClosedLoopAgent(const AgentConfig& config)
     , engine_(10)
     , reward_history_(1000, 0.0f)
     , food_history_(1000, 0)
+    , replay_buffer_(config.replay_buffer_size, config.brain_steps_per_action)
 {
     build_brain();
 
@@ -218,6 +219,11 @@ StepResult ClosedLoopAgent::agent_step() {
 
     // --- Phase B: Observe + decide ---
 
+    // Begin recording episode for awake SWR replay
+    if (config_.enable_replay) {
+        replay_buffer_.begin_episode();
+    }
+
     // B1. Inject new visual observation
     inject_observation();
 
@@ -331,6 +337,11 @@ StepResult ClosedLoopAgent::agent_step() {
 
         engine_.step();
 
+        // Capture dlPFC spike pattern for awake SWR replay buffer
+        if (config_.enable_replay) {
+            capture_dlpfc_spikes(attractor_group);
+        }
+
         // Accumulate M1 L5 fired state (sole motor output)
         const auto& m1_fired = m1_->fired();
         for (size_t j = 0; j < l5_size && (l5_offset + j) < m1_fired.size(); ++j) {
@@ -356,6 +367,17 @@ StepResult ClosedLoopAgent::agent_step() {
     // Only trigger Phase A for significant rewards (food/danger), not step penalties
     pending_reward_ = result.reward * config_.reward_scale;
     has_pending_reward_ = (std::abs(result.reward) > 0.05f);
+
+    // End episode recording and trigger awake SWR replay for significant rewards
+    if (config_.enable_replay) {
+        replay_buffer_.end_episode(result.reward, static_cast<int>(action));
+        // Only replay POSITIVE rewards (food found).
+        // Biology: awake SWR preferentially replays reward-associated trajectories.
+        // Negative experiences are learned online via DA dip, not amplified by replay.
+        if (result.reward > 0.05f && agent_step_count_ >= 10) {
+            run_awake_replay(result.reward);
+        }
+    }
 
     // Update state
     last_action_ = action;
@@ -460,6 +482,97 @@ float ClosedLoopAgent::food_rate(size_t window) const {
         sum += food_history_[idx];
     }
     return static_cast<float>(sum) / static_cast<float>(n);
+}
+
+// =============================================================================
+// Awake SWR Replay: capture cortical spikes + replay on reward
+// =============================================================================
+
+void ClosedLoopAgent::capture_dlpfc_spikes(int action_group) {
+    if (!dlpfc_ || !bg_) return;
+
+    // Capture dlPFC fired neurons as SpikeEvents (same format BG expects)
+    const auto& fired = dlpfc_->fired();
+    const auto& stypes = dlpfc_->spike_type();
+    uint32_t rid = dlpfc_->region_id();
+
+    std::vector<SpikeEvent> events;
+    for (size_t i = 0; i < fired.size(); ++i) {
+        if (fired[i]) {
+            SpikeEvent evt;
+            evt.region_id  = rid;
+            evt.neuron_id  = static_cast<uint32_t>(i);
+            evt.spike_type = stypes[i];
+            evt.timestamp  = 0;  // Not used in replay
+            events.push_back(evt);
+        }
+    }
+    replay_buffer_.record_step(events, action_group);
+}
+
+void ClosedLoopAgent::run_awake_replay(float reward) {
+    // Awake Sharp-Wave Ripple replay — memory consolidation:
+    //
+    //   When a new reward event occurs, replay OLDER successful episodes
+    //   (NOT the current one — that's learned normally via Phase A).
+    //   This combats weight decay on previously learned associations,
+    //   preventing the agent from "forgetting" old strategies.
+    //
+    //   Biology: awake SWR preferentially replays remote reward-associated
+    //   sequences for consolidation, not just the immediate experience.
+    //   (Foster & Wilson 2006, Jadhav et al. 2012)
+
+    if (!bg_ || !vta_ || config_.replay_passes <= 0) return;
+    if (replay_buffer_.size() < 2) return;  // Need at least 1 old episode
+
+    // Collect older episodes with positive reward (skip most recent = current)
+    auto recent = replay_buffer_.recent(std::min(replay_buffer_.size(), (size_t)10));
+    std::vector<const Episode*> replay_candidates;
+    for (size_t i = 1; i < recent.size(); ++i) {  // Skip index 0 = current episode
+        if (recent[i]->reward > 0.05f && !recent[i]->steps.empty()) {
+            replay_candidates.push_back(recent[i]);
+        }
+    }
+    if (replay_candidates.empty()) return;
+
+    // Save current BG state
+    float saved_da = bg_->da_level();
+
+    // Replay DA: above baseline (positive consolidation signal)
+    float da_baseline = 0.3f;
+    float da_replay_level = std::clamp(
+        da_baseline + reward * config_.replay_da_scale, 0.0f, 1.0f);
+
+    // Enter replay mode (suppresses weight decay in DA-STDP)
+    bg_->set_replay_mode(true);
+
+    // Replay each candidate episode once
+    size_t n_replay = std::min(replay_candidates.size(), (size_t)config_.replay_passes);
+    for (size_t ep_idx = 0; ep_idx < n_replay; ++ep_idx) {
+        const Episode& ep = *replay_candidates[ep_idx];
+
+        bg_->set_da_level(da_replay_level);
+
+        // Replay later brain steps (i>=8) where visual context is established
+        size_t start_step = (ep.steps.size() > 8) ? 8 : 0;
+        for (size_t i = start_step; i < ep.steps.size(); ++i) {
+            const SpikeSnapshot& snap = ep.steps[i];
+
+            if (!snap.cortical_events.empty()) {
+                bg_->receive_spikes(snap.cortical_events);
+            }
+            if (snap.action_group >= 0) {
+                bg_->mark_motor_efference(snap.action_group);
+            }
+
+            // Lightweight: only D1/D2 + DA-STDP, no GPi/GPe/STN
+            bg_->replay_learning_step(0, 1.0f);
+        }
+    }
+
+    // Exit replay mode and restore DA level
+    bg_->set_replay_mode(false);
+    bg_->set_da_level(saved_da);
 }
 
 } // namespace wuyun

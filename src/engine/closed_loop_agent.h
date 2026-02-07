@@ -23,6 +23,7 @@
 #include "engine/grid_world.h"
 #include "engine/simulation_engine.h"
 #include "engine/sensory_input.h"
+#include "engine/episode_buffer.h"
 #include "region/cortical_region.h"
 #include "region/subcortical/basal_ganglia.h"
 #include "region/subcortical/thalamic_relay.h"
@@ -63,6 +64,12 @@ struct AgentConfig {
     float cortical_stdp_a_plus  = 0.005f;  // LTP (half of default 0.01, slower online learning)
     float cortical_stdp_a_minus = -0.006f; // LTD (slightly stronger → competitive selectivity)
     float cortical_stdp_w_max   = 1.5f;    // Max synaptic weight
+
+    // Awake SWR Replay (experience replay via hippocampal sharp-wave ripples)
+    bool  enable_replay      = true;   // Enable awake replay after reward events
+    int   replay_passes      = 5;      // Max old episodes to replay per reward event
+    float replay_da_scale    = 0.5f;   // DA signal scaling during replay (moderate vs online)
+    size_t replay_buffer_size = 30;    // Max episodes in buffer
 
     // GridWorld
     GridWorldConfig world_config;
@@ -158,6 +165,11 @@ private:
     Action decode_m1_action(const std::vector<int>& l5_accum) const;
     void inject_observation();
     void inject_reward(float reward);
+
+    // --- Awake SWR replay ---
+    EpisodeBuffer replay_buffer_;
+    void run_awake_replay(float reward);
+    void capture_dlpfc_spikes(int action_group);
 };
 
 } // namespace wuyun
