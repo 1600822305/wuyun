@@ -2,6 +2,10 @@
 #include <algorithm>
 #include <cmath>
 
+#ifdef WUYUN_OPENMP
+#include <omp.h>
+#endif
+
 namespace wuyun {
 
 NeuronPopulation::NeuronPopulation(size_t n, const NeuronParams& params)
@@ -190,11 +194,19 @@ size_t NeuronPopulation::step(int t, float dt) {
     }
 
     // Step 2-3: 对每个神经元，根据状态选择路径
-    for (size_t i = 0; i < n_; ++i) {
-        if (burst_remain_[i] > 0) {
-            continue_burst(i, dt);
-        } else {
-            update_soma_and_fire(i, t, dt);
+    // OpenMP: parallelize for populations >= 64 neurons (avoid thread overhead for small pops)
+    {
+        int nn = static_cast<int>(n_);
+#ifdef WUYUN_OPENMP
+        #pragma omp parallel for schedule(static) if(nn >= 64)
+#endif
+        for (int ii = 0; ii < nn; ++ii) {
+            size_t i = static_cast<size_t>(ii);
+            if (burst_remain_[i] > 0) {
+                continue_burst(i, dt);
+            } else {
+                update_soma_and_fire(i, t, dt);
+            }
         }
     }
 

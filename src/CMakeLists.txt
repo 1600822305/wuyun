@@ -46,6 +46,16 @@ target_include_directories(wuyun_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
+# OpenMP for brain-level parallelism (region stepping + neuron updates)
+find_package(OpenMP)
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(wuyun_core PUBLIC OpenMP::OpenMP_CXX)
+    target_compile_definitions(wuyun_core PUBLIC WUYUN_OPENMP=1)
+    message(STATUS "WuYun: OpenMP enabled (${OpenMP_CXX_FLAGS})")
+else()
+    message(STATUS "WuYun: OpenMP not found, single-threaded fallback")
+endif()
+
 # MSVC specific
 if(MSVC)
     target_compile_options(wuyun_core PRIVATE /W4 /utf-8)

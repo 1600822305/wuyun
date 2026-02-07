@@ -5,6 +5,10 @@
 #include "region/neuromod/nbm_ach.h"
 #include <algorithm>
 
+#ifdef WUYUN_OPENMP
+#include <omp.h>
+#endif
+
 namespace wuyun {
 
 SimulationEngine::SimulationEngine(int32_t max_delay)
@@ -48,9 +52,15 @@ void SimulationEngine::step(float dt) {
         }
     }
 
-    // 2. Each region steps internally
-    for (auto& region : regions_) {
-        region->step(t_, dt);
+    // 2. Each region steps internally (OpenMP parallel — regions are independent within a step)
+    {
+        int n_regions = static_cast<int>(regions_.size());
+#ifdef WUYUN_OPENMP
+        #pragma omp parallel for schedule(dynamic)
+#endif
+        for (int i = 0; i < n_regions; ++i) {
+            regions_[i]->step(t_, dt);
+        }
     }
 
     // 3. Collect neuromodulator levels and broadcast to all regions
