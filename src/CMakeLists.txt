@@ -23,6 +23,7 @@ set(WUYUN_CORE_SOURCES
     region/lc_ne.cpp
     region/drn_5ht.cpp
     region/nbm_ach.cpp
+    region/cerebellum.cpp
     region/hippocampus.cpp
     region/amygdala.cpp
     engine/simulation_engine.cpp

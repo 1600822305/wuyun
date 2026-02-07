@@ -66,6 +66,8 @@ public:
 
     const std::vector<float>& weights() const { return weights_; }
     std::vector<float>& weights() { return weights_; }
+    const std::vector<int32_t>& row_ptr() const { return row_ptr_; }
+    const std::vector<int32_t>& col_idx() const { return col_idx_; }
 
     /** 启用 STP (Tsodyks-Markram 短时程可塑性), 每个突触前神经元一个 STPState */
     void enable_stp(const STPParams& params);
