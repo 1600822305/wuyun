@@ -161,11 +161,23 @@ void CorticalRegion::receive_spikes(const std::vector<SpikeEvent>& events) {
         // Predictive coding: route feedback sources to prediction buffer
         if (pc_enabled_ && pc_feedback_sources_.count(evt.region_id)) {
             // Feedback → prediction buffer (L2/3 sized)
-            size_t base = evt.neuron_id % pc_prediction_buf_.size();
-            size_t fan = std::max<size_t>(3, pc_prediction_buf_.size() / 10);
+            size_t buf_sz = pc_prediction_buf_.size();
+            size_t base;
+            size_t fan;
+            auto topo_it = topo_sources_.find(evt.region_id);
+            if (topo_it != topo_sources_.end() && topo_it->second > 0) {
+                // Topographic feedback: proportional mapping (spatially specific)
+                // dlPFC "right zone" → V1 "right field" L2/3 suppression
+                base = (evt.neuron_id * buf_sz) / topo_it->second;
+                if (base >= buf_sz) base = buf_sz - 1;
+                fan = 3;  // Narrow: only suppress specific spatial location
+            } else {
+                base = evt.neuron_id % buf_sz;
+                fan = std::max<size_t>(3, buf_sz / 10);
+            }
             for (size_t k = 0; k < fan; ++k) {
-                size_t idx = (base + k) % pc_prediction_buf_.size();
-                pc_prediction_buf_[idx] += current * 0.5f;  // Prediction weaker than sensory
+                size_t idx = (base + k) % buf_sz;
+                pc_prediction_buf_[idx] += current * 0.12f;  // FB << FF (weak prediction)
             }
         } else {
             // Feedforward → L4 PSP buffer

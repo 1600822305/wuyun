@@ -5,6 +5,26 @@
 
 ---
 
+## 📋 文档规则
+
+1. **本文件保留完整历史记录**，同时在 `docs/progress/` 下有按阶段拆分的详细文档
+2. 新增开发内容**同时更新本文件和对应阶段文档**
+3. 下方导航表格可快速跳转到各阶段的独立文档
+
+## 📊 阶段导航
+
+| Phase | 名称 | 区域 | 神经元 | 测试 | 详细文档 |
+|-------|------|------|--------|------|---------|
+| 1 | 基础设施 | — | 1M bench | 21 | [phase1_foundation.md](progress/phase1_foundation.md) |
+| 2 | 最小大脑 | 7 | 906 | 26 | [phase2_minimal_brain.md](progress/phase2_minimal_brain.md) |
+| 3 | 记忆+学习 | 9 | 1,591 | 57 | [phase3_memory_learning.md](progress/phase3_memory_learning.md) |
+| 4 | 脑区扩展 | 21 | 3,239 | 80 | [phase4_expansion.md](progress/phase4_expansion.md) |
+| 5 | 认知功能 | 24 | ~3,400 | 113 | [phase5_cognition.md](progress/phase5_cognition.md) |
+| 6 | 完整大脑 | 48 | 5,528 | 161 | [phase6_full_brain.md](progress/phase6_full_brain.md) |
+| 7 | 闭环学习 | 48 | 5,528+ | 179 | [phase7_closed_loop.md](progress/phase7_closed_loop.md) |
+
+---
+
 ## 已完成
 
 ### 设计文档 (v0.3, 2026-02-07)
@@ -1711,4 +1731,87 @@ total food        118                  98                      注2
 48区域 · ~5528+神经元 · ~109投射 · 179测试 · 29 CTest suites
 新增: Awake SWR Replay (EpisodeBuffer + replay_learning_step + 旧记忆巩固)
 学习改善: improvement +0.120 (+56% vs 基线), late safety 0.667 (+27%)
+```
+
+---
+
+## Step 15: 预测编码基础设施 — dlPFC→V1 反馈通路
+
+> 日期: 2026-02-08
+> 目标: 实现皮层预测编码 (dlPFC→V1 顶下反馈), 提升 DA-STDP 信用分配精度
+
+### 已实现的基础设施
+
+CorticalRegion 预测编码机制 (Step 4 时已存在):
+- `enable_predictive_coding()` — PC 模式
+- `add_feedback_source(region_id)` — 标记反馈源
+- `receive_spikes()` 将反馈 spikes 路由到 `pc_prediction_buf_`
+- 精度加权: NE→sensory precision, ACh→prior precision
+
+Step 15 新增:
+- **dlPFC→V1 投射** (delay=3, 可通过 `enable_predictive_coding` 配置开关)
+- **拓扑反馈映射**: dlPFC→V1 使用比例映射 (不是 neuron_id % buf_size)
+- **窄 fan-out** (=3): 空间特异性抑制/促进
+- **促进模式**: 从经典抑制性预测误差改为促进性注意放大 (Bastos et al. 2012)
+- **AgentConfig::enable_predictive_coding** 配置标志 (默认 false)
+
+### 修改文件
+
+| 文件 | 变更 |
+|------|------|
+| `src/region/cortical_region.cpp` | PC 反馈路径: 拓扑映射+窄fan-out, 促进模式 (0.1f gain) |
+| `src/engine/closed_loop_agent.h` | 新增 `enable_predictive_coding` 配置标志 |
+| `src/engine/closed_loop_agent.cpp` | dlPFC→V1 投射 + PC 启用 + 拓扑注册, 均受配置控制 |
+
+### 5 轮调优实验
+
+| 版本 | 模式 | 增益 | 映射 | fan | improvement | D1范围 |
+|------|------|:----:|------|:---:|:-----------:|:------:|
+| Step 14 基线 | 无PC | — | — | — | **+0.120** | 0.069 |
+| v1 抑制性 | suppressive | -0.5 | modular | 12 | -0.030 | — |
+| v2 弱抑制 | suppressive | -0.12 | modular | 12 | -0.019 | — |
+| v3 拓扑抑制 | suppressive | -0.12 | topo | 3 | -0.112 | 0.070 |
+| **v4 促进** | **facilitative** | **+0.3** | **topo** | **3** | **+0.022** | **0.106** |
+| v5 弱促进 | facilitative | +0.1 | topo | 3 | -0.161 | 0.070 |
+
+### 关键发现
+
+1. **经典预测编码 (抑制性) 在小视觉场景无效**
+   - 3×3 视野、3 种像素值 = 太少冗余可压缩
+   - dlPFC 反馈不是"预测"而是当前感知的延迟回声
+   - 抑制性回声压制 V1 L2/3 → 削弱 V1→dlPFC→BG 信号链
+
+2. **促进性注意 (Bastos 2012) 更有前途**
+   - 0.3f 增益: D1 权重范围 0.069→0.106 (+54%)
+   - 但 improvement 仅 +0.022 (不及无 PC 的 +0.120)
+   - 原因: 放大所有刺激 (含无关信号), 稀释信用分配
+
+3. **反馈环路 V1→dlPFC→V1 的固有问题**
+   - 正反馈: 促进→更多V1输出→更多dlPFC→更多促进→过驱动
+   - 负反馈: 抑制→更少V1输出→更少dlPFC→更少抑制→恢复→振荡
+   - 两种模式都增加系统方差, 不利于稳定学习
+
+4. **正确的启用时机**
+   - 环境扩大后 (更大视野, 更多刺激种类) PC 将变得有用
+   - 需要学习预测机制 (dlPFC L6 学习预测 V1 模式)
+   - 当前: 基础设施就绪, 一个配置标志即可启用
+
+### 决策: 默认禁用, 保留基础设施
+
+```
+enable_predictive_coding = false  // 默认不启用
+// 启用: config.enable_predictive_coding = true
+// 投射: dlPFC → V1 (delay=3)
+// 模式: 促进性注意 (0.1f gain, 拓扑映射, fan=3)
+// 待启用条件: 视野 > 3×3, 刺激种类 > 3, 或有学习预测机制
+```
+
+### 回归测试: 29/29 CTest 全通过 (性能恢复到 Step 14 水平)
+
+### 系统状态
+
+```
+48区域 · ~5528+神经元 · ~109投射 · 179测试 · 29 CTest suites
+新增: 预测编码基础设施 (PC 投射+拓扑反馈+促进模式, 默认禁用)
+学习维持: improvement +0.120, late safety 0.667 (与 Step 14 一致)
 ```

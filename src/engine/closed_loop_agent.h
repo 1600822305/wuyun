@@ -65,6 +65,11 @@ struct AgentConfig {
     float cortical_stdp_a_minus = -0.006f; // LTD (slightly stronger → competitive selectivity)
     float cortical_stdp_w_max   = 1.5f;    // Max synaptic weight
 
+    // Predictive coding (dlPFC → V1 attentional feedback)
+    // Infrastructure ready but disabled by default: doesn't help in 3x3 visual field.
+    // Enable when environment has larger, more redundant visual scenes.
+    bool  enable_predictive_coding = false;
+
     // Awake SWR Replay (experience replay via hippocampal sharp-wave ripples)
     bool  enable_replay      = true;   // Enable awake replay after reward events
     int   replay_passes      = 5;      // Max old episodes to replay per reward event

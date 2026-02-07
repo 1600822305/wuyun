@@ -122,6 +122,13 @@ void ClosedLoopAgent::build_brain() {
     // Feedback: M1 → dlPFC (efference copy)
     engine_.add_projection("M1", "dlPFC", 3);
 
+    // Predictive coding: dlPFC → V1 (top-down attentional feedback)
+    // Gated by config: doesn't help in small 3x3 visual field (5 rounds of tuning confirmed).
+    // Infrastructure ready for larger environments.
+    if (config_.enable_predictive_coding) {
+        engine_.add_projection("dlPFC", "V1", 3);
+    }
+
     // Memory: dlPFC → Hippocampus (encode context)
     engine_.add_projection("dlPFC", "Hippocampus", 3);
     engine_.add_projection("V1", "Hippocampus", 3);
@@ -161,6 +168,15 @@ void ClosedLoopAgent::build_brain() {
     // at the "last mile" before action selection
     if (dlpfc_ && bg_) {
         bg_->set_topographic_cortical_source(dlpfc_->region_id(), dlpfc_->n_neurons());
+    }
+
+    // --- Enable predictive coding on V1 (if configured) ---
+    // dlPFC sends top-down attentional feedback to V1 L2/3 apical.
+    // Disabled by default: doesn't help in small 3x3 visual field.
+    if (config_.enable_predictive_coding && v1_ && dlpfc_) {
+        v1_->enable_predictive_coding();
+        v1_->add_feedback_source(dlpfc_->region_id());
+        v1_->add_topographic_input(dlpfc_->region_id(), dlpfc_->n_neurons());
     }
 
     // --- Enable homeostatic plasticity ---
