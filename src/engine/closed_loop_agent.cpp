@@ -125,7 +125,9 @@ void ClosedLoopAgent::build_brain() {
     // --- Wire DA source for BG ---
     auto* bg_ptr = dynamic_cast<BasalGanglia*>(engine_.find_region("BG"));
     auto* vta_ptr = engine_.find_region("VTA");
-    if (bg_ptr && vta_ptr) bg_ptr->set_da_source_region(vta_ptr->region_id());
+    // DA传递用neuromodulatory broadcast (体积传递), 不走SpikeBus
+    // VTA→BG投射保留用于其他信号, DA level直接同步
+    // bg_ptr->set_da_source_region(vta_ptr->region_id()); // DISABLED: use direct DA broadcast
 
     // --- Cache region pointers ---
     lgn_   = engine_.find_region("LGN");
@@ -144,7 +146,8 @@ void ClosedLoopAgent::build_brain() {
         hp.scale_interval = 100;
         v1_->enable_homeostatic(hp);
         dlpfc_->enable_homeostatic(hp);
-        m1_->enable_homeostatic(hp);
+        // M1 intentionally excluded: motor cortex driven by exploration noise,
+        // homeostatic plasticity would suppress noise-driven firing → agent freezes
         hipp_->enable_homeostatic(hp);
     }
 
@@ -180,9 +183,10 @@ StepResult ClosedLoopAgent::agent_step() {
     // --- Phase A: Process pending reward (from previous action) ---
     if (has_pending_reward_) {
         inject_reward(pending_reward_);
-        // Run a few steps so VTA→DA→BG can propagate
-        // Eligibility traces from previous action still active (decay ~0.95^5 = 0.77)
+        // Run a few steps so DA can modulate BG eligibility traces
+        // DA broadcast: VTA computes DA level, BG reads it directly (volume transmission)
         for (size_t i = 0; i < config_.reward_processing_steps; ++i) {
+            bg_->set_da_level(vta_->da_output());  // Neuromodulatory broadcast
             engine_.step();
         }
         has_pending_reward_ = false;
@@ -193,79 +197,129 @@ StepResult ClosedLoopAgent::agent_step() {
     // B1. Inject new visual observation
     inject_observation();
 
-    // B2. Motor exploration: pick ONE action group for this action period
-    int boosted_group = -1;
-    if (config_.exploration_noise > 0.0f) {
-        std::uniform_int_distribution<int> group_pick(0, 3);
-        boosted_group = group_pick(motor_rng_);
-    }
+    // =====================================================================
+    // Biologically correct motor architecture:
+    //
+    //   dlPFC → BG D1/D2 (corticostriatal: sensory context)
+    //   D1 → GPi(inhibit) → MotorThal(disinhibit) → M1 L5 (Go)
+    //   D2 → GPe → GPi(disinhibit) → MotorThal(inhibit) (NoGo)
+    //   M1 L5 = sole motor output (action decoded here)
+    //
+    //   Exploration = diffuse cortical spontaneous activity (all M1 L5)
+    //   BG influence = D1 subgroup firing → bias corresponding M1 L5 group
+    //                  (simplified proxy for BG→MotorThal→M1 disinhibition)
+    //   Learning naturally shifts M1 firing from noise-driven to BG-biased
+    // =====================================================================
 
-    // B3. Accumulate M1 L5 + BG D1 spike counts across brain steps
+    // B2. Setup accumulators
     const auto& col = m1_->column();
     size_t l4_size  = col.l4().size();
     size_t l23_size = col.l23().size();
     size_t l5_size  = col.l5().size();
     size_t l5_offset = l4_size + l23_size;
     std::vector<int> l5_accum(l5_size, 0);
+
+    // BG D1 subgroup parameters (for bias injection into M1)
     size_t d1_size = bg_->d1().size();
-    std::vector<int> d1_accum(d1_size, 0);
+    size_t d1_group = (d1_size >= 4) ? d1_size / 4 : d1_size;
+    float bg_to_m1_gain = 8.0f;  // BG Go signal → M1 drive strength
+
+    // Motor exploration: cortical attractor dynamics + NE-modulated arousal
+    // Biology: LC-NE system scales exploration based on learning progress
+    //   Getting food regularly → low NE → exploit learned policy
+    //   Not finding food → high NE → explore more
+    //   Floor at 70% ensures M1 always fires (attractor_drive ≥ 0.7*55*0.6 = 23)
+    float noise_scale = 1.0f;
+    if (agent_step_count_ > 500 && reward_history_.size() > 0) {
+        int food_count = 0;
+        int total = static_cast<int>(std::min(history_idx_, reward_history_.size()));
+        for (int k = 0; k < total; ++k) {
+            if (food_history_[k]) food_count++;
+        }
+        float food_rate = static_cast<float>(food_count) / static_cast<float>(std::max(total, 1));
+        // More food found → reduce exploration (exploit). Scale: 1.0→0.7 as food_rate 0→0.1
+        noise_scale = std::max(0.7f, 1.0f - food_rate * 3.0f);
+    }
+    float effective_noise = config_.exploration_noise * noise_scale;
+
+    int attractor_group = -1;
+    if (effective_noise > 0.0f) {
+        std::uniform_int_distribution<int> group_pick(0, 3);
+        attractor_group = group_pick(motor_rng_);
+    }
+    float attractor_drive = effective_noise * 0.6f;   // Strong: selected direction
+    float attractor_jitter = effective_noise * 0.4f;  // Variability
+    float background_drive = effective_noise * 0.1f;  // Weak: other directions
 
     for (size_t i = 0; i < config_.brain_steps_per_action; ++i) {
-        // Re-inject observation every few brain steps to sustain input
+        // Re-inject observation every few brain steps to sustain cortical input
         if (i > 0 && i % 3 == 0) {
             inject_observation();
         }
 
-        // Sustained motor exploration noise into the selected M1 L5 group
-        // AND the corresponding BG D1 subgroup (action-specific credit assignment)
-        if (boosted_group >= 0) {
-            // M1 L5 noise
-            auto& l5 = m1_->column().l5();
-            if (l5_size >= 4) {
-                size_t group_size = l5_size / 4;
-                float bias = config_.exploration_noise * 0.6f;
-                float jitter_range = config_.exploration_noise * 0.4f;
-                std::uniform_real_distribution<float> jitter(-jitter_range, jitter_range);
-                size_t start = static_cast<size_t>(boosted_group) * group_size;
-                size_t end = (boosted_group < 3)
-                    ? static_cast<size_t>(boosted_group + 1) * group_size : l5_size;
-                for (size_t j = start; j < end; ++j) {
-                    l5.inject_basal(j, bias + jitter(motor_rng_));
+        // DA neuromodulatory broadcast: VTA → BG (volume transmission, every step)
+        bg_->set_da_level(vta_->da_output());
+
+        // (1) M1 L5 exploration: attractor direction + background activity
+        //     Attractor group: strong drive (cortical attractor settled on this direction)
+        //     Other groups: weak background (cortical spontaneous activity)
+        //     BG bias can override attractor as learning progresses
+        auto& l5 = m1_->column().l5();
+        if (l5_size >= 4) {
+            size_t l5_group = l5_size / 4;
+            std::uniform_real_distribution<float> jitter(-attractor_jitter, attractor_jitter);
+            for (int g = 0; g < 4; ++g) {
+                size_t m1_start = g * l5_group;
+                size_t m1_end = (g < 3) ? (g + 1) * l5_group : l5_size;
+                float drive = (g == attractor_group) ? attractor_drive : background_drive;
+                for (size_t j = m1_start; j < m1_end; ++j) {
+                    float current = drive + jitter(motor_rng_);
+                    if (current > 0.0f) l5.inject_basal(j, current);
                 }
             }
+        }
 
-            // BG D1 action-specific boost: divide D1 into 4 action channels
-            // Only the channel matching the selected action gets extra drive
-            // This creates action-specific eligibility traces for DA-STDP
-            size_t d1_size = bg_->d1().size();
-            if (d1_size >= 4) {
-                size_t d1_group = d1_size / 4;
-                float d1_boost = 15.0f;  // Extra drive to push selected D1 subgroup over threshold
-                size_t d1_start = static_cast<size_t>(boosted_group) * d1_group;
-                size_t d1_end = (boosted_group < 3)
-                    ? static_cast<size_t>(boosted_group + 1) * d1_group : d1_size;
-                for (size_t j = d1_start; j < d1_end; ++j) {
-                    bg_->d1().inject_basal(j, d1_boost);
+        // (2) BG D1 → M1 L5 bias: simplified BG→MotorThal→M1 disinhibition
+        //     D1 subgroup fires → corresponding M1 L5 group gets extra drive
+        //     As DA-STDP changes D1 weights, specific M1 groups get stronger bias
+        //     → learned actions emerge from BG modulation of M1
+        if (d1_size >= 4 && l5_size >= 4) {
+            const auto& d1_fired = bg_->d1().fired();
+            size_t l5_group = l5_size / 4;
+            for (int g = 0; g < 4; ++g) {
+                size_t d1_start = g * d1_group;
+                size_t d1_end = (g < 3) ? (g + 1) * d1_group : d1_size;
+                int d1_fires = 0;
+                for (size_t k = d1_start; k < d1_end; ++k) {
+                    if (d1_fired[k]) d1_fires++;
+                }
+                if (d1_fires > 0) {
+                    float bias = static_cast<float>(d1_fires) * bg_to_m1_gain;
+                    size_t m1_start = g * l5_group;
+                    size_t m1_end = (g < 3) ? (g + 1) * l5_group : l5_size;
+                    for (size_t j = m1_start; j < m1_end; ++j) {
+                        l5.inject_basal(j, bias);
+                    }
                 }
             }
         }
 
         engine_.step();
 
-        // Accumulate M1 L5 fired state
+        // Accumulate M1 L5 fired state (sole motor output)
         const auto& m1_fired = m1_->fired();
         for (size_t j = 0; j < l5_size && (l5_offset + j) < m1_fired.size(); ++j) {
             l5_accum[j] += m1_fired[l5_offset + j];
         }
-        // Accumulate BG D1 fired state (action preference from learned weights)
-        const auto& d1_fired = bg_->d1().fired();
-        for (size_t j = 0; j < d1_size && j < d1_fired.size(); ++j) {
-            d1_accum[j] += d1_fired[j];
-        }
+
+        // NOTE: Motor efference copy (mark_motor_efference) intentionally disabled.
+        // Direction-specific learning requires topographic cortical→BG mapping or
+        // cortical STDP to shape dlPFC representations. Current Go/NoGo learning
+        // from random corticostriatal mapping provides +0.19 safety improvement.
     }
 
-    // B4. Decode action from M1 L5 + BG D1 combined signal
-    Action action = decode_action(l5_accum, d1_accum);
+    // B3. Decode action from M1 L5 only (biological: M1 is the motor output)
+    Action action = decode_m1_action(l5_accum);
 
     // --- Phase C: Act in world + store reward ---
     StepResult result = world_.act(action);
@@ -308,53 +362,26 @@ void ClosedLoopAgent::inject_observation() {
     auto obs = world_.observe();  // 3x3 = 9 pixels
     visual_encoder_.encode_and_inject(obs, lgn_);
 }
-
 // =============================================================================
 // Action decoding: M1 L5 fired → winner-take-all over 4 directions
 // =============================================================================
 
-Action ClosedLoopAgent::decode_action(const std::vector<int>& l5_accum,
-                                       const std::vector<int>& d1_accum) const {
-    // Combined action selection from M1 L5 (motor execution) + BG D1 (learned preference)
-    //   Group 0: UP,   Group 1: DOWN,  Group 2: LEFT,  Group 3: RIGHT
-    //
-    // Score = M1_score + bg_weight * D1_score
-    // M1 provides exploration (noise-driven), BG provides learned bias
-    // As BG learns, D1 subgroups for rewarded actions fire more → action preference shifts
+Action ClosedLoopAgent::decode_m1_action(const std::vector<int>& l5_accum) const {
+    // Biological: action decoded ONLY from M1 L5 (sole motor output)
+    // BG influence reaches M1 through MotorThal pathway (bias injection above)
+    // M1 L5 divided into 4 groups: UP / DOWN / LEFT / RIGHT
 
-    // M1 L5 scores
     size_t l5_size = l5_accum.size();
-    float m1_scores[4] = {0, 0, 0, 0};
-    if (l5_size >= 4) {
-        size_t group_size = l5_size / 4;
-        for (size_t g = 0; g < 4; ++g) {
-            size_t start = g * group_size;
-            size_t end = (g < 3) ? (g + 1) * group_size : l5_size;
-            for (size_t i = start; i < end; ++i) {
-                m1_scores[g] += static_cast<float>(l5_accum[i]);
-            }
-        }
-    }
+    if (l5_size < 4) return Action::STAY;
 
-    // BG D1 scores (learned action preference)
-    size_t d1_size = d1_accum.size();
-    float d1_scores[4] = {0, 0, 0, 0};
-    if (d1_size >= 4) {
-        size_t d1_group = d1_size / 4;
-        for (size_t g = 0; g < 4; ++g) {
-            size_t start = g * d1_group;
-            size_t end = (g < 3) ? (g + 1) * d1_group : d1_size;
-            for (size_t i = start; i < end; ++i) {
-                d1_scores[g] += static_cast<float>(d1_accum[i]);
-            }
+    float scores[4] = {0, 0, 0, 0};
+    size_t group_size = l5_size / 4;
+    for (size_t g = 0; g < 4; ++g) {
+        size_t start = g * group_size;
+        size_t end = (g < 3) ? (g + 1) * group_size : l5_size;
+        for (size_t i = start; i < end; ++i) {
+            scores[g] += static_cast<float>(l5_accum[i]);
         }
-    }
-
-    // Combined score: M1 exploration + BG learned preference
-    float bg_weight = 2.0f;  // BG contribution weight (increases effective learning signal)
-    float scores[4];
-    for (int g = 0; g < 4; ++g) {
-        scores[g] = m1_scores[g] + bg_weight * d1_scores[g];
     }
 
     // Winner-take-all

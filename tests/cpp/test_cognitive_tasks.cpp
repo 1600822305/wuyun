@@ -111,8 +111,8 @@ static void test_trained_go_nogo() {
             }
         }
 
-        // Test phase: low DA, count D1 spikes
-        bg->set_da_level(0.1f);
+        // Test phase: neutral DA (baseline), count D1 spikes
+        bg->set_da_level(0.3f);
         size_t d1_spikes = 0;
         for (int t = 0; t < 50; ++t) {
             lgn->inject_external(std::vector<float>(50, 35.0f));
@@ -328,8 +328,8 @@ static void test_wm_guided_decision() {
         }
     }
 
-    // Phase 2: Cue presentation (short)
-    bg->set_da_level(0.1f);
+    // Phase 2: Cue presentation (short) — neutral DA (baseline)
+    bg->set_da_level(0.3f);
     for (int t = 0; t < 20; ++t) {
         lgn->inject_external(std::vector<float>(50, 35.0f));
         eng->step();
@@ -358,7 +358,7 @@ static void test_wm_guided_decision() {
             eng2->step();
         }
     }
-    bg2->set_da_level(0.1f);
+    bg2->set_da_level(0.3f);  // Neutral DA (baseline)
     for (int t = 0; t < 20; ++t) {
         lgn2->inject_external(std::vector<float>(50, 35.0f));
         eng2->step();
@@ -397,8 +397,8 @@ static void test_reversal_learning() {
         }
     }
 
-    // Measure D1 after low-DA phase
-    bg->set_da_level(0.1f);
+    // Measure D1 after low-DA phase (neutral DA for measurement)
+    bg->set_da_level(0.3f);
     size_t d1_after_low = 0;
     for (int t = 0; t < 40; ++t) {
         lgn->inject_external(stim);
@@ -417,8 +417,8 @@ static void test_reversal_learning() {
         }
     }
 
-    // Measure D1 after high-DA phase
-    bg->set_da_level(0.1f);
+    // Measure D1 after high-DA phase (neutral DA for measurement)
+    bg->set_da_level(0.3f);
     size_t d1_after_high = 0;
     for (int t = 0; t < 40; ++t) {
         lgn->inject_external(stim);

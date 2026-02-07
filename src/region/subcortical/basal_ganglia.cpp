@@ -153,6 +153,34 @@ void BasalGanglia::build_input_maps(size_t n_input_neurons) {
         }
     }
 
+    // Build TOPOGRAPHIC sensory→D1 mapping (thalamostriatal pathway)
+    // Slots 252-255 = sensory direction channels (UP/DOWN/LEFT/RIGHT)
+    // Each maps to ALL D1 neurons in the corresponding action subgroup
+    if (config_.da_stdp_enabled) {
+        size_t d1_size = d1_msn_.size();
+        size_t d1_group = d1_size / 4;
+        for (int dir = 0; dir < 4; ++dir) {
+            size_t slot = SENSORY_SLOT_BASE + dir;
+            if (slot < n_input_neurons) {
+                ctx_to_d1_map_[slot].clear();  // Replace random with topographic
+                size_t start = dir * d1_group;
+                size_t end = (dir < 3) ? (dir + 1) * d1_group : d1_size;
+                for (size_t j = start; j < end; ++j) {
+                    ctx_to_d1_map_[slot].push_back(static_cast<uint32_t>(j));
+                }
+                // Also D2: sensory→NoGo for same direction
+                ctx_to_d2_map_[slot].clear();
+                size_t d2_size = d2_msn_.size();
+                size_t d2_group = d2_size / 4;
+                size_t d2_start = dir * d2_group;
+                size_t d2_end = (dir < 3) ? (dir + 1) * d2_group : d2_size;
+                for (size_t j = d2_start; j < d2_end; ++j) {
+                    ctx_to_d2_map_[slot].push_back(static_cast<uint32_t>(j));
+                }
+            }
+        }
+    }
+
     // Initialize DA-STDP per-connection weights (all start at 1.0)
     if (config_.da_stdp_enabled) {
         ctx_d1_w_.resize(n_input_neurons);
@@ -180,7 +208,7 @@ void BasalGanglia::step(int32_t t, float dt) {
     if (da_source_region_ != UINT32_MAX) {
         // DA firing rate estimate (spikes per step, smoothed)
         da_spike_accum_ *= DA_RATE_TAU;
-        da_level_ = std::clamp(0.1f + da_spike_accum_ * 0.05f, 0.0f, 1.0f);
+        da_level_ = std::clamp(0.1f + da_spike_accum_ * 0.08f, 0.0f, 1.0f);
     }
 
     // MSN up-state drive + symmetric DA modulation
@@ -258,13 +286,15 @@ void BasalGanglia::receive_spikes(const std::vector<SpikeEvent>& events) {
         }
 
         // Cortical spikes → route through pre-built random sparse maps
-        // MSN up-state drive (40) + PSP (15) = 55 > threshold (50)
-        float base_current = is_burst(static_cast<SpikeType>(evt.spike_type)) ? 25.0f : 15.0f;
+        // L5 corticostriatal axons are among the thickest white matter tracts
+        // MSN up-state drive (40) + PSP (30) = 70 → reliable MSN firing from cortical input
+        float base_current = is_burst(static_cast<SpikeType>(evt.spike_type)) ? 50.0f : 30.0f;
         size_t src = evt.neuron_id % input_map_size_;
 
         // Mark input as active for DA-STDP
         if (config_.da_stdp_enabled && src < input_active_.size()) {
             input_active_[src] = 1;
+            total_cortical_inputs_++;
         }
 
         for (size_t idx = 0; idx < ctx_to_d1_map_[src].size(); ++idx) {
@@ -279,6 +309,67 @@ void BasalGanglia::receive_spikes(const std::vector<SpikeEvent>& events) {
         }
         for (uint32_t tgt : ctx_to_stn_map_[src]) {
             psp_stn_[tgt] += base_current * 0.5f;
+        }
+    }
+}
+
+void BasalGanglia::inject_sensory_context(const float signals[4]) {
+    if (!config_.da_stdp_enabled) return;
+
+    size_t d1_size = d1_msn_.size();
+    size_t d1_group = d1_size / 4;
+    float ctx_psp = 25.0f;  // Sensory context drive strength
+
+    for (int dir = 0; dir < 4; ++dir) {
+        if (std::abs(signals[dir]) < 0.01f) continue;
+
+        size_t slot = SENSORY_SLOT_BASE + dir;
+        if (slot >= input_active_.size()) continue;
+
+        // Mark sensory slot as active for DA-STDP eligibility trace formation
+        input_active_[slot] = 1;
+
+        // Inject current into corresponding D1 subgroup
+        // Positive signal = food direction → boost D1 (Go)
+        // Negative signal = danger direction → suppress D1
+        float current = signals[dir] * ctx_psp;
+        size_t start = dir * d1_group;
+        size_t end = (dir < 3) ? (dir + 1) * d1_group : d1_size;
+        for (size_t j = start; j < end; ++j) {
+            psp_d1_[j] += std::max(0.0f, current);
+        }
+
+        // For danger: boost D2 (NoGo) instead
+        if (signals[dir] < 0.0f) {
+            size_t d2_size = d2_msn_.size();
+            size_t d2_group = d2_size / 4;
+            size_t d2_start = dir * d2_group;
+            size_t d2_end = (dir < 3) ? (dir + 1) * d2_group : d2_size;
+            for (size_t j = d2_start; j < d2_end; ++j) {
+                psp_d2_[j] += std::abs(current);
+            }
+        }
+    }
+}
+
+void BasalGanglia::mark_motor_efference(int action_group) {
+    if (!config_.da_stdp_enabled) return;
+    if (action_group < 0 || action_group >= 4) return;
+    size_t slot = SENSORY_SLOT_BASE + action_group;
+    if (slot < input_active_.size()) {
+        input_active_[slot] = 1;
+        total_cortical_inputs_++;
+    }
+    // Inject PSP through LEARNED topographic weights
+    // As DA-STDP potentiates the rewarded direction's weights, PSP grows stronger
+    // → D1 fires more for learned directions → BG biases M1 → positive feedback loop
+    // 15.0 base × weight: initially 15×1.0=15 (subtle), grows to 15×1.6=24 after learning
+    if (slot < ctx_d1_w_.size()) {
+        float base_psp = 5.0f;
+        for (size_t idx = 0; idx < ctx_to_d1_map_[slot].size(); ++idx) {
+            uint32_t tgt = ctx_to_d1_map_[slot][idx];
+            float w = ctx_d1_w_[slot][idx];
+            psp_d1_[tgt] += base_psp * w;
         }
     }
 }
@@ -342,19 +433,20 @@ void BasalGanglia::apply_da_stdp(int32_t t) {
     float elig_decay = config_.da_stdp_elig_decay;
 
     // Phase 1: Update eligibility traces from co-activation
+    float max_elig = config_.da_stdp_max_elig;
     for (size_t src = 0; src < input_active_.size(); ++src) {
         if (!input_active_[src]) continue;
 
         for (size_t idx = 0; idx < ctx_to_d1_map_[src].size(); ++idx) {
             uint32_t tgt = ctx_to_d1_map_[src][idx];
             if (d1_msn_.fired()[tgt]) {
-                elig_d1_[src][idx] += 1.0f;
+                elig_d1_[src][idx] = std::min(elig_d1_[src][idx] + 1.0f, max_elig);
             }
         }
         for (size_t idx = 0; idx < ctx_to_d2_map_[src].size(); ++idx) {
             uint32_t tgt = ctx_to_d2_map_[src][idx];
             if (d2_msn_.fired()[tgt]) {
-                elig_d2_[src][idx] += 1.0f;
+                elig_d2_[src][idx] = std::min(elig_d2_[src][idx] + 1.0f, max_elig);
             }
         }
     }
@@ -381,13 +473,23 @@ void BasalGanglia::apply_da_stdp(int32_t t) {
         }
     }
 
-    // Phase 3: Decay all eligibility traces
+    // Phase 3: Decay eligibility traces + homeostatic weight decay toward 1.0
+    float w_decay = config_.da_stdp_w_decay;
     for (size_t src = 0; src < elig_d1_.size(); ++src) {
         for (size_t idx = 0; idx < elig_d1_[src].size(); ++idx) {
             elig_d1_[src][idx] *= elig_decay;
         }
         for (size_t idx = 0; idx < elig_d2_[src].size(); ++idx) {
             elig_d2_[src][idx] *= elig_decay;
+        }
+        // Weight decay: pull toward 1.0 (prevents runaway potentiation/depression)
+        if (w_decay > 0.0f) {
+            for (size_t idx = 0; idx < ctx_d1_w_[src].size(); ++idx) {
+                ctx_d1_w_[src][idx] += w_decay * (1.0f - ctx_d1_w_[src][idx]);
+            }
+            for (size_t idx = 0; idx < ctx_d2_w_[src].size(); ++idx) {
+                ctx_d2_w_[src][idx] += w_decay * (1.0f - ctx_d2_w_[src][idx]);
+            }
         }
     }
 

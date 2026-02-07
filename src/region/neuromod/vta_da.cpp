@@ -29,7 +29,8 @@ void VTA_DA::step(int32_t t, float dt) {
     for (size_t i = 0; i < psp_da_.size(); ++i) {
         float psp_input = psp_da_[i] > 0.5f ? psp_da_[i] : 0.0f;
         // Tonic baseline drive + sustained reward PSP + cross-region PSP
-        da_neurons_.inject_basal(i, 5.0f + reward_psp_ + psp_input);
+        // 20.0 = enough for ~4Hz spontaneous firing (normal DA tonic activity)
+        da_neurons_.inject_basal(i, 20.0f + reward_psp_ + psp_input);
         psp_da_[i] *= PSP_DECAY;
     }
     reward_psp_ *= REWARD_PSP_DECAY;  // Slow decay of reward signal
@@ -44,10 +45,15 @@ void VTA_DA::step(int32_t t, float dt) {
         if (fired_[i]) n_fired++;
     }
 
-    // DA level = tonic + phasic (from firing rate)
+    // DA level = tonic + phasic
+    // Biological: DA concentration depends on BOTH firing rate AND reuptake (DAT)
+    //   Reward  → burst firing → DA release >> reuptake → DA rises above tonic
+    //   Punishment → pause (no firing) → reuptake > release → DA drops BELOW tonic
+    // Implementation: use firing rate for positive phasic, RPE for negative phasic
     float firing_rate = static_cast<float>(n_fired) / static_cast<float>(da_neurons_.size());
-    float phasic = firing_rate * config_.phasic_gain;
-    da_level_ = std::clamp(config_.tonic_rate + phasic, 0.0f, 1.0f);
+    float phasic_positive = firing_rate * config_.phasic_gain;  // From actual firing
+    float phasic_negative = (last_rpe_ < 0.0f) ? last_rpe_ * config_.phasic_gain * 0.5f : 0.0f;  // DA pause dip
+    da_level_ = std::clamp(config_.tonic_rate + phasic_positive + phasic_negative, 0.0f, 1.0f);
 
     // Reset reward input (consumed)
     reward_input_ = 0.0f;

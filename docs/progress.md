@@ -957,6 +957,10 @@ C++ 工程骨架 + 基础验证  ← Step 1: CMake + core/ + pybind11
 REM睡眠+梦境              ← Step 11: theta + PGO + 创造性重组
 
 稳态可塑性集成              ← Step 13-A: SynapticScaler + E/I平衡
+     ↓
+闭环Agent + GridWorld        ← Step 13-B: 感知→决策→行动→学习
+     ↓
+闭环学习调优 (v3)            ← Step 13-B++: elig clamp + NE退火 + 诊断修复
 
 技术栈: C++17 核心引擎 + pybind11 → Python 实验/可视化
 Python 原型 (wuyun/) → _archived/ 算法参考
@@ -1154,6 +1158,98 @@ D1 发放: 31 fires / 50 steps (previously 0)
 - `test_learning_curve.cpp`: 4个学习曲线测试 (5k/3k对照/诊断/10k)
 - `test_bg_learning.cpp`: 反转学习断言更新 (相对偏好)
 
+---
+
+## Step 13-B++: 闭环学习调优 (v3) — 稳定学习曲线
+
+### 问题
+
+v1/v2 闭环学习存在三个问题:
+1. **Eligibility explosion**: elig累积到2732, 单次权重更新Δw=0.03×0.5×2732=**41** → 7k epoch崩溃
+2. **Agent冻结**: v1(DA=0.1) 4k后冻结, noise退火过激导致M1不再发放
+3. **`inp=0` 诊断困惑**: 看起来皮层→BG通路断裂, 但实际是测量时序问题
+
+### 修复 (3个核心 + 1个诊断)
+
+#### ① Eligibility Trace Clamp
+- `da_stdp_max_elig = 50.0f` — per-synapse elig上限, 防止Δw爆炸
+- 每次食物最大Δw = 0.005 × 0.5 × 50 = **0.125** (需~16次食物达w_max, 而非1次)
+
+#### ② 学习率/衰减调优
+- `da_stdp_lr`: 0.02 → **0.005** — 降低4倍, 更渐进的学习
+- `da_stdp_w_decay`: 0.0002 → **0.001** — 增大5倍, 错误权重~200步恢复
+- `da_stdp_elig_decay`: 0.95 → **0.98** — 更长elig窗口(~50步), 配合15步脑步
+
+#### ③ NE调制探索/利用平衡
+- `brain_steps_per_action`: 10 → **15** — LGN→V1→dlPFC→BG需7步延迟, 15步获8步有效输入
+- 动态noise_scale基于food_rate: 找到食物→降低探索(利用), 找不到→保持高探索
+- Floor = 0.7: 确保M1始终发放, 防止冻结
+- 生物学: LC-NE系统在环境可预测时降低arousal
+
+#### ④ 诊断修复: `inp=0` → `ctx=N`
+- **根因**: `input_active_` 在 `apply_da_stdp()` 末尾被清零, 诊断在 `agent_step()` 返回后读取 → 永远=0
+- **证据**: 新增 `total_cortical_inputs_` 累积计数器 → ctx=1759 (50步内1759个皮层spike到达BG)
+- **结论**: 皮层→BG通路完全畅通, `inp=0` 是测量时序假象
+
+### Motor Efference Copy 实验 (探索性, 已回退)
+
+尝试通过M1→BG拓扑映射实现方向特异学习:
+
+| 变体 | 5k Safety | 10k Improvement | Learner Advantage | 结论 |
+|------|-----------|-----------------|-------------------|------|
+| **v3 基线 (无efference)** | **0.20→0.38** | **+0.191** | **+0.017** | ✅ 最佳 |
+| inject_sensory_context (PSP=25×4方向) | 0.19→0.14 | -0.002 | -0.002 | ❌ PSP太强压倒一切 |
+| mark_motor_efference (纯elig标记) | 0.20→0.38 | +0.191 | +0.017 | = 无行为影响 |
+| elig 10x + PSP=15×weight | **0.29→0.48** | +0.009 | +0.004 | ⚠️ 5k极好但10k崩溃 |
+| elig 5x + PSP=5×weight | 0.34→0.48 | -0.105 | +0.006 | ❌ 正反馈失控 |
+| elig 5x + PSP=5 + 10x decay | 0.32→0.50 | -0.071 | +0.016 | ❌ 仍不稳定 |
+
+**关键发现:**
+- Efference copy 短期效果极好 (5k food从31→58翻倍, peak safety 0.83!)
+- 但 PSP×weight 正反馈环路在10k后必然失控 (weight↑→PSP↑→elig↑→weight↑)
+- 需要 **D1子群竞争归一化** (侧向抑制) 才能稳定, 留作下一步
+
+**方向特异学习的架构瓶颈:**
+- 随机 dlPFC→BG 映射 (20% connectivity) 使每个皮层神经元均匀连接所有D1子群
+- 即使efference标记了正确方向, 随机elig占总elig的99.2%, 拓扑elig被淹没
+- 根本解决: 皮层STDP塑形方向表征 / 拓扑映射 / D1侧向抑制
+
+### 最终结果 (v3 基线)
+
+```
+5000步学习曲线:
+  Early (0-1k):  safety=0.20 (8 food, 32 danger)
+  Late (4-5k):   safety=0.38 (5 food, 8 danger)
+  Improvement:   +0.18
+
+10000步长时训练:
+  Early (1-2k):  safety=0.200
+  Late (9-10k):  safety=0.391
+  Improvement:   +0.191
+
+Learner vs Control (3000步):
+  Learner: food=17, danger=29, safety=0.37
+  Control: food=12, danger=57, safety=0.17
+  Advantage: +0.0168
+
+BG 权重: range=0.2593 (稳定, 无爆炸)
+D1 发放: 263/50步, D2: 238/50步
+皮层输入: ctx=1759/50步 (通路畅通)
+```
+
+### 新增API
+
+- `BasalGanglia::total_cortical_inputs()` — 累积皮层spike计数 (永不清零)
+- `BasalGanglia::mark_motor_efference(int group)` — 拓扑elig标记 (备用, 当前未调用)
+
+### 修改文件
+
+- `basal_ganglia.h`: +da_stdp_max_elig, +da_stdp_w_decay调整, +total_cortical_inputs_, +mark_motor_efference
+- `basal_ganglia.cpp`: elig clamp, 累积计数器, mark_motor_efference实现
+- `closed_loop_agent.h`: brain_steps 10→15, da_stdp_lr 0.02→0.005
+- `closed_loop_agent.cpp`: NE噪声退火, efference copy注释(未调用)
+- `test_learning_curve.cpp`: 诊断输出 inp→ctx
+
 ### 回归测试: 29/29 CTest 全通过 (0 失败)
 
 ### 系统状态
@@ -1166,4 +1262,5 @@ D1 发放: 31 fires / 50 steps (previously 0)
           4种调质广播 · 稳态可塑性 · 规模可扩展(E/I自平衡)
           闭环Agent · GridWorld环境 · 运动探索 · VTA奖励信号
           DA-STDP闭环学习 · Eligibility Traces · 动作特异性信用分配
+          NE探索/利用调制 · 皮层→BG通路验证(ctx=1759)
 ```

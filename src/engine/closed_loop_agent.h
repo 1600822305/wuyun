@@ -45,7 +45,7 @@ struct AgentConfig {
     size_t vision_height = 3;
 
     // Action decoding
-    size_t brain_steps_per_action = 10;  // 每个环境步的脑步数 (积累M1活动)
+    size_t brain_steps_per_action = 15;  // 每个环境步的脑步数 (LGN→V1→dlPFC→BG需7步延迟)
     size_t reward_processing_steps = 5;  // 奖励处理步数 (DA传播到BG)
 
     // Reward scaling
@@ -53,10 +53,11 @@ struct AgentConfig {
 
     // Exploration
     float exploration_noise = 55.0f;  // M1 L5 noise amplitude (motor exploration, needs >50 for 10-step firing)
+    size_t exploration_anneal_steps = 0;  // Steps over which noise reduces (0=no anneal, let BG override)
 
     // Learning
     bool enable_da_stdp     = true;   // BG DA-STDP
-    float da_stdp_lr        = 0.02f;  // DA-STDP learning rate
+    float da_stdp_lr        = 0.005f; // DA-STDP learning rate (0.005×0.5×50=0.125 per food event)
     bool enable_homeostatic = true;   // Homeostatic plasticity
 
     // GridWorld
@@ -150,8 +151,7 @@ private:
     std::mt19937 motor_rng_{12345};
 
     void build_brain();
-    Action decode_action(const std::vector<int>& l5_accum,
-                         const std::vector<int>& d1_accum) const;
+    Action decode_m1_action(const std::vector<int>& l5_accum) const;
     void inject_observation();
     void inject_reward(float reward);
 };

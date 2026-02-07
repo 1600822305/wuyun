@@ -22,7 +22,7 @@ namespace wuyun {
 struct VTAConfig {
     std::string name = "VTA";
     size_t n_da_neurons = 50;    // DA 神经元数
-    float  tonic_rate   = 0.1f;  // tonic baseline DA (归一化)
+    float  tonic_rate   = 0.3f;  // tonic baseline DA (~4Hz VTA firing, 归一化)
     float  phasic_gain  = 0.5f;  // RPE → phasic DA 增益
 };
 

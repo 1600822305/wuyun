@@ -203,10 +203,10 @@ static void test_bg_diagnostics() {
         if (elig > max_elig) max_elig = elig;
 
         if (step < 10 || result.got_food || result.hit_danger) {
-            printf("    step=%d act=%d r=%.2f | DA=%.3f accum=%.1f | D1=%d D2=%d | elig=%.1f | inp=%zu\n",
+            printf("    step=%d act=%d r=%.2f | DA=%.3f accum=%.1f | D1=%d D2=%d | elig=%.1f | ctx=%zu\n",
                    step, (int)agent.last_action(), result.reward,
                    da, bg->da_spike_accum(), d1_fired, d2_fired,
-                   elig, bg->input_active_count());
+                   elig, bg->total_cortical_inputs());
         }
     }
 

@@ -157,9 +157,9 @@ private:
     bool wm_enabled_ = false;
     std::vector<float> wm_recurrent_buf_;    // L2/3 sized 循环缓冲
     float wm_da_gain_ = 1.0f;               // DA调制增益
-    static constexpr float WM_RECURRENT_STR = 8.0f;  // 基础循环电流
-    static constexpr float WM_DECAY         = 0.85f; // 循环衰减 (慢于PSP)
-    static constexpr float WM_DA_SENSITIVITY= 2.0f;  // DA效应强度
+    static constexpr float WM_RECURRENT_STR = 12.0f; // 基础循环电流 (NMDA-mediated)
+    static constexpr float WM_DECAY         = 0.95f; // NMDA 时间常数 (半衰期~14步, 真实约100ms)
+    static constexpr float WM_DA_SENSITIVITY= 3.0f;  // D1增强NMDA电流 (3-5x in PFC)
     static constexpr float WM_FAN_OUT       = 5.0f;  // 循环扩散范围
 
     // --- 睡眠慢波状态 ---

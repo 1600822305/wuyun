@@ -53,10 +53,12 @@ struct BasalGangliaConfig {
     // --- DA-STDP (three-factor reinforcement learning) ---
     bool  da_stdp_enabled  = false;   // Enable DA-STDP on cortical→MSN
     float da_stdp_lr       = 0.005f;  // Learning rate
-    float da_stdp_baseline = 0.1f;    // DA baseline (above=reward, below=punishment)
+    float da_stdp_baseline = 0.3f;    // DA baseline (~4Hz VTA tonic, above=reward, below=punishment)
     float da_stdp_w_min    = 0.1f;    // Min connection weight
     float da_stdp_w_max    = 3.0f;    // Max connection weight
-    float da_stdp_elig_decay = 0.95f; // Eligibility trace decay per step (~20 step window)
+    float da_stdp_elig_decay = 0.98f; // Eligibility trace decay per step (~50 step window, 0.98^15=0.74)
+    float da_stdp_max_elig = 50.0f;  // Per-synapse elig ceiling (prevents Δw explosion: 0.03×0.5×50=0.75)
+    float da_stdp_w_decay  = 0.001f;  // Weight decay toward 1.0 per step (recovery in ~200 steps)
 };
 
 class BasalGanglia : public BrainRegion {
@@ -90,6 +92,14 @@ public:
     NeuronPopulation& d2()  { return d2_msn_; }
     NeuronPopulation& stn() { return stn_; }
 
+    /** Sensory context injection (thalamostriatal pathway)
+     *  signals[4] = {UP, DOWN, LEFT, RIGHT} attractiveness
+     *  Positive = food direction, Negative = danger direction
+     *  Sets input_active_ for dedicated sensory slots → topographic D1 mapping */
+    void inject_sensory_context(const float signals[4]);
+    /** Motor efference copy: mark action as active for elig trace, NO PSP injection */
+    void mark_motor_efference(int action_group);
+
     /** DA-STDP 权重诊断 */
     size_t d1_weight_count() const { return ctx_d1_w_.size(); }
     const std::vector<float>& d1_weights_for(size_t src) const { return ctx_d1_w_[src]; }
@@ -108,16 +118,19 @@ public:
     size_t input_active_count() const {
         size_t c = 0; for (auto a : input_active_) c += a; return c;
     }
+    size_t total_cortical_inputs() const { return total_cortical_inputs_; }
 
 private:
     void build_synapses();
     void aggregate_state();
 
     BasalGangliaConfig config_;
-    float da_level_ = 0.1f;      // DA tonic baseline
+    float da_level_ = 0.3f;      // DA tonic baseline (matches VTA tonic_rate)
     uint32_t da_source_region_ = UINT32_MAX;  // VTA region ID (UINT32_MAX = not set)
     float da_spike_accum_ = 0.0f; // DA spike accumulator for rate estimation
-    static constexpr float DA_RATE_TAU = 0.95f; // exponential smoothing
+    size_t total_cortical_inputs_ = 0;  // Cumulative cortical spike events (never cleared)
+    static constexpr float DA_RATE_TAU = 0.98f; // exponential smoothing (slower decay, DA persists longer)
+    static constexpr size_t SENSORY_SLOT_BASE = 252; // Input slots 252-255 = sensory direction channels
 
     // 5 populations
     NeuronPopulation d1_msn_;    // Go pathway
