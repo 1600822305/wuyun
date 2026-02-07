@@ -118,11 +118,12 @@ float GridWorld::cell_to_visual(int x, int y) const {
 }
 
 std::vector<float> GridWorld::observe() const {
-    // 3x3 patch centered on agent
-    std::vector<float> obs(9);
+    int r = config_.vision_radius;
+    int side = 2 * r + 1;
+    std::vector<float> obs(static_cast<size_t>(side * side));
     int k = 0;
-    for (int dy = -1; dy <= 1; ++dy) {
-        for (int dx = -1; dx <= 1; ++dx) {
+    for (int dy = -r; dy <= r; ++dy) {
+        for (int dx = -r; dx <= r; ++dx) {
             obs[k++] = cell_to_visual(agent_x_ + dx, agent_y_ + dy);
         }
     }

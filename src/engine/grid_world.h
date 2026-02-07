@@ -44,6 +44,7 @@ struct GridWorldConfig {
     size_t n_food      = 3;     // 食物数量
     size_t n_danger    = 2;     // 危险数量
     uint32_t seed      = 42;    // 随机种子
+    int    vision_radius = 1;   // 视野半径 (1=3x3, 2=5x5, 3=7x7)
 
     // 视觉编码值
     float vis_empty    = 0.0f;
@@ -51,6 +52,10 @@ struct GridWorldConfig {
     float vis_danger   = 0.3f;
     float vis_wall     = 0.1f;
     float vis_agent    = 0.6f;
+
+    // 计算视野尺寸
+    size_t vision_side() const { return static_cast<size_t>(2 * vision_radius + 1); }
+    size_t vision_pixels() const { return vision_side() * vision_side(); }
 };
 
 struct StepResult {

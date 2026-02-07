@@ -20,9 +20,13 @@ ClosedLoopAgent::ClosedLoopAgent(const AgentConfig& config)
     , food_history_(1000, 0)
     , replay_buffer_(config.replay_buffer_size, config.brain_steps_per_action)
 {
+    // Auto-compute vision size from world config
+    config_.vision_width  = config_.world_config.vision_side();
+    config_.vision_height = config_.world_config.vision_side();
+
     build_brain();
 
-    // Setup visual encoder for 3x3 patch → LGN
+    // Setup visual encoder for NxN patch → LGN
     VisualInputConfig vcfg;
     vcfg.input_width  = config_.vision_width;
     vcfg.input_height = config_.vision_height;
@@ -41,10 +45,14 @@ void ClosedLoopAgent::build_brain() {
     int s = config_.brain_scale;
 
     // --- Thalamic relay: LGN (visual input gate) ---
+    // Scale LGN proportionally to vision size: ~3.3 LGN neurons per pixel
+    size_t n_vis_pixels = config_.vision_width * config_.vision_height;
+    size_t lgn_per_pixel = 3;  // ~3 LGN neurons per input pixel (ON/OFF + margin)
+    size_t lgn_base = std::max<size_t>(30, n_vis_pixels * lgn_per_pixel);
     ThalamicConfig lgn_cfg;
     lgn_cfg.name = "LGN";
-    lgn_cfg.n_relay = 30 * s;
-    lgn_cfg.n_trn   = 10 * s;
+    lgn_cfg.n_relay = lgn_base * s;
+    lgn_cfg.n_trn   = (lgn_base / 3) * s;
     engine_.add_region(std::make_unique<ThalamicRelay>(lgn_cfg));
 
     // --- Cortical regions ---
@@ -67,10 +75,26 @@ void ClosedLoopAgent::build_brain() {
 
     bool ctx_stdp = config_.enable_cortical_stdp;
     // V1: primary visual cortex — STDP learns visual feature selectivity
-    add_ctx("V1", 30, 60, 30, 25, 10, 6, 3, ctx_stdp);
+    // Scale with vision size: more pixels → more V1 neurons for feature extraction
+    float vis_scale = static_cast<float>(n_vis_pixels) / 9.0f;  // 1.0 for 3×3, ~2.8 for 5×5
+    size_t v1_l4  = static_cast<size_t>(30 * vis_scale);
+    size_t v1_l23 = static_cast<size_t>(60 * vis_scale);
+    size_t v1_l5  = static_cast<size_t>(30 * vis_scale);
+    size_t v1_l6  = static_cast<size_t>(25 * vis_scale);
+    size_t v1_pv  = static_cast<size_t>(10 * vis_scale);
+    size_t v1_sst = static_cast<size_t>(6 * vis_scale);
+    add_ctx("V1", v1_l4, v1_l23, v1_l5, v1_l6, v1_pv, v1_sst, 3, ctx_stdp);
     // dlPFC: decision making + working memory — NO STDP (representation stability
     //        needed for BG DA-STDP to learn stable action associations)
-    add_ctx("dlPFC", 20, 50, 30, 20, 8, 5, 3, false);
+    // Slight scale for larger V1 input (sqrt to prevent over-scaling)
+    float dlpfc_scale = std::sqrt(vis_scale);
+    size_t dl_l4  = static_cast<size_t>(20 * dlpfc_scale);
+    size_t dl_l23 = static_cast<size_t>(50 * dlpfc_scale);
+    size_t dl_l5  = static_cast<size_t>(30 * dlpfc_scale);
+    size_t dl_l6  = static_cast<size_t>(20 * dlpfc_scale);
+    size_t dl_pv  = static_cast<size_t>(8 * dlpfc_scale);
+    size_t dl_sst = static_cast<size_t>(5 * dlpfc_scale);
+    add_ctx("dlPFC", dl_l4, dl_l23, dl_l5, dl_l6, dl_pv, dl_sst, 3, false);
     // M1: motor output (L5 → action decoding) — NO STDP (driven by noise + BG bias)
     add_ctx("M1", 20, 40, 40, 15, 8, 5, 2, false);
 
@@ -425,7 +449,7 @@ void ClosedLoopAgent::run(int n_steps) {
 // =============================================================================
 
 void ClosedLoopAgent::inject_observation() {
-    auto obs = world_.observe();  // 3x3 = 9 pixels
+    auto obs = world_.observe();  // NxN patch (N = 2*vision_radius+1)
     visual_encoder_.encode_and_inject(obs, lgn_);
 }
 // =============================================================================

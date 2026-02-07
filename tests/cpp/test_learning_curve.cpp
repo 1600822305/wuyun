@@ -282,6 +282,92 @@ static void test_long_training() {
 }
 
 // =========================================================================
+// Test 5: 大环境 + 预测编码对比 (15x15, 5x5视野)
+// =========================================================================
+static void test_large_env_pc() {
+    printf("\n--- 测试5: 大环境PC对比 (15x15, 5x5视野, 5000步) ---\n");
+
+    auto make_agent = [](bool enable_pc) {
+        AgentConfig cfg;
+        cfg.brain_steps_per_action = 15;
+        cfg.reward_processing_steps = 5;
+        cfg.enable_da_stdp = true;
+        cfg.da_stdp_lr = 0.03f;
+        cfg.reward_scale = 1.5f;
+        cfg.exploration_noise = 55.0f;
+        cfg.enable_predictive_coding = enable_pc;
+        // Large environment
+        cfg.world_config.width  = 15;
+        cfg.world_config.height = 15;
+        cfg.world_config.n_food   = 5;
+        cfg.world_config.n_danger = 4;
+        cfg.world_config.vision_radius = 2;  // 5x5 vision
+        cfg.world_config.seed = 77;
+        return ClosedLoopAgent(cfg);
+    };
+
+    auto agent_no_pc = make_agent(false);
+    auto agent_pc    = make_agent(true);
+
+    printf("  Brain (no PC): V1=%zu, dlPFC=%zu, LGN=%zu neurons\n",
+           agent_no_pc.v1()->n_neurons(),
+           agent_no_pc.dlpfc()->n_neurons(),
+           agent_no_pc.lgn()->n_neurons());
+
+    // Warm-up: 1000 steps
+    for (int i = 0; i < 1000; ++i) {
+        agent_no_pc.agent_step();
+        agent_pc.agent_step();
+    }
+
+    printf("  Config   | Epoch | Food | Danger | Safety | Avg Reward\n");
+    printf("  ---------|-------|------|--------|--------|----------\n");
+
+    float no_pc_early_safety = 0, pc_early_safety = 0;
+    float no_pc_late_safety = 0, pc_late_safety = 0;
+
+    for (int epoch = 0; epoch < 4; ++epoch) {
+        auto s1 = run_epoch(agent_no_pc, 1000);
+        auto s2 = run_epoch(agent_pc, 1000);
+
+        printf("  No PC    | %5dk | %4d | %6d |  %.2f  |  %+.4f\n",
+               epoch + 2, s1.food, s1.danger, s1.safety_ratio(), s1.avg_reward);
+        printf("  PC ON    | %5dk | %4d | %6d |  %.2f  |  %+.4f\n",
+               epoch + 2, s2.food, s2.danger, s2.safety_ratio(), s2.avg_reward);
+
+        if (epoch < 2) {
+            no_pc_early_safety += s1.safety_ratio();
+            pc_early_safety += s2.safety_ratio();
+        } else {
+            no_pc_late_safety += s1.safety_ratio();
+            pc_late_safety += s2.safety_ratio();
+        }
+    }
+
+    no_pc_early_safety /= 2.0f; pc_early_safety /= 2.0f;
+    no_pc_late_safety /= 2.0f;  pc_late_safety /= 2.0f;
+
+    float no_pc_improvement = no_pc_late_safety - no_pc_early_safety;
+    float pc_improvement = pc_late_safety - pc_early_safety;
+
+    printf("\n  No PC: early=%.3f, late=%.3f, improvement=%+.3f, food=%d\n",
+           no_pc_early_safety, no_pc_late_safety, no_pc_improvement,
+           agent_no_pc.world().total_food_collected());
+    printf("  PC ON: early=%.3f, late=%.3f, improvement=%+.3f, food=%d\n",
+           pc_early_safety, pc_late_safety, pc_improvement,
+           agent_pc.world().total_food_collected());
+    printf("  PC advantage: improvement %+.3f, food %+d\n",
+           pc_improvement - no_pc_improvement,
+           (int)agent_pc.world().total_food_collected() - (int)agent_no_pc.world().total_food_collected());
+
+    // Just verify both agents run without crashing
+    TEST_ASSERT(agent_no_pc.world().total_steps() == 5000, "No-PC completed 5k steps");
+    TEST_ASSERT(agent_pc.world().total_steps() == 5000, "PC completed 5k steps");
+
+    printf("  [PASS]\n"); g_pass++;
+}
+
+// =========================================================================
 // main
 // =========================================================================
 int main() {
@@ -294,6 +380,7 @@ int main() {
     test_learning_vs_control();
     test_bg_diagnostics();
     test_long_training();
+    test_large_env_pc();
 
     printf("\n========================================\n");
     printf("  通过: %d / %d\n", g_pass, g_pass + g_fail);

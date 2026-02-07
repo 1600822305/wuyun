@@ -128,6 +128,7 @@ public:
     float food_rate(size_t window = 100) const;
 
     // --- 诊断 ---
+    BrainRegion*    lgn()   const { return lgn_; }
     CorticalRegion* v1()    const { return v1_; }
     CorticalRegion* dlpfc() const { return dlpfc_; }
     CorticalRegion* m1()    const { return m1_; }
