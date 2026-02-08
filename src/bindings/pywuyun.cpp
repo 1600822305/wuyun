@@ -517,7 +517,7 @@ PYBIND11_MODULE(pywuyun, m) {
         .def("region", [](SimulationEngine& eng, size_t idx) -> BrainRegion& {
             return eng.region(idx);
         }, py::return_value_policy::reference)
-        .def("bus", &SimulationEngine::bus, py::return_value_policy::reference)
+        .def("bus", static_cast<SpikeBus& (SimulationEngine::*)()>(&SimulationEngine::bus), py::return_value_policy::reference)
         .def("register_neuromod_source", [](SimulationEngine& eng,
                 const std::string& name, int type) {
             eng.register_neuromod_source(name,

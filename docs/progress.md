@@ -428,6 +428,13 @@ Fitness 修复: early×1 + improvement×2 + late×2 (不惩罚先天能力)。
 进化发现: 天才需要更大脑(203n)、更高 lr(0.034)、更多探索(noise=65)。
 **Gen 5 冠军: open=2.67 sparse=1.75 rev=3.00, 同一大脑三种任务全过。** 31/31 CTest。
 
+### Step 54: 大脑拓扑可视化 ✅ (2026-02-08)
+> 详细文档: [steps/step54_brain_viz.md](steps/step54_brain_viz.md)
+
+`visualize_brain` 工具: 动态提取 25 脑区 + 47 投射, 输出文本摘要 + Graphviz DOT。
+SpikeBus projections() 访问器 + SimulationEngine export_dot()/export_topology_summary()。
+**388 神经元, 4 分组 (皮层/皮层下/边缘/调质), DOT 可在线渲染。** 31/31 CTest。
+
 ---
 
 ## 当前系统状态

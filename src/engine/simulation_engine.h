@@ -91,10 +91,19 @@ public:
     int32_t    current_time() const { return t_; }
     SimStats   stats()        const;
     SpikeBus&  bus()                { return bus_; }
+    const SpikeBus& bus() const    { return bus_; }
 
     size_t num_regions() const { return regions_.size(); }
     BrainRegion& region(size_t i) { return *regions_[i]; }
     const BrainRegion& region(size_t i) const { return *regions_[i]; }
+
+    // --- v54: 拓扑导出 ---
+
+    /** 导出 Graphviz DOT 格式 (脑区分组, 节点大小反映神经元数) */
+    std::string export_dot() const;
+
+    /** 导出文本拓扑摘要 (区域列表 + 投射列表) */
+    std::string export_topology_summary() const;
 
 private:
     SpikeBus bus_;

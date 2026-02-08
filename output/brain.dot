@@ -1,0 +1,96 @@
+digraph Brain {
+  rankdir=LR;
+  bgcolor="#1a1a2e";
+  node [fontname="Arial", fontcolor=white, color=white];
+  edge [color="#888888", fontcolor="#aaaaaa", fontsize=9];
+
+  subgraph cluster_cortical {
+    label="Cortical"; fontcolor="#6699cc"; color="#334466";
+    "LGN" [label="LGN\n33n", width=0.63, height=0.44, fixedsize=true, shape=ellipse, fillcolor="#2a4a7f", style=filled];
+    "V1" [label="V1\n26n", width=0.56, height=0.39, fixedsize=true, shape=ellipse, fillcolor="#2a4a7f", style=filled];
+    "V2" [label="V2\n17n", width=0.47, height=0.33, fixedsize=true, shape=ellipse, fillcolor="#2a4a7f", style=filled];
+    "V4" [label="V4\n15n", width=0.45, height=0.31, fixedsize=true, shape=ellipse, fillcolor="#2a4a7f", style=filled];
+    "IT" [label="IT\n15n", width=0.45, height=0.31, fixedsize=true, shape=ellipse, fillcolor="#2a4a7f", style=filled];
+    "dlPFC" [label="dlPFC\n16n", width=0.46, height=0.32, fixedsize=true, shape=ellipse, fillcolor="#2a4a7f", style=filled];
+    "FPC" [label="FPC\n16n", width=0.46, height=0.32, fixedsize=true, shape=ellipse, fillcolor="#2a4a7f", style=filled];
+    "M1" [label="M1\n22n", width=0.52, height=0.36, fixedsize=true, shape=ellipse, fillcolor="#2a4a7f", style=filled];
+    "ACC" [label="ACC\n26n", width=0.56, height=0.39, fixedsize=true, shape=ellipse, fillcolor="#2a4a7f", style=filled];
+    "OFC" [label="OFC\n12n", width=0.42, height=0.29, fixedsize=true, shape=ellipse, fillcolor="#2a4a7f", style=filled];
+    "vmPFC" [label="vmPFC\n15n", width=0.45, height=0.31, fixedsize=true, shape=ellipse, fillcolor="#2a4a7f", style=filled];
+  }
+
+  subgraph cluster_subcortical {
+    label="Subcortical"; fontcolor="#66cc99"; color="#336644";
+    "BG" [label="BG\n28n", width=0.58, height=0.41, fixedsize=true, shape=ellipse, fillcolor="#2a6f4f", style=filled];
+    "MotorThal" [label="MotorThal\n10n", width=0.40, height=0.28, fixedsize=true, shape=ellipse, fillcolor="#2a6f4f", style=filled];
+    "NAcc" [label="NAcc\n16n", width=0.46, height=0.32, fixedsize=true, shape=ellipse, fillcolor="#2a6f4f", style=filled];
+    "SC" [label="SC\n8n", width=0.38, height=0.27, fixedsize=true, shape=ellipse, fillcolor="#2a6f4f", style=filled];
+  }
+
+  subgraph cluster_limbic {
+    label="Limbic"; fontcolor="#cc9966"; color="#664433";
+    "LHb" [label="LHb\n4n", width=0.34, height=0.24, fixedsize=true, shape=ellipse, fillcolor="#7f5a2a", style=filled];
+    "Amygdala" [label="Amygdala\n15n", width=0.45, height=0.31, fixedsize=true, shape=ellipse, fillcolor="#7f5a2a", style=filled];
+    "Hippocampus" [label="Hippocampus\n42n", width=0.72, height=0.50, fixedsize=true, shape=ellipse, fillcolor="#7f5a2a", style=filled];
+    "PAG" [label="PAG\n8n", width=0.38, height=0.27, fixedsize=true, shape=ellipse, fillcolor="#7f5a2a", style=filled];
+    "Hypothalamus" [label="Hypothalamus\n24n", width=0.54, height=0.38, fixedsize=true, shape=ellipse, fillcolor="#7f5a2a", style=filled];
+  }
+
+  subgraph cluster_neuromod {
+    label="Neuromodulatory"; fontcolor="#cc6666"; color="#663333";
+    "VTA" [label="VTA\n4n", width=0.34, height=0.24, fixedsize=true, shape=ellipse, fillcolor="#7f2a2a", style=filled, shape=diamond];
+    "SNc" [label="SNc\n4n", width=0.34, height=0.24, fixedsize=true, shape=ellipse, fillcolor="#7f2a2a", style=filled, shape=diamond];
+    "LC" [label="LC\n4n", width=0.34, height=0.24, fixedsize=true, shape=ellipse, fillcolor="#7f2a2a", style=filled, shape=diamond];
+    "NBM" [label="NBM\n4n", width=0.34, height=0.24, fixedsize=true, shape=ellipse, fillcolor="#7f2a2a", style=filled, shape=diamond];
+    "DRN" [label="DRN\n4n", width=0.34, height=0.24, fixedsize=true, shape=ellipse, fillcolor="#7f2a2a", style=filled, shape=diamond];
+  }
+
+
+  "LGN" -> "V1" [label="d=2"];
+  "V1" -> "V2" [label="d=2"];
+  "V2" -> "V4" [label="d=2"];
+  "V4" -> "IT" [label="d=2"];
+  "IT" -> "dlPFC" [label="d=2"];
+  "V2" -> "V1" [label="d=3"];
+  "V4" -> "V2" [label="d=3"];
+  "IT" -> "V4" [label="d=3"];
+  "LGN" -> "BG" [label="d=1"];
+  "dlPFC" -> "BG" [label="d=2"];
+  "BG" -> "MotorThal" [label="d=2"];
+  "MotorThal" -> "M1" [label="d=2"];
+  "M1" -> "dlPFC" [label="d=3"];
+  "IT" -> "FPC" [label="d=3"];
+  "FPC" -> "dlPFC" [label="d=3"];
+  "Hippocampus" -> "FPC" [label="d=3"];
+  "dlPFC" -> "IT" [label="d=3"];
+  "dlPFC" -> "Hippocampus" [label="d=3"];
+  "IT" -> "Hippocampus" [label="d=3"];
+  "Hippocampus" -> "dlPFC" [label="d=3"];
+  "VTA" -> "BG" [label="d=2"];
+  "LHb" -> "VTA" [label="d=2"];
+  "V1" -> "Amygdala" [label="d=2"];
+  "IT" -> "Amygdala" [label="d=3"];
+  "dlPFC" -> "ACC" [label="d=3"];
+  "ACC" -> "dlPFC" [label="d=3"];
+  "VTA" -> "NAcc" [label="d=2"];
+  "Hippocampus" -> "NAcc" [label="d=3"];
+  "Amygdala" -> "NAcc" [label="d=2"];
+  "IT" -> "NAcc" [label="d=2"];
+  "NAcc" -> "M1" [label="d=2"];
+  "Amygdala" -> "PAG" [label="d=1"];
+  "LGN" -> "SC" [label="d=1"];
+  "SC" -> "dlPFC" [label="d=2"];
+  "V1" -> "SC" [label="d=2"];
+  "IT" -> "OFC" [label="d=2"];
+  "Amygdala" -> "OFC" [label="d=2"];
+  "OFC" -> "dlPFC" [label="d=2"];
+  "OFC" -> "NAcc" [label="d=2"];
+  "OFC" -> "vmPFC" [label="d=2"];
+  "Hippocampus" -> "vmPFC" [label="d=3"];
+  "vmPFC" -> "Amygdala" [label="d=2"];
+  "vmPFC" -> "NAcc" [label="d=2"];
+  "M1" -> "SNc" [label="d=2"];
+  "BG" -> "SNc" [label="d=2"];
+  "Hypothalamus" -> "VTA" [label="d=1"];
+  "OFC" -> "VTA" [label="d=2"];
+}

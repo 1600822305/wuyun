@@ -88,6 +88,9 @@ public:
     size_t num_projections() const { return projections_.size(); }
     const std::string& region_name(uint32_t id) const { return region_names_[id]; }
 
+    /** v54: 投射列表访问器 (拓扑可视化) */
+    const std::vector<Projection>& projections() const { return projections_; }
+
 private:
     int32_t max_delay_;
 

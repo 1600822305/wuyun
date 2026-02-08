@@ -31,6 +31,13 @@ if(MSVC)
     target_compile_options(run_dev_evolution PRIVATE /utf-8)
 endif()
 
+# Brain topology visualizer (Step 54)
+add_executable(visualize_brain tools/visualize_brain.cpp)
+target_link_libraries(visualize_brain PRIVATE wuyun_core)
+if(MSVC)
+    target_compile_options(visualize_brain PRIVATE /utf-8)
+endif()
+
 # Quick scratch pad (类似 python -c 的快速实验)
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tools/scratch.cpp")
     add_executable(scratch tools/scratch.cpp)
