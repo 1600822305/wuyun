@@ -209,6 +209,17 @@ struct AgentConfig {
     //   v52 正确: PAG→M1 抑制(压制运动) — 冻结不需要方向
     float pag_freeze_gain = 30.0f;    // PAG dlPAG→M1 冻结抑制增益 (要压过趋近+噪声)
 
+    // v59: 墙壁回避反射 — 视觉 patch 检测前方墙壁 → M1 偏离墙壁方向
+    //   生物学: 前庭触须系统 / 视动反射 (Goodale 2011)
+    //   看到墙壁在前方 → 计算墙壁质心方向 → M1 cos 驱动反方向
+    float wall_avoid_gain = 20.0f;
+
+    // v59: 探索饥饿重置 — 连续 N 步无奖赏 → noise 翻倍
+    //   生物学: LC NE burst mode 在长时间无奖赏时触发 (Aston-Jones 2005)
+    //   防止 agent 在同一区域徘徊
+    size_t starvation_threshold = 30;    // 多少步无奖赏后加大探索
+    float  starvation_noise_boost = 2.0f; // 饥饿时 noise 乘数
+
     // v52b: 新奇性一次学习 (Phase B)
     // 生物学: 新奇刺激 → VTA DA burst 远大于熟悉刺激 (Ljungberg 1992)
     //   第一次碰到食物: DA burst × novelty_boost → 一次成型
@@ -403,6 +414,9 @@ private:
     // 生物学: 第一次 → 巨大 DA burst, 第 N 次 → 正常 DA burst
     float food_novelty_   = 1.0f;   // 1.0 = 从没见过, 0.0 = 完全熟悉
     float danger_novelty_ = 1.0f;
+
+    // v59: 探索饥饿计数器
+    size_t steps_since_reward_ = 0;
 
     // --- v36: Spatial value map (cognitive map / Tolman 1948) ---
     // Records reward outcomes at each position → value gradient for navigation.

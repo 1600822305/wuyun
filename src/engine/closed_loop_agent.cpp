@@ -1003,6 +1003,15 @@ Environment::Result ClosedLoopAgent::agent_step() {
     // M1 activity directly via neural pathways. motivation_output() remains
     // available as a diagnostic but is NOT used for noise scaling.
 
+    // v59: 探索饥饿重置 — 长时间无奖赏 → noise 翻倍
+    // Biology: LC NE burst mode when no reward for extended period (Aston-Jones 2005)
+    // Prevents agent from pacing in the same area indefinitely
+    if (config_.starvation_threshold > 0 &&
+        steps_since_reward_ > config_.starvation_threshold) {
+        noise_scale *= config_.starvation_noise_boost;
+        noise_scale = std::clamp(noise_scale, 0.3f, 4.0f);
+    }
+
     float effective_noise = config_.exploration_noise * noise_scale;
 
     // v45: Population vector exploration — pick random direction angle
@@ -1182,6 +1191,45 @@ Environment::Result ClosedLoopAgent::agent_step() {
             }
         }
 
+        // (0c) v59: 墙壁回避反射 — 视觉 patch 检测前方墙壁 → M1 偏离
+        //     视觉 patch 中 vis_wall (0.1) 的像素 → 计算墙壁质心方向
+        //     M1 注入反方向 cos 驱动 = "看到墙就转向"
+        //     生物学: 触须/视动反射 — 不需要学习, 硬连线回避 (Goodale 2011)
+        if (config_.wall_avoid_gain > 0.01f && i == 0) {
+            auto obs = env_->observe();
+            int vw = static_cast<int>(config_.vision_width);
+            int vh = static_cast<int>(config_.vision_height);
+            int cx = vw / 2, cy = vh / 2;
+            float wall_vx = 0.0f, wall_vy = 0.0f;
+            int wall_count = 0;
+            for (int vy = 0; vy < vh; ++vy) {
+                for (int vx = 0; vx < vw; ++vx) {
+                    float val = obs[vy * vw + vx];
+                    // Wall = 0.1, check within tolerance
+                    if (std::abs(val - 0.1f) < 0.05f && !(vx == cx && vy == cy)) {
+                        wall_vx += static_cast<float>(vx - cx);
+                        wall_vy += static_cast<float>(vy - cy);
+                        wall_count++;
+                    }
+                }
+            }
+            if (wall_count >= 2) {
+                // Normalize and reverse: move AWAY from wall centroid
+                float wm = std::sqrt(wall_vx * wall_vx + wall_vy * wall_vy);
+                if (wm > 0.1f) {
+                    float avoid_angle = std::atan2(-wall_vy, -wall_vx);
+                    float strength = std::min(static_cast<float>(wall_count), 8.0f)
+                                   / 8.0f * config_.wall_avoid_gain;
+                    for (size_t j = 0; j < l5_size; ++j) {
+                        float cos_sim = std::cos(m1_preferred_dir_[j] - avoid_angle);
+                        if (cos_sim > 0.0f) {
+                            l5.inject_basal(j, cos_sim * strength);
+                        }
+                    }
+                }
+            }
+        }
+
         // (1) v45: M1 L5 population vector exploration (Georgopoulos 1986)
         //     Each L5 neuron has a preferred direction θ_i.
         //     Neurons aligned with attractor_angle get strong drive (cosine weighting).
@@ -1317,6 +1365,13 @@ Environment::Result ClosedLoopAgent::agent_step() {
     reward_history_[hi] = result.reward;
     food_history_[hi] = result.positive_event ? 1 : 0;
     history_idx_++;
+
+    // v59: 探索饥饿计数器
+    if (result.positive_event || result.negative_event) {
+        steps_since_reward_ = 0;
+    } else {
+        steps_since_reward_++;
+    }
 
     // Callback
     if (callback_) {
