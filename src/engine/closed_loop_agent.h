@@ -284,6 +284,15 @@ private:
     // --- Frustration tracking (expected reward not received) ---
     float expected_reward_level_ = 0.0f;  // Tracks recent food rate → expected reward
 
+    // --- v36: Spatial value map (cognitive map / Tolman 1948) ---
+    // Records reward outcomes at each grid position → value gradient for navigation.
+    // Biology: hippocampal place cells + OFC value coding = spatial value memory.
+    // Updated on reward events, decays slowly → persistent spatial knowledge.
+    std::vector<float> spatial_value_map_;   // [width × height], init 0
+    static constexpr float SPATIAL_VALUE_DECAY = 0.999f;  // slow decay per agent step
+    static constexpr float SPATIAL_VALUE_LR   = 0.3f;     // learning rate for new rewards
+    void update_spatial_value_map(float reward);
+
     // --- Awake SWR replay ---
     EpisodeBuffer replay_buffer_;
     void run_awake_replay(float reward);

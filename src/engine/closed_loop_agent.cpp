@@ -26,6 +26,10 @@ ClosedLoopAgent::ClosedLoopAgent(const AgentConfig& config)
 
     build_brain();
 
+    // v36: Initialize spatial value map (cognitive map)
+    size_t map_size = config_.world_config.width * config_.world_config.height;
+    spatial_value_map_.assign(map_size, 0.0f);
+
     // Setup visual encoder for NxN patch → LGN
     VisualInputConfig vcfg;
     vcfg.input_width  = config_.vision_width;
@@ -161,7 +165,13 @@ void ClosedLoopAgent::build_brain() {
         hipp_cfg.n_dg  = std::max<size_t>(10, n_pix / 3) * s;
         hipp_cfg.n_ca3 = std::max<size_t>(6, n_act + 2) * s;
         hipp_cfg.n_ca1 = std::max<size_t>(6, n_act + 2) * s;
-        hipp_cfg.n_sub = std::max<size_t>(3, n_act - 1) * s;
+        hipp_cfg.n_sub = std::max<size_t>(8, n_act * 2) * s;  // v36: ≥8 for retrieval_bias (needs ≥4 for 4 direction groups)
+        // v36: Scale inhibitory populations proportional to excitatory
+        // Defaults (20/10/15) are for n_dg=200/ca3=60/ca1=80.
+        // With compressed sizes, E/I ratio was inverted → pathway smothered.
+        hipp_cfg.n_dg_inh  = std::max<size_t>(2, hipp_cfg.n_dg / 5);   // ~5:1 E/I
+        hipp_cfg.n_ca3_inh = std::max<size_t>(2, hipp_cfg.n_ca3 / 3);  // ~3:1 E/I
+        hipp_cfg.n_ca1_inh = std::max<size_t>(2, hipp_cfg.n_ca1 / 3);  // ~3:1 E/I
         hipp_cfg.ca3_stdp_enabled = true;
         engine_.add_region(std::make_unique<Hippocampus>(hipp_cfg));
     }
@@ -463,6 +473,9 @@ StepResult ClosedLoopAgent::agent_step() {
             hipp_->inject_reward_tag(std::abs(pending_reward_));
         }
 
+        // v36: Update spatial value map (cognitive map)
+        update_spatial_value_map(pending_reward_);
+
         // Amygdala US injection: danger → BLA activation → La→BLA STDP
         // Biology: pain/danger (US) directly activates BLA. When paired with
         // visual CS (already flowing via V1→La SpikeBus), STDP strengthens
@@ -531,14 +544,8 @@ StepResult ClosedLoopAgent::agent_step() {
     // B1. Inject new visual observation
     inject_observation();
 
-    // B1b. Inject spatial position to hippocampus (grid cell activation)
-    // Biology: EC grid cells encode agent position → DG → CA3 place cells
-    // This creates a position-dependent activation pattern that CA3 stores via STDP
-    if (hipp_) {
-        hipp_->inject_spatial_context(
-            world_.agent_x(), world_.agent_y(),
-            static_cast<int>(world_.width()), static_cast<int>(world_.height()));
-    }
+    // B1b: spatial context + retrieval bias are now injected EVERY brain step
+    // (moved into brain steps loop below, same fix as inject_observation)
 
     // =====================================================================
     // Biologically correct motor architecture:
@@ -667,6 +674,34 @@ StepResult ClosedLoopAgent::agent_step() {
         // of sustained I=45 current to charge from rest to threshold.
         // Previous: inject every 3 steps → single-pulse ΔV=2.25mV, never fires.
         inject_observation();
+
+        // v36: Inject spatial context EVERY brain step (same sustained-drive fix)
+        // EC grid cells need ~5+ steps of sustained current to charge and fire.
+        // Previously injected once before loop → single-pulse, EC never fired.
+        if (hipp_) {
+            hipp_->inject_spatial_context(
+                world_.agent_x(), world_.agent_y(),
+                static_cast<int>(world_.width()), static_cast<int>(world_.height()));
+        }
+
+        // v36: CLS — spatial value gradient → BG sensory context
+        // Biology: Hippocampal place cells + OFC value = cognitive map (Tolman 1948)
+        //   Agent remembers reward/danger outcomes at each position.
+        //   Adjacent positions' values form a gradient → bias BG toward food.
+        //   Equivalent to EC successor representation (Stachenfeld 2017).
+        // This replaces get_retrieval_bias (which had wrong direction mapping).
+        if (bg_ && !spatial_value_map_.empty()) {
+            int ax = world_.agent_x(), ay = world_.agent_y();
+            int w = static_cast<int>(world_.width());
+            int h = static_cast<int>(world_.height());
+            // Look up value of adjacent cells: UP(y-1), DOWN(y+1), LEFT(x-1), RIGHT(x+1)
+            float adj[4] = {0, 0, 0, 0};
+            if (ay > 0)     adj[0] = spatial_value_map_[(ay - 1) * w + ax];  // UP
+            if (ay < h - 1) adj[1] = spatial_value_map_[(ay + 1) * w + ax];  // DOWN
+            if (ax > 0)     adj[2] = spatial_value_map_[ay * w + (ax - 1)];  // LEFT
+            if (ax < w - 1) adj[3] = spatial_value_map_[ay * w + (ax + 1)];  // RIGHT
+            bg_->inject_sensory_context(adj);
+        }
 
         // LHb → VTA inhibition broadcast (every brain step during action processing)
         if (lhb_) {
@@ -1175,23 +1210,97 @@ void ClosedLoopAgent::run_sleep_consolidation() {
     float saved_da = bg_->da_level();
     bg_->set_da_level(config_.sleep_positive_da);  // = 0.30 (baseline)
 
-    // --- NREM consolidation: let hippocampus SWR drive cortex via SpikeBus ---
-    // No episode buffer injection. Hippocampus generates SWR spontaneously.
-    // SWR → CA1 → Sub → SpikeBus → dlPFC (existing projection).
-    // Cortex receives SWR patterns → internal STDP consolidates (if enabled).
+    // --- NREM consolidation: hippocampus SWR + systems consolidation ---
+    // v36: CLS systems consolidation (McClelland 1995, Kumaran 2016)
+    //   1. Hippocampus generates SWR spontaneously (CA3 noise → pattern completion)
+    //   2. SWR propagates via SpikeBus to cortex (Sub→dlPFC)
+    //   3. NEW: During SWR, hippocampal retrieval_bias actively teaches BG
+    //      → DA is briefly elevated above baseline (reward prediction from memory)
+    //      → BG DA-STDP updates weights based on hippocampal spatial knowledge
+    //   4. This transfers knowledge from hippocampal CA3 STDP (stable, no decay)
+    //      to BG DA-STDP (volatile, subject to weight decay)
+    //   → BG weights are periodically "refreshed" from hippocampal memory
+    //   → Catastrophic forgetting is prevented because hippocampus retains memories
     size_t total_nrem = config_.sleep_nrem_steps;
 
     for (size_t i = 0; i < total_nrem; ++i) {
         // Step the ENTIRE brain (hippocampus SWR → SpikeBus → cortex)
-        // No visual input (sleeping), no motor output, just internal replay
         engine_.step();
         sleep_mgr_.step();
+
+        // v36: Systems consolidation — spatial value map → BG during SWR
+        // Biology: During SWR, hippocampal replay reactivates place cells.
+        //   Spatial value map provides the correct directional gradient.
+        //   VTA DA burst during SWR enables BG DA-STDP weight update.
+        //   Effect: BG "re-learns" navigation from spatial memory during sleep.
+        if (hipp_ && hipp_->is_swr() && !spatial_value_map_.empty()) {
+            // Pick a random position with nonzero value to "replay"
+            // Biology: SWR replays trajectories through valued locations
+            int w = static_cast<int>(world_.width());
+            int h = static_cast<int>(world_.height());
+            float best_val = 0.0f;
+            int best_x = -1, best_y = -1;
+            for (int y = 0; y < h; ++y) {
+                for (int x = 0; x < w; ++x) {
+                    float v = std::abs(spatial_value_map_[y * w + x]);
+                    if (v > best_val) { best_val = v; best_x = x; best_y = y; }
+                }
+            }
+            if (best_val > 0.05f) {
+                // Compute value gradient at the replayed position
+                float adj[4] = {0, 0, 0, 0};
+                if (best_y > 0)     adj[0] = spatial_value_map_[(best_y-1)*w + best_x];
+                if (best_y < h - 1) adj[1] = spatial_value_map_[(best_y+1)*w + best_x];
+                if (best_x > 0)     adj[2] = spatial_value_map_[best_y*w + (best_x-1)];
+                if (best_x < w - 1) adj[3] = spatial_value_map_[best_y*w + (best_x+1)];
+                bg_->inject_sensory_context(adj);
+
+                // SWR-triggered DA burst (Gomperts 2015)
+                float swr_da = config_.sleep_positive_da + 0.15f;
+                bg_->set_da_level(std::min(swr_da, 0.6f));
+            }
+        } else {
+            bg_->set_da_level(config_.sleep_positive_da);
+        }
     }
 
     // --- Wake up ---
     sleep_mgr_.wake_up();
     if (hipp_) hipp_->disable_sleep_replay();
     bg_->set_da_level(saved_da);
+}
+
+void ClosedLoopAgent::update_spatial_value_map(float reward) {
+    // v36: Update cognitive map with reward outcome at current position.
+    // Biology: Hippocampal place cells + OFC value coding.
+    //   Food location → positive value, Danger location → negative value.
+    //   Values diffuse to neighbors (spatial generalization).
+    //   Slow decay ensures long-term spatial memory.
+
+    if (spatial_value_map_.empty()) return;
+    int w = static_cast<int>(world_.width());
+    int h = static_cast<int>(world_.height());
+    int ax = world_.agent_x(), ay = world_.agent_y();
+
+    // 1. Decay all values slightly (forgetting)
+    for (auto& v : spatial_value_map_) {
+        v *= SPATIAL_VALUE_DECAY;
+    }
+
+    // 2. Update current position with reward signal (food/danger only, not step cost)
+    // Step cost = -0.01 * reward_scale ≈ -0.014, food/danger ≈ ±1.0 * scale ≈ ±1.43
+    if (std::abs(reward) > 0.1f) {
+        int idx = ay * w + ax;
+        spatial_value_map_[idx] += SPATIAL_VALUE_LR * (reward - spatial_value_map_[idx]);
+
+        // 3. Diffuse to adjacent cells (spatial generalization)
+        // Biology: place fields have spatial extent, value spreads
+        float diffuse = SPATIAL_VALUE_LR * reward * 0.3f;  // 30% of direct update
+        if (ay > 0)     spatial_value_map_[(ay-1)*w + ax] += diffuse;
+        if (ay < h - 1) spatial_value_map_[(ay+1)*w + ax] += diffuse;
+        if (ax > 0)     spatial_value_map_[ay*w + (ax-1)] += diffuse;
+        if (ax < w - 1) spatial_value_map_[ay*w + (ax+1)] += diffuse;
+    }
 }
 
 } // namespace wuyun
