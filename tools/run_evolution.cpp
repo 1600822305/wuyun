@@ -17,15 +17,15 @@ int main(int argc, char* argv[]) {
     using namespace wuyun;
 
     // Parse arguments
-    size_t n_gen = 20;
-    size_t n_pop = 30;
+    size_t n_gen = 30;
+    size_t n_pop = 40;
     if (argc >= 2) n_gen = static_cast<size_t>(std::atoi(argv[1]));
     if (argc >= 3) n_pop = static_cast<size_t>(std::atoi(argv[2]));
 
     setvbuf(stdout, NULL, _IONBF, 0);
-    printf("=== WuYun Genome Layer v3: Baldwin Evolution (Step 29) ===\n");
+    printf("=== WuYun Genome Layer v4: Baldwin Re-evolution (Step 44) ===\n");
     printf("  Population: %zu, Generations: %zu\n", n_pop, n_gen);
-    printf("  Eval: 1000 steps x 5 seeds (~120 neurons)\n");
+    printf("  Eval: 1000 steps x 5 seeds (~228 neurons, 17 pathways)\n");
     printf("  Fitness: improvement*3 + late_safety*1 (Baldwin effect)\n\n");
 
     EvolutionConfig ecfg;

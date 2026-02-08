@@ -67,39 +67,39 @@ struct AgentConfig {
     size_t brain_steps_per_action = 20;
     size_t reward_processing_steps = 10;  // v39: 7→10, proportional to brain_steps increase
 
-    float reward_scale = 1.43f;
+    float reward_scale = 3.50f;  // v44: Baldwin 1.43→3.50 (228n needs stronger reward signal)
 
-    float exploration_noise = 83.0f;
+    float exploration_noise = 47.7f;  // v44: Baldwin 83→48 (less noise, more regions provide signal)
     size_t exploration_anneal_steps = 0;  // Steps over which noise reduces (0=no anneal, let BG override)
 
     // Learning
     // Step 33 best (30gen Baldwin, consolidation+dev100, gen26 fitness=2.05)
     bool enable_da_stdp     = true;
-    float da_stdp_lr        = 0.014f;
+    float da_stdp_lr        = 0.022f;  // v44: Baldwin 0.014→0.022
     bool enable_homeostatic = true;
     bool enable_cortical_stdp = true;
-    float cortical_stdp_a_plus  = 0.004f;
-    float cortical_stdp_a_minus = -0.006f;  // 1.5× LTD (mild)
-    float cortical_stdp_w_max   = 1.31f;
+    float cortical_stdp_a_plus  = 0.001f;  // v44: Baldwin 0.004→0.001
+    float cortical_stdp_a_minus = -0.010f;  // v44: Baldwin -0.006→-0.010 (stronger LTD)
+    float cortical_stdp_w_max   = 0.81f;   // v44: Baldwin 1.31→0.81
 
-    float lgn_gain           = 469.0f;
-    float lgn_baseline       = 8.72f;
-    float lgn_noise_amp      = 0.50f;
+    float lgn_gain           = 394.0f;  // v44: Baldwin 469→394
+    float lgn_baseline       = 16.0f;   // v44: Baldwin 8.7→16 (higher baseline activity)
+    float lgn_noise_amp      = 2.0f;    // v44: Baldwin found 6.7 at 10 brain_steps; scaled to 2.0 for 20
 
-    float bg_to_m1_gain      = 10.76f;  // v33: evolution found BG/noise balance
-    float attractor_drive_ratio  = 0.34f;
-    float background_drive_ratio = 0.22f;
+    float bg_to_m1_gain      = 7.08f;   // v44: Baldwin 10.76→7.08
+    float attractor_drive_ratio  = 0.50f; // v44: Baldwin 0.34→0.50
+    float background_drive_ratio = 0.26f; // v44: Baldwin 0.22→0.26
 
-    float ne_food_scale      = 1.0f;
-    float ne_floor           = 0.67f;
+    float ne_food_scale      = 2.36f;  // v44: Baldwin 1.0→2.36
+    float ne_floor           = 0.81f;   // v44: Baldwin 0.67→0.81
 
-    float homeostatic_target_rate = 10.94f;
-    float homeostatic_eta    = 0.00073f;  // v33: 9× lower (was erasing learned diffs!)
+    float homeostatic_target_rate = 3.2f;   // v44: Baldwin 1.61 at 10bs, scaled ×2 for 20bs
+    float homeostatic_eta    = 0.0022f;     // v44: Baldwin 0.0044 at 10bs, halved for 20bs
 
     // Brain size factors (multiplied on base neuron counts)
-    float v1_size_factor     = 1.01f;
-    float dlpfc_size_factor  = 2.17f;  // v33: larger dlPFC for better decisions
-    float bg_size_factor     = 1.33f;
+    float v1_size_factor     = 1.12f;  // v44: Baldwin 1.01→1.12
+    float dlpfc_size_factor  = 2.31f;  // v44: Baldwin 2.17→2.31
+    float bg_size_factor     = 0.77f;  // v44: Baldwin 1.33→0.77 (smaller BG, less noise)
 
     // Predictive coding (dlPFC → V1 attentional feedback)
     // v21: enabled by default — 5×5 vision field has enough redundancy for PC benefit.
@@ -122,8 +122,8 @@ struct AgentConfig {
 
     // Awake SWR Replay (experience replay via hippocampal sharp-wave ripples)
     bool  enable_replay      = true;
-    int   replay_passes      = 7;
-    float replay_da_scale    = 0.74f;
+    int   replay_passes      = 14;     // v44: Baldwin 7→14 (more replay for 228n)
+    float replay_da_scale    = 0.31f;   // v44: Baldwin 0.74→0.31 (gentler replay DA)
     size_t replay_buffer_size = 50;    // Max episodes in buffer (v21: 30→50, 10×10 has 100 positions)
     bool  enable_interleaved_replay = true;  // v33: mix positive+negative episodes during replay
 

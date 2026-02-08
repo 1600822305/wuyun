@@ -334,6 +334,18 @@ OFC: IT/Amygdala→OFC→dlPFC/NAcc 价值引导决策。vmPFC: OFC/Hippocampus�
 - **OFC**: DA 加法驱动改为乘法增益门控 (Servan-Schreiber 1990: DA 调制信噪比, 无输入时 DA 不能驱动发放)
 **修复后全部 7 个新区域翻正: all_new -0.43 (有用)。** 30/30 CTest。
 
+### Step 44: Baldwin 重进化 ✅ (2026-02-09)
+
+30代×40体×5seed Baldwin 进化 (373s)。新架构最优参数 vs Step 33:
+- **reward_scale**: 1.43→3.50 (228n 需要更强奖赏信号)
+- **replay_passes**: 7→14 (更多重放充分利用经验)
+- **exploration_noise**: 83→48 (更多区域提供信号, 需要更少噪声)
+- **homeostatic_target**: 10.9→3.2 (更低目标率, 更精准调控)
+- **bg_size_factor**: 1.33→0.77 (更小 BG, 减少 MSN 噪声)
+
+brain_steps 敏感参数按 10bs→20bs 缩放 (homeostatic ×2, eta ÷2, lgn_noise ÷3)。
+**进化 vs 手工: fitness +0.56, late_safety +0.21。** D1=57, elig=71.6。30/30 CTest。
+
 ---
 
 ## 当前系统状态
@@ -346,11 +358,12 @@ OFC: IT/Amygdala→OFC→dlPFC/NAcc 价值引导决策。vmPFC: OFC/Hippocampus�
   ① V1→V2→V4→IT 视觉层级   ② L6 预测编码 + mismatch STDP
   ③ dlPFC→BG DA-STDP (乘法增益+侧向抑制)   ④ VTA DA burst/pause
   ⑤ ACh STDP 门控 (巩固+反转)   ⑥ 杏仁核 one-shot 恐惧   ⑦ 海马 CA3 + SWR 重放
-  ⑧ Baldwin 进化   ⑨ 小脑 CF-LTD + DCN→BG   ⑩ 丘脑 NE/ACh TRN 门控 + 丘脑纹状体通路
+  ⑧ Baldwin 进化 (v44 重适配)   ⑨ 小脑 CF-LTD + DCN→BG   ⑩ 丘脑 NE/ACh TRN 门控 + 丘脑纹状体通路
   ⑪ NAcc 动机/奖赏整合   ⑫ SNc 习惯维持 (tonic DA)   ⑬ SC 显著性→皮层
   ⑭ PAG 恐惧→NE觉醒 (CeA→PAG→LC)   ⑮ FPC 前额极规划 (单向→dlPFC)
   ⑯ OFC 价值预测 (DA增益门控)   ⑰ vmPFC 恐惧消退/安全信号
 
-消融结果 (全部有用或中性):
-  NAcc -0.39 | SNc -0.30 | SC -0.25 | PAG -0.41
-  FPC -0.29 | OFC ±0.00 | vmPFC -0.50 | all_new -0.43
+关键指标 (v44 Baldwin 参数):
+  D1 发放: 57/50步, D2 发放: 61/50步
+  皮层→BG events: 426/10步
+  Max eligibility: 71.6, Weight range: 0.0607
