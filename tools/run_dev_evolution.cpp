@@ -35,7 +35,7 @@ int main(int argc, char* argv[]) {
     wuyun::EvolutionConfig config;
     config.n_generations = static_cast<size_t>(n_gen);
     config.population_size = static_cast<size_t>(n_pop);
-    config.eval_steps = 5000;  // v49: 1000→5000 (Step 16 教训: 短评估优化短期表现)
+    config.eval_steps = 2000;  // v50: 5000→2000 (骨架固定后信号必达, 不需要那么长)
     config.eval_seeds = {42, 77, 123, 256, 789};
     config.ga_seed = 2026;
 
