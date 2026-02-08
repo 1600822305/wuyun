@@ -38,6 +38,13 @@ if(MSVC)
     target_compile_options(visualize_brain PRIVATE /utf-8)
 endif()
 
+# v55 Continuous movement benchmark (A/B comparison)
+add_executable(benchmark_continuous tools/benchmark_continuous.cpp)
+target_link_libraries(benchmark_continuous PRIVATE wuyun_core)
+if(MSVC)
+    target_compile_options(benchmark_continuous PRIVATE /utf-8)
+endif()
+
 # Quick scratch pad (类似 python -c 的快速实验)
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tools/scratch.cpp")
     add_executable(scratch tools/scratch.cpp)

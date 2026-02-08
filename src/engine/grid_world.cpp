@@ -282,6 +282,11 @@ StepResult GridWorld::act_continuous(float dx, float dy) {
     // Check what's in the target cell
     CellType target = grid_[idx(nx, ny)];
 
+    // Track cell transition: only trigger food/danger on entering a NEW cell
+    // Without this, continuous small movements within the same danger cell
+    // would cause -1 reward every step → agent trapped in punishment loop.
+    bool cell_changed = (nx != agent_x_ || ny != agent_y_);
+
     if (target == CellType::WALL) {
         // Bounce back: don't move into wall
         result.hit_wall = true;
@@ -294,13 +299,13 @@ StepResult GridWorld::act_continuous(float dx, float dy) {
         agent_x_ = nx;
         agent_y_ = ny;
 
-        if (target == CellType::FOOD) {
+        if (cell_changed && target == CellType::FOOD) {
             result.got_food = true;
             result.reward = 1.0f;
             food_collected_++;
             grid_[idx(nx, ny)] = CellType::EMPTY;
             respawn_food();
-        } else if (target == CellType::DANGER) {
+        } else if (cell_changed && target == CellType::DANGER) {
             result.hit_danger = true;
             result.reward = -1.0f;
             danger_hits_++;
