@@ -212,6 +212,7 @@ void ClosedLoopAgent::build_brain() {
     engine_.add_projection("IT", "dlPFC", 2);    // objects → decisions
 
     // Feedback projections (top-down prediction, slower)
+    engine_.add_projection("V1", "LGN", 3);    // v56: L6→TC corticothalamic prediction
     engine_.add_projection("V2", "V1", 3);
     engine_.add_projection("V4", "V2", 3);
     engine_.add_projection("IT", "V4", 3);
@@ -576,6 +577,17 @@ void ClosedLoopAgent::build_brain() {
     // --- v38: Register LGN as thalamic source for thalamostriatal pathway ---
     if (lgn_ && bg_) {
         bg_->set_thalamic_source(lgn_->region_id());
+    }
+
+    // --- v56: Register V1 as cortical feedback source for LGN ---
+    // Biology: V1 L6 corticothalamic → LGN relay apical (prediction modulation)
+    // Predicted visual input is suppressed; novel/unexpected input passes through.
+    // This completes the thalamocortical prediction loop: LGN→V1 + V1→LGN.
+    if (lgn_ && v1_) {
+        auto* lgn_thal = dynamic_cast<ThalamicRelay*>(lgn_);
+        if (lgn_thal) {
+            lgn_thal->add_cortical_feedback_source(v1_->region_id());
+        }
     }
 
     // --- Enable predictive coding through visual hierarchy ---

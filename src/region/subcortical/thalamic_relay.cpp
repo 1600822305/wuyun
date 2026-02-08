@@ -119,14 +119,31 @@ void ThalamicRelay::step(int32_t t, float dt) {
 }
 
 void ThalamicRelay::receive_spikes(const std::vector<SpikeEvent>& events) {
-    // Arriving spikes go to relay neurons (feedforward sensory input)
     for (const auto& evt : events) {
-        float current = is_burst(static_cast<SpikeType>(evt.spike_type)) ? 30.0f : 20.0f;
         size_t base = evt.neuron_id % relay_.size();
-        for (size_t k = 0; k < 3 && (base + k) < relay_.size(); ++k) {
-            relay_.inject_basal(base + k, current);
+
+        // v56: Cortical feedback sources → relay APICAL (modulatory prediction)
+        // Biology: L6 corticothalamic axons target relay distal dendrites,
+        // providing top-down prediction that modulates (not drives) relay firing.
+        // Predicted inputs get suppressed; unexpected inputs pass through.
+        if (cortical_feedback_sources_.count(evt.region_id)) {
+            float current = is_burst(static_cast<SpikeType>(evt.spike_type))
+                          ? CORTICAL_FB_CURRENT * 1.5f : CORTICAL_FB_CURRENT;
+            for (size_t k = 0; k < 3 && (base + k) < relay_.size(); ++k) {
+                relay_.inject_apical(base + k, current);
+            }
+        } else {
+            // Feedforward sensory input → relay BASAL (driving)
+            float current = is_burst(static_cast<SpikeType>(evt.spike_type)) ? 30.0f : 20.0f;
+            for (size_t k = 0; k < 3 && (base + k) < relay_.size(); ++k) {
+                relay_.inject_basal(base + k, current);
+            }
         }
     }
+}
+
+void ThalamicRelay::add_cortical_feedback_source(uint32_t region_id) {
+    cortical_feedback_sources_.insert(region_id);
 }
 
 void ThalamicRelay::submit_spikes(SpikeBus& bus, int32_t t) {

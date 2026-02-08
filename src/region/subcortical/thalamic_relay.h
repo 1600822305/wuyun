@@ -21,6 +21,7 @@
 #include "region/brain_region.h"
 #include "core/population.h"
 #include "core/synapse_group.h"
+#include <set>
 
 namespace wuyun {
 
@@ -60,6 +61,11 @@ public:
     /** 注入皮层反馈到 relay apical (调制) */
     void inject_cortical_feedback(const std::vector<float>& currents);
 
+    /** v56: 注册皮层反馈源区域 ID
+     *  Biology: L6 corticothalamic → relay apical (modulatory prediction)
+     *  SpikeBus 投射来自已注册区域时, 路由到 apical 而非 basal */
+    void add_cortical_feedback_source(uint32_t region_id);
+
     /** 注入 PFC→TRN 注意力控制信号 */
     void inject_trn_modulation(const std::vector<float>& currents);
 
@@ -87,6 +93,10 @@ private:
     std::vector<int8_t>  spike_type_all_;
 
     void aggregate_state();
+
+    // v56: 皮层反馈源 (L6→TC prediction)
+    std::set<uint32_t> cortical_feedback_sources_;
+    static constexpr float CORTICAL_FB_CURRENT = 12.0f;  // apical 调制电流 (弱于前馈 20-30)
 };
 
 } // namespace wuyun
