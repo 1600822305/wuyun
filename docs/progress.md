@@ -370,32 +370,42 @@ DA-STDP 学的不再是"加强某一组"，而是"塑造群体活动方向"。
 
 删除 `inject_reward()` + `set_expected_reward()`。Hypothalamus 首次加入闭环 (+24n)。**30/30 CTest。**
 
+### Step 47: Baldwin 重进化 ✅ (2026-02-09)
+> 详细文档: [steps/step47_reevolution.md](steps/step47_reevolution.md)
+
+30代×40体×5seed Baldwin 进化 (264s)。旧参数在新架构上崩溃 (improvement -0.207)，
+进化适配后恢复正向学习:
+- **da_stdp_lr** 0.022→0.080 (3.6×, 脉冲 RPE 更弱需要更大 LR)
+- **brain_steps** 20→12 (脉冲 RPE 传播更快, CTest 36→22s 加速 39%)
+- **background_ratio** 0.26→0.02 (群体向量下 attractor cos 驱动足够)
+**improvement -0.207→+0.198, late_safety 0.000→0.200。** 30/30 CTest。
+
 ---
 
 ## 当前系统状态
 
 ```
-64区域 · ~252闭环神经元 · ~139投射 · 30/30 CTest
+64区域 · ~252闭环神经元 · ~139投射 · 30/30 CTest (22s)
 默认环境: 10×10 grid, 5×5 vision (25px), 5 food, 3 danger
 
-架构升级 (v45-46):
+架构升级 (v45-47):
   M1: 群体向量编码 (Georgopoulos 1986), 方向从群体活动涌现
   VTA: 内部 RPE (Schultz 1997), 奖赏通过 Hypothalamus→VTA SpikeBus
   BG→M1: D1 群体向量 → cos 相似度偏置
   解码: 群体向量角 → 最近基数方向
+  参数: v47 Baldwin 进化适配
 
 学习链路 18/18:
   ① V1→V2→V4→IT 视觉层级   ② L6 预测编码 + mismatch STDP
   ③ dlPFC→BG DA-STDP (乘法增益+侧向抑制)   ④ VTA 内部 RPE (Hypo hedonic - OFC prediction)
   ⑤ ACh STDP 门控 (巩固+反转)   ⑥ 杏仁核 one-shot 恐惧   ⑦ 海马 CA3 + SWR 重放
-  ⑧ Baldwin 进化 (v44 重适配)   ⑨ 小脑 CF-LTD + DCN→BG   ⑩ 丘脑 NE/ACh TRN 门控 + 丘脑纹状体通路
+  ⑧ Baldwin 进化 (v47 重适配)   ⑨ 小脑 CF-LTD + DCN→BG   ⑩ 丘脑 NE/ACh TRN 门控 + 丘脑纹状体通路
   ⑪ NAcc 动机/奖赏整合   ⑫ SNc 习惯维持 (tonic DA)   ⑬ SC 显著性→皮层
   ⑭ PAG 恐惧→NE觉醒 (CeA→PAG→LC)   ⑮ FPC 前额极规划 (单向→dlPFC)
   ⑯ OFC 价值预测 (DA增益门控)   ⑰ vmPFC 恐惧消退/安全信号
   ⑱ Hypothalamus LH→VTA 享乐感觉通路
 
-关键指标 (v46 VTA 内部 RPE):
-  D1 发放: 41/50步, D2 发放: 76/50步
-  皮层→BG events: 423/10步
-  Weight range: 0.0900
-  VTA RPE: 脉冲驱动 (不再使用标量注入)
+关键指标 (v47 Baldwin 参数):
+  improvement: +0.198, late_safety: 0.200
+  da_stdp_lr: 0.080 (spike RPE 补偿)
+  brain_steps: 12 (从 20 降低, 39% CTest 加速)

@@ -51,7 +51,7 @@ struct Gene {
 
 struct Genome {
     // --- Global learning genes ---
-    Gene da_stdp_lr         {"da_stdp_lr",         0.03f,   0.005f,  0.08f};
+    Gene da_stdp_lr         {"da_stdp_lr",         0.03f,   0.005f,  0.15f};  // v47: expanded range (0.08 hit ceiling with spike RPE)
     Gene reward_scale       {"reward_scale",        1.5f,    0.3f,    5.0f};
     Gene cortical_a_plus    {"cortical_a_plus",     0.005f,  0.001f,  0.02f};
     Gene cortical_a_minus   {"cortical_a_minus",    0.006f,  0.001f,  0.02f};  // stored positive
