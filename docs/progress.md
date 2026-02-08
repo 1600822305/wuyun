@@ -318,6 +318,7 @@ PAG: dlPAG 主动逃跑 + vlPAG 被动冻结, Amygdala→PAG→LC 恐惧警觉�
 **30/30 CTest, 皮层 events 616→655。**
 
 ### Step 42: Phase 3 价值+情绪扩展 ✅ (2026-02-09)
+> 详细文档: [steps/step42_phase3_regions.md](steps/step42_phase3_regions.md)
 
 两新区域: OFC 眶额皮层 (12n, 刺激-结果价值预测, DA 调制) + vmPFC 腹内侧前额叶 (8n, 恐惧消退/安全信号)。
 OFC: IT/Amygdala→OFC→dlPFC/NAcc 价值引导决策。vmPFC: OFC/Hippocampus→vmPFC→Amygdala/NAcc 安全评估。
