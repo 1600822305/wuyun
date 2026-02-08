@@ -299,6 +299,61 @@ void ClosedLoopAgent::build_brain() {
         engine_.add_projection("ACC", "dlPFC", 3);
     }
 
+    // --- v40: NAcc 伏隔核 (Mogenson 1980: limbic-motor interface) ---
+    // Ventral striatum: motivation/reward integration, independent of dorsal BG motor selection
+    // VTA→NAcc (mesolimbic DA): reward prediction → approach motivation
+    // Amygdala→NAcc: emotional valence → avoidance motivation
+    // NAcc→VP: motivation output → modulates BG motor vigor
+    if (config_.enable_nacc) {
+        NAccConfig nacc_cfg;
+        nacc_cfg.n_core_d1 = n_act * s;   // 4: approach motivation
+        nacc_cfg.n_core_d2 = n_act * s;   // 4: avoidance motivation
+        nacc_cfg.n_shell   = n_act * s;   // 4: novelty detection
+        nacc_cfg.n_vp      = n_act * s;   // 4: ventral pallidum output
+        engine_.add_region(std::make_unique<NucleusAccumbens>(nacc_cfg));
+
+        // VTA → NAcc (mesolimbic DA pathway, core reward signal)
+        engine_.add_projection("VTA", "NAcc", 2);
+        // Hippocampus → NAcc (contextual motivation: "this place had food")
+        if (!config_.fast_eval) {
+            engine_.add_projection("Hippocampus", "NAcc", 3);
+        }
+        // Amygdala → NAcc (emotional valence: fear → avoidance motivation)
+        if (config_.enable_amygdala) {
+            engine_.add_projection("Amygdala", "NAcc", 2);
+        }
+        // IT → NAcc (object identity: "I see food" → approach)
+        engine_.add_projection("IT", "NAcc", 2);
+    }
+
+    // --- v40: Superior Colliculus 上丘 (Krauzlis 2013: subcortical saliency) ---
+    // Fast visual saliency pathway: LGN → SC → Pulvinar (enhances cortical processing)
+    // Also SC → BG (fast saliency signal, supplements thalamostriatal pathway)
+    if (config_.enable_sc) {
+        SCConfig sc_cfg;
+        sc_cfg.n_superficial = n_act * s;   // 4: visual map
+        sc_cfg.n_deep        = n_act * s;   // 4: multimodal output
+        engine_.add_region(std::make_unique<SuperiorColliculus>(sc_cfg));
+
+        // LGN → SC (retinal input, fast: delay=1)
+        engine_.add_projection("LGN", "SC", 1);
+        // SC → BG (saliency drive, fast: delay=1, supplements LGN→BG thalamostriatal)
+        engine_.add_projection("SC", "BG", 1);
+        // V1 → SC (cortical feedback to SC deep layer, delay=2)
+        engine_.add_projection("V1", "SC", 2);
+    }
+
+    // --- v40: SNc 黑质致密部 (Yin & Knowlton 2006: habit learning) ---
+    // Nigrostriatal pathway: tonic DA → dorsal BG, maintains learned habits
+    // Unlike VTA phasic RPE: SNc is stable, slowly tracks reward history
+    if (config_.enable_snc) {
+        SNcConfig snc_cfg;
+        snc_cfg.n_da_neurons = std::max<size_t>(4, n_act) * s;
+        engine_.add_region(std::make_unique<SNc_DA>(snc_cfg));
+        // M1 → SNc (motor efference copy: active movement → SNc maintenance)
+        engine_.add_projection("M1", "SNc", 2);
+    }
+
     // --- v34: 神经调质系统 (LC-NE, NBM-ACh, DRN-5HT) ---
     // Volume transmission: 不走SpikeBus，通过inject_arousal/surprise/wellbeing驱动
     // SimulationEngine每步自动收集输出并广播到所有区域
@@ -351,6 +406,9 @@ void ClosedLoopAgent::build_brain() {
     nbm_   = dynamic_cast<NBM_ACh*>(engine_.find_region("NBM"));
     drn_   = dynamic_cast<DRN_5HT*>(engine_.find_region("DRN"));
     acc_   = dynamic_cast<AnteriorCingulate*>(engine_.find_region("ACC"));
+    nacc_  = dynamic_cast<NucleusAccumbens*>(engine_.find_region("NAcc"));
+    snc_   = dynamic_cast<SNc_DA*>(engine_.find_region("SNc"));
+    sc_    = dynamic_cast<SuperiorColliculus*>(engine_.find_region("SC"));
 
     // --- Topographic mappings through visual hierarchy ---
     // V1→V2: retinotopic (preserve spatial layout)
@@ -538,6 +596,25 @@ StepResult ClosedLoopAgent::agent_step() {
             bg_->set_ach_level(ach);
         }
 
+        // v40: Feed VTA DA to NAcc (mesolimbic pathway)
+        // NAcc processes reward signal for motivation, independent of BG motor selection
+        if (nacc_) {
+            nacc_->set_da_level(vta_->da_output());
+        }
+
+        // v40: SNc habit maintenance — blend tonic DA with VTA phasic DA
+        // Biology: BG DA = VTA phasic (new learning) + SNc tonic (habit maintenance)
+        //   As habits form, SNc contribution stabilizes BG weights against VTA fluctuations
+        if (snc_) {
+            snc_->inject_reward_history(avg_reward(200));
+            // D1 activity feedback: how active is the dorsal BG Go pathway?
+            size_t d1_fires = 0;
+            for (size_t j = 0; j < bg_->d1().size(); ++j)
+                if (bg_->d1().fired()[j]) d1_fires++;
+            float d1_rate = static_cast<float>(d1_fires) / static_cast<float>(std::max<size_t>(bg_->d1().size(), 1));
+            snc_->inject_d1_activity(d1_rate);
+        }
+
         // Run a few steps so DA can modulate BG eligibility traces
         // DA broadcast: VTA computes DA level, BG reads it directly (volume transmission)
         for (size_t i = 0; i < config_.reward_processing_steps; ++i) {
@@ -550,7 +627,16 @@ StepResult ClosedLoopAgent::agent_step() {
             // v37: Read DA AFTER engine step (VTA processes reward during step)
             // Previous bug: bg read da BEFORE engine step → missed the DA change
             // on the first reward processing step entirely.
-            bg_->set_da_level(vta_->da_output());
+            // v40: Blend VTA phasic + SNc tonic DA for BG
+            // Biology: dorsal striatum receives DA from both VTA and SNc
+            //   VTA: fast phasic RPE (new learning)
+            //   SNc: stable tonic (habit maintenance, resists fluctuations)
+            //   Blend: 70% VTA + 30% SNc → habits stabilize as SNc tonic rises
+            float da = vta_->da_output();
+            if (snc_) {
+                da = da * 0.7f + snc_->da_output() * 0.3f;
+            }
+            bg_->set_da_level(da);
         }
         has_pending_reward_ = false;
 
@@ -683,6 +769,19 @@ StepResult ClosedLoopAgent::agent_step() {
     if (acc_) {
         noise_scale *= (1.0f + acc_->foraging_signal() * 0.3f);
         noise_scale = std::clamp(noise_scale, 0.3f, 2.0f);
+    }
+
+    // v40: NAcc motivation modulates motor vigor
+    // Biology: NAcc Core D1 (approach) → VP inhibition → BG disinhibition → more vigorous
+    //          NAcc Core D2 (avoidance) → VP excitation → BG inhibition → less movement
+    // Mogenson 1980: NAcc is the "limbic-motor interface"
+    float motivation_vigor = 1.0f;
+    if (nacc_) {
+        float mot = nacc_->motivation_output();
+        // motivation > 0: approach → increase vigor (up to 1.3×)
+        // motivation < 0: avoidance → decrease vigor (down to 0.7×)
+        motivation_vigor = std::clamp(1.0f + mot * 0.15f, 0.7f, 1.3f);
+        noise_scale *= motivation_vigor;
     }
 
     float effective_noise = config_.exploration_noise * noise_scale;

@@ -35,6 +35,9 @@
 #include "region/limbic/hippocampus.h"
 #include "region/limbic/amygdala.h"
 #include "region/subcortical/cerebellum.h"
+#include "region/subcortical/nucleus_accumbens.h"
+#include "region/neuromod/snc_da.h"
+#include "region/subcortical/superior_colliculus.h"
 #include "region/anterior_cingulate.h"
 #include "engine/sleep_cycle.h"
 #include "plasticity/homeostatic.h"
@@ -162,6 +165,26 @@ struct AgentConfig {
     // Refs: Botvinick 2001, Alexander & Brown 2011, Behrens 2007, Shenhav 2013
     bool  enable_acc = true;
 
+    // v40: NAcc 伏隔核 (ventral striatum) — 动机/奖赏整合
+    // Biology: VTA→NAcc (mesolimbic) 独立于 SNc→dStr (nigrostriatal)
+    //   NAcc Core: approach motivation (D1) vs avoidance (D2)
+    //   NAcc Shell: novelty/context change detection
+    //   NAcc→VP→BG: motivation modulates motor vigor
+    // Ref: Mogenson 1980 "limbic-motor interface"
+    bool  enable_nacc = true;
+
+    // v40: SNc 黑质致密部 (nigrostriatal DA) — 习惯学习通路
+    // Biology: SNc tonic DA → 背侧纹状体, 维持已学习惯 (Yin & Knowlton 2006)
+    //   VTA phasic: 新学习 | SNc tonic: 已学维持
+    //   习惯形成后 SNc 维持 BG 权重, VTA 波动不再影响已学行为
+    bool  enable_snc = true;
+
+    // v40: Superior Colliculus 上丘 — 皮层下快速显著性检测
+    // Biology: 视网膜→SC→Pulvinar, 60ms 快速通道 (Krauzlis 2013)
+    //   SC 浅层: 视觉地图 | SC 深层: 多模态整合+注意力定向
+    //   危险物体快速反应, 不等皮层处理完
+    bool  enable_sc = true;
+
     // v27: Developmental period (critical period for visual feature learning)
     // Biology: infant visual cortex spends ~6 months self-organizing via Hebbian STDP
     // before goal-directed behavior begins. Agent random-walks during dev period,
@@ -238,6 +261,9 @@ public:
     Amygdala*       amyg()  const { return amyg_; }
     Cerebellum*     cb()    const { return cb_; }
     AnteriorCingulate* acc() const { return acc_; }
+    NucleusAccumbens* nacc() const { return nacc_; }
+    SNc_DA*           snc()  const { return snc_; }
+    SuperiorColliculus* sc()   const { return sc_; }
 
 private:
     AgentConfig config_;
@@ -264,6 +290,9 @@ private:
     NBM_ACh*        nbm_    = nullptr;   // v34: ACh attention
     DRN_5HT*        drn_    = nullptr;   // v34: 5-HT patience
     AnteriorCingulate* acc_  = nullptr;   // v35: ACC conflict/surprise/volatility
+    NucleusAccumbens*  nacc_  = nullptr;   // v40: NAcc motivation/reward
+    SNc_DA*            snc_   = nullptr;   // v40: SNc habit DA
+    SuperiorColliculus* sc_    = nullptr;   // v40: SC saliency
 
     // State
     int    agent_step_count_ = 0;

@@ -19,6 +19,8 @@ set(WUYUN_CORE_SOURCES
     region/cortical_region.cpp
     region/subcortical/thalamic_relay.cpp
     region/subcortical/basal_ganglia.cpp
+    region/subcortical/nucleus_accumbens.cpp
+    region/subcortical/superior_colliculus.cpp
     region/subcortical/cerebellum.cpp
     region/limbic/hippocampus.cpp
     region/limbic/amygdala.cpp
@@ -28,6 +30,7 @@ set(WUYUN_CORE_SOURCES
     region/limbic/lateral_habenula.cpp
     region/anterior_cingulate.cpp
     region/neuromod/vta_da.cpp
+    region/neuromod/snc_da.cpp
     region/neuromod/lc_ne.cpp
     region/neuromod/drn_5ht.cpp
     region/neuromod/nbm_ach.cpp

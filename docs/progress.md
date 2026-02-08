@@ -303,23 +303,31 @@ DA 恒定 0.300→动态, D1 0→2 fires, 权重范围 5.6×。30/30 CTest。
 三修复: brain_steps 12→20 / PSP_DECAY 0.7→0.85 / L4/L5 min 2→3。
 **皮层 events 34→358 (10.5×), elig 10.9→63.5 (5.8×), weight range 0.0165→0.0464 (2.8×)。** 30/30 CTest。
 
+### Step 40: Phase 1 三区域扩展 ✅ (2026-02-09)
+> 详细文档: [steps/step40_phase1_regions.md](steps/step40_phase1_regions.md)
+
+三新区域: NAcc 伏隔核 (16n, 动机/奖赏) + SNc 黑质致密部 (4n, 习惯维持) + SC 上丘 (8n, 快速显著性)。
+NAcc 分离动机(ventral)与运动选择(dorsal), SNc tonic DA 稳定已学权重 (70%VTA+30%SNc), SC 皮层下快通道 LGN→SC→BG。
+**D1 47→58 (+23%), elig 63.5→114.2 (1.8×), weight range 0.0464→0.1080 (2.3×)。** 30/30 CTest。
+
 ---
 
 ## 当前系统状态
 
 ```
-54区域 · ~160闭环神经元 · ~113投射 · 30/30 CTest
+57区域 · ~188闭环神经元 · ~121投射 · 30/30 CTest
 默认环境: 10×10 grid, 5×5 vision (25px), 5 food, 3 danger
 
-学习链路 10/10:
+学习链路 13/13:
   ① V1→V2→V4→IT 视觉层级   ② L6 预测编码 + mismatch STDP
   ③ dlPFC→BG DA-STDP (乘法增益+侧向抑制)   ④ VTA DA burst/pause
   ⑤ ACh STDP 门控 (巩固+反转)   ⑥ 杏仁核 one-shot 恐惧   ⑦ 海马 CA3 + SWR 重放
   ⑧ Baldwin 进化   ⑨ 小脑 CF-LTD + DCN→BG   ⑩ 丘脑 NE/ACh TRN 门控 + 丘脑纹状体通路
+  ⑪ NAcc 动机/奖赏整合   ⑫ SNc 习惯维持 (tonic DA)   ⑬ SC 皮层下快速显著性
 
 关键指标:
-  D1 发放: 47/50步 (从 0→2→36→47)
-  皮层→BG events: 358/10步 (10.5× 提升)
-  Max eligibility: 63.5, Weight range: 0.0464
+  D1 发放: 58/50步 (从 0→2→36→47→58)
+  皮层→BG events: 616/10步
+  Max eligibility: 114.2, Weight range: 0.1080
   learner advantage: +0.036
 ```
