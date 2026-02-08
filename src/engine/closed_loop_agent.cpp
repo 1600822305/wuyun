@@ -641,20 +641,28 @@ void ClosedLoopAgent::build_brain() {
     // Deterministic seed for reproducibility across runs.
     {
         std::mt19937 pv_rng(42);
-        std::uniform_real_distribution<float> angle_dist(0.0f, 6.2831853f);
+        std::normal_distribution<float> jitter_dist(0.0f, 0.3f);  // ~17° jitter
+
+        // v48: Evenly spaced preferred directions with small jitter
+        // Biology: M1 has roughly equal representation of all movement directions
+        // (Georgopoulos 1986: uniform coverage of directional space).
+        // Pure random angles can create directional bias (e.g., more rightward neurons).
+        // Fix: space angles evenly around the circle, add Gaussian jitter for diversity.
 
         // M1 L5 preferred directions
         size_t l5_sz = m1_->column().l5().size();
         m1_preferred_dir_.resize(l5_sz);
         for (size_t i = 0; i < l5_sz; ++i) {
-            m1_preferred_dir_[i] = angle_dist(pv_rng);
+            float base_angle = 6.2831853f * static_cast<float>(i) / static_cast<float>(l5_sz);
+            m1_preferred_dir_[i] = base_angle + jitter_dist(pv_rng);
         }
 
         // BG D1 preferred directions
         size_t d1_sz = bg_->d1().size();
         d1_preferred_dir_.resize(d1_sz);
         for (size_t i = 0; i < d1_sz; ++i) {
-            d1_preferred_dir_[i] = angle_dist(pv_rng);
+            float base_angle = 6.2831853f * static_cast<float>(i) / static_cast<float>(d1_sz);
+            d1_preferred_dir_[i] = base_angle + jitter_dist(pv_rng);
         }
     }
 }

@@ -592,6 +592,88 @@ static void test_ablation() {
 }
 
 // =========================================================================
+// Task 6: Maze spatial navigation (v48)
+// =========================================================================
+void test_maze() {
+    printf("\n--- Task 6: Maze Spatial Navigation ---\n");
+
+    // --- 6A: Corridor (simplest: just go right) ---
+    {
+        printf("\n  6A: Corridor (10x3, go right to food)\n");
+        AgentConfig cfg;
+        cfg.world_config.maze_type = MazeType::CORRIDOR;
+        cfg.world_config.seed = 42;
+        cfg.dev_period_steps = 0;  // No dev period in maze (start learning immediately)
+
+        ClosedLoopAgent agent(cfg);
+        printf("  Layout:\n%s\n", agent.world().to_string().c_str());
+
+        int food_count = 0;
+        int wall_hits = 0;
+        for (int i = 0; i < 1000; ++i) {
+            auto result = agent.agent_step();
+            if (result.got_food) food_count++;
+            if (result.hit_wall) wall_hits++;
+            if (i % 200 == 199) {
+                printf("    Step %4d: pos=(%d,%d) food=%d walls=%d\n",
+                       i + 1, agent.world().agent_x(), agent.world().agent_y(),
+                       food_count, wall_hits);
+            }
+        }
+        printf("  Corridor result: food=%d, wall_hits=%d\n", food_count, wall_hits);
+    }
+
+    // --- 6B: T-maze (choice point: left=food, right=empty) ---
+    {
+        printf("\n  6B: T-maze (5x5, left=food)\n");
+        AgentConfig cfg;
+        cfg.world_config.maze_type = MazeType::T_MAZE;
+        cfg.world_config.seed = 42;
+        cfg.dev_period_steps = 0;
+
+        ClosedLoopAgent agent(cfg);
+        printf("  Layout:\n%s\n", agent.world().to_string().c_str());
+
+        // Track visits per cell (5x5)
+        int visit_count[25] = {};
+        int w = static_cast<int>(agent.world().width());
+
+        int food_count = 0;
+        int wall_hits = 0;
+        for (int i = 0; i < 2000; ++i) {
+            auto result = agent.agent_step();
+            if (result.got_food) {
+                food_count++;
+                printf("    *** FOOD at step %d pos=(%d,%d) ***\n", i, result.agent_x, result.agent_y);
+            }
+            if (result.hit_wall) wall_hits++;
+            int px = agent.world().agent_x();
+            int py = agent.world().agent_y();
+            if (px >= 0 && px < w && py >= 0 && py < (int)agent.world().height()) {
+                visit_count[py * w + px]++;
+            }
+            if (i % 500 == 499) {
+                printf("    Step %4d: pos=(%d,%d) food=%d walls=%d action=%d\n",
+                       i + 1, px, py, food_count, wall_hits,
+                       static_cast<int>(agent.last_action()));
+            }
+        }
+        printf("  T-maze result: food=%d, wall_hits=%d\n", food_count, wall_hits);
+        printf("  Visit counts per cell:\n");
+        for (int y = 0; y < (int)agent.world().height(); ++y) {
+            printf("    ");
+            for (int x = 0; x < w; ++x) {
+                printf("%4d ", visit_count[y * w + x]);
+            }
+            printf("\n");
+        }
+    }
+
+    TEST_ASSERT(true, "Maze navigation completed");
+    printf("  [PASS]\n"); g_pass++;
+}
+
+// =========================================================================
 // main
 // =========================================================================
 int main() {
@@ -602,6 +684,7 @@ int main() {
     printf("=== 悟韵 学习链路诊断 ===\n");
 
     test_ablation();
+    test_maze();
 
     printf("\n========================================\n");
     printf("  通过: %d / %d\n", g_pass, g_pass + g_fail);

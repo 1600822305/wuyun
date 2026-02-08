@@ -13,19 +13,147 @@ GridWorld::GridWorld(const GridWorldConfig& config)
 }
 
 void GridWorld::reset() {
-    std::fill(grid_.begin(), grid_.end(), CellType::EMPTY);
-
-    // Agent starts at center
-    agent_x_ = static_cast<int>(config_.width / 2);
-    agent_y_ = static_cast<int>(config_.height / 2);
-
-    // Place food and danger
-    place_random(CellType::FOOD,   config_.n_food);
-    place_random(CellType::DANGER, config_.n_danger);
-
     food_collected_ = 0;
     danger_hits_    = 0;
     step_count_     = 0;
+
+    if (config_.maze_type != MazeType::OPEN_FIELD) {
+        // v48: Load predefined maze layout (sets grid, agent pos, food)
+        load_maze(config_.maze_type);
+    } else {
+        // Original: open field with random food/danger
+        std::fill(grid_.begin(), grid_.end(), CellType::EMPTY);
+        agent_x_ = static_cast<int>(config_.width / 2);
+        agent_y_ = static_cast<int>(config_.height / 2);
+        place_random(CellType::FOOD,   config_.n_food);
+        place_random(CellType::DANGER, config_.n_danger);
+    }
+}
+
+void GridWorld::set_cell(int x, int y, CellType type) {
+    if (in_bounds(x, y)) {
+        grid_[idx(x, y)] = type;
+    }
+}
+
+void GridWorld::set_agent_pos(int x, int y) {
+    if (in_bounds(x, y)) {
+        agent_x_ = x;
+        agent_y_ = y;
+    }
+}
+
+void GridWorld::load_maze(MazeType type) {
+    // Resize grid if maze requires different dimensions
+    auto set_size = [&](size_t w, size_t h) {
+        config_.width = w;
+        config_.height = h;
+        grid_.resize(w * h);
+    };
+
+    std::fill(grid_.begin(), grid_.end(), CellType::EMPTY);
+
+    switch (type) {
+
+    case MazeType::T_MAZE: {
+        // T-maze (5x4): minimal choice paradigm
+        // Agent at junction, food visible, 3 steps to reach
+        // Tests: can the brain learn "go left then up" when food is visible?
+        //
+        //  ##### y=0
+        //  #F.E# y=1   F=food(1,1), E=empty(3,1)
+        //  #.#.# y=2   Wall(2,2) forces left/right choice
+        //  #.A.# y=3   Agent(2,3)
+        //  ##### y=4   (outer wall added by boundary check)
+        //
+        // Left path: (2,3)→(1,3)→(1,2)→(1,1)=FOOD (3 steps)
+        // Right path: (2,3)→(3,3)→(3,2)→(3,1)=EMPTY (3 steps, no reward)
+        // 5x5 vision from (2,3) sees entire grid → food VISIBLE from start
+        set_size(5, 5);
+        // Border walls
+        for (int x = 0; x < 5; ++x) {
+            grid_[idx(x, 0)] = CellType::WALL;
+            grid_[idx(x, 4)] = CellType::WALL;
+        }
+        for (int y = 0; y < 5; ++y) {
+            grid_[idx(0, y)] = CellType::WALL;
+            grid_[idx(4, y)] = CellType::WALL;
+        }
+        // Central divider (forces left/right choice)
+        grid_[idx(2, 2)] = CellType::WALL;
+
+        // Food in left arm only (no danger — pure choice task)
+        grid_[idx(1, 1)] = CellType::FOOD;
+
+        // Agent at bottom center
+        agent_x_ = 2;
+        agent_y_ = 3;
+        break;
+    }
+
+    case MazeType::CORRIDOR: {
+        // Corridor (10x3): straight path, food at end
+        // Tests delayed reward credit assignment over 8 steps
+        //
+        //  ########## y=0
+        //  #A......F# y=1
+        //  ########## y=2
+        set_size(10, 3);
+        for (int x = 0; x < 10; ++x) {
+            grid_[idx(x, 0)] = CellType::WALL;
+            grid_[idx(x, 2)] = CellType::WALL;
+        }
+        grid_[idx(0, 1)] = CellType::WALL;
+        grid_[idx(9, 1)] = CellType::WALL;
+        // Food at right end
+        grid_[idx(8, 1)] = CellType::FOOD;
+        // Agent at left
+        agent_x_ = 1;
+        agent_y_ = 1;
+        break;
+    }
+
+    case MazeType::SIMPLE_MAZE: {
+        // Simple maze (7x7) with two turns
+        //
+        //  ####### y=0
+        //  #A.#..# y=1
+        //  ##.#.## y=2
+        //  #.....# y=3
+        //  #.###.# y=4
+        //  #....F# y=5
+        //  ####### y=6
+        set_size(7, 7);
+        // Border walls
+        for (int x = 0; x < 7; ++x) {
+            grid_[idx(x, 0)] = CellType::WALL;
+            grid_[idx(x, 6)] = CellType::WALL;
+        }
+        for (int y = 0; y < 7; ++y) {
+            grid_[idx(0, y)] = CellType::WALL;
+            grid_[idx(6, y)] = CellType::WALL;
+        }
+        // Internal walls
+        grid_[idx(3, 1)] = CellType::WALL;
+        grid_[idx(3, 2)] = CellType::WALL;
+        grid_[idx(1, 2)] = CellType::WALL;
+        grid_[idx(5, 2)] = CellType::WALL;
+        grid_[idx(2, 4)] = CellType::WALL;
+        grid_[idx(3, 4)] = CellType::WALL;
+        grid_[idx(4, 4)] = CellType::WALL;
+
+        // Food at bottom right
+        grid_[idx(5, 5)] = CellType::FOOD;
+        // Agent at top left
+        agent_x_ = 1;
+        agent_y_ = 1;
+        break;
+    }
+
+    default:
+        // OPEN_FIELD handled in reset() directly
+        break;
+    }
 }
 
 void GridWorld::place_random(CellType type, size_t count) {
@@ -46,7 +174,13 @@ void GridWorld::place_random(CellType type, size_t count) {
 }
 
 void GridWorld::respawn_food() {
-    place_random(CellType::FOOD, 1);
+    if (config_.maze_type != MazeType::OPEN_FIELD) {
+        // v48: In maze mode, reset the maze layout to respawn food at its fixed position
+        // This also resets agent to start position (trial-based learning)
+        load_maze(config_.maze_type);
+    } else {
+        place_random(CellType::FOOD, 1);
+    }
 }
 
 CellType GridWorld::cell(int x, int y) const {

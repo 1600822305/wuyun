@@ -380,20 +380,27 @@ DA-STDP 学的不再是"加强某一组"，而是"塑造群体活动方向"。
 - **background_ratio** 0.26→0.02 (群体向量下 attractor cos 驱动足够)
 **improvement -0.207→+0.198, late_safety 0.000→0.200。** 30/30 CTest。
 
+### Step 48: 迷宫环境 + 空间导航 ✅ (2026-02-09)
+> 详细文档: [steps/step48_maze_environment.md](steps/step48_maze_environment.md)
+
+GridWorld 迷宫支持: `MazeType` 枚举 (T_MAZE/CORRIDOR/SIMPLE_MAZE) + `set_cell()`/`load_maze()`。
+均匀偏好方向修复 (2πi/N + 17°抖动): 纯随机偏好方向导致方向偏置 (右侧1151次/左侧0次),
+均匀分布后 T-迷宫从 0 次 → **6 次食物** (2000步, 后期加速)。走廊 3 次食物 (1000步)。
+**大脑首次进入迷宫并学会导航。** 30/30 CTest。
+
 ---
 
 ## 当前系统状态
 
 ```
 64区域 · ~252闭环神经元 · ~139投射 · 30/30 CTest (22s)
-默认环境: 10×10 grid, 5×5 vision (25px), 5 food, 3 danger
+环境: 10×10 开放场地 (默认) + T-迷宫 / 走廊 / 简单迷宫
 
-架构升级 (v45-47):
-  M1: 群体向量编码 (Georgopoulos 1986), 方向从群体活动涌现
-  VTA: 内部 RPE (Schultz 1997), 奖赏通过 Hypothalamus→VTA SpikeBus
+架构升级 (v45-48):
+  M1: 群体向量编码 (Georgopoulos 1986), 均匀偏好方向 + 17°抖动
+  VTA: 内部 RPE (Schultz 1997), Hypothalamus→VTA SpikeBus
   BG→M1: D1 群体向量 → cos 相似度偏置
-  解码: 群体向量角 → 最近基数方向
-  参数: v47 Baldwin 进化适配
+  迷宫: T_MAZE(5×5) / CORRIDOR(10×3) / SIMPLE_MAZE(7×7)
 
 学习链路 18/18:
   ① V1→V2→V4→IT 视觉层级   ② L6 预测编码 + mismatch STDP
@@ -405,7 +412,6 @@ DA-STDP 学的不再是"加强某一组"，而是"塑造群体活动方向"。
   ⑯ OFC 价值预测 (DA增益门控)   ⑰ vmPFC 恐惧消退/安全信号
   ⑱ Hypothalamus LH→VTA 享乐感觉通路
 
-关键指标 (v47 Baldwin 参数):
-  improvement: +0.198, late_safety: 0.200
-  da_stdp_lr: 0.080 (spike RPE 补偿)
-  brain_steps: 12 (从 20 降低, 39% CTest 加速)
+迷宫验证:
+  T-迷宫 (5×5): 6次食物/2000步 (后期加速)
+  走廊 (10×3): 3次食物/1000步

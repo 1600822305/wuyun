@@ -38,6 +38,14 @@ enum class Action : uint8_t {
     STAY  = 4   // no-op (when M1 is silent)
 };
 
+/** v48: Maze layout presets */
+enum class MazeType : uint8_t {
+    OPEN_FIELD  = 0,   // Default: no internal walls, random food/danger
+    T_MAZE      = 1,   // T-shaped choice point (Packard & McGaugh 1996)
+    CORRIDOR    = 2,   // Straight corridor, food at end (delayed reward)
+    SIMPLE_MAZE = 3,   // 7x7 maze with turns
+};
+
 struct GridWorldConfig {
     size_t width       = 10;
     size_t height      = 10;
@@ -45,6 +53,7 @@ struct GridWorldConfig {
     size_t n_danger    = 3;     // 危险数量 (v21: 2→3, 3%密度, 可学习的回避挑战)
     uint32_t seed      = 42;    // 随机种子
     int    vision_radius = 2;   // 视野半径 (v21: 1→2, 3×3→5×5, 释放PC/睡眠/空间记忆)
+    MazeType maze_type = MazeType::OPEN_FIELD;  // v48: maze layout
 
     // 视觉编码值
     float vis_empty    = 0.0f;
@@ -90,6 +99,12 @@ public:
     size_t height() const { return config_.height; }
     CellType cell(int x, int y) const;
 
+    /** v48: Set a specific cell type at position (for maze building) */
+    void set_cell(int x, int y, CellType type);
+
+    /** v48: Set agent start position */
+    void set_agent_pos(int x, int y);
+
     /** 累计统计 */
     uint32_t total_food_collected() const { return food_collected_; }
     uint32_t total_danger_hits()    const { return danger_hits_; }
@@ -99,6 +114,8 @@ public:
     std::string to_string() const;
 
 private:
+    /** v48: Load predefined maze layout */
+    void load_maze(MazeType type);
     GridWorldConfig config_;
     std::vector<CellType> grid_;  // row-major [y * width + x]
     int agent_x_ = 0, agent_y_ = 0;
