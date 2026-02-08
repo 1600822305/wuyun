@@ -297,6 +297,7 @@ DA 恒定 0.300→动态, D1 0→2 fires, 权重范围 5.6×。30/30 CTest。
 ---
 
 ### Step 39: 皮层信号链三修复 ✅ (2026-02-09)
+> 详细文档: [steps/step39_cortical_signal_fix.md](steps/step39_cortical_signal_fix.md)
 
 三瓶颈: brain_steps=12 < 层级延迟14步 / 皮层 PSP_DECAY=0.7 太快 / L4/L5 最小2个神经元断链。
 三修复: brain_steps 12→20 / PSP_DECAY 0.7→0.85 / L4/L5 min 2→3。
