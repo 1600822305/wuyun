@@ -64,93 +64,172 @@ std::vector<DevGenome> DevEvolutionEngine::next_generation(std::vector<DevGenome
 }
 
 // =============================================================================
-// 评估: DevGenome → Developer → AgentConfig → ClosedLoopAgent → GridWorld
+// v53: 多任务"天才基因"评估
+//
+// 3 种任务, 7 次评估, 加权平均:
+//   Task 1: 开放觅食 (3 seeds) — 基本趋近/回避
+//   Task 2: 稀疏奖赏 (2 seeds) — 耐心 + 稀疏信号学习
+//   Task 3: 反转学习 (2 seed pairs) — 灵活性 (×1.5 权重)
+//
+// 专才: 某一项满分但其他项崩溃
+// 天才: 所有项都及格 → 通用学习能力
 // =============================================================================
 
-FitnessResult DevEvolutionEngine::evaluate_single(const DevGenome& genome, uint32_t seed) const {
-    // --- 早停 1: 连通性检查 (0 步, 瞬间) ---
-    // 如果没有皮层类型同时兼容 LGN 和 BG → 信号永远到不了运动输出
-    int conn = Developer::check_connectivity(genome);
-    if (conn == 0) {
-        FitnessResult bad{};
-        bad.fitness = -2.0f;  // 直接淘汰, 不浪费计算
-        return bad;
+// 通用: 跑 agent N 步, 计算 early×1 + improvement×2 + late×2
+float DevEvolutionEngine::run_and_score(ClosedLoopAgent& agent, size_t steps,
+                                         int& out_food, int& out_danger) {
+    // 早停: 50 步内是否有运动
+    int events = 0;
+    size_t warmup = std::min<size_t>(50, steps / 4);
+    for (size_t i = 0; i < warmup; ++i) {
+        auto r = agent.agent_step();
+        if (r.got_food || r.hit_danger) events++;
+    }
+    if (events == 0) {
+        out_food = 0; out_danger = 0;
+        return -1.0f;  // 不动 = 差评
     }
 
-    // 1. 发育: DevGenome → AgentConfig (骨架固定 + 皮层涌现)
-    AgentConfig cfg = Developer::to_agent_config(genome);
-    cfg.fast_eval = true;
-    cfg.world_config = config_.world_config;
-    cfg.world_config.seed = seed;
-
-    // 2. 构建完整 ClosedLoopAgent
-    ClosedLoopAgent agent(cfg);
-
-    // --- 早停 2: 100 步内是否有运动 ---
-    int early_events = 0;
-    for (size_t i = 0; i < 100; ++i) {
-        auto result = agent.agent_step();
-        if (result.got_food || result.hit_danger) early_events++;
-    }
-    if (early_events == 0) {
-        // 100 步零事件 = agent 不动或被困
-        FitnessResult bad{};
-        bad.fitness = -1.5f;
-        return bad;
-    }
-
-    // 3. 正式评估 (剩余步数)
-    size_t remaining = config_.eval_steps - 100;
+    size_t remaining = steps - warmup;
     size_t early_steps = remaining / 5;
     size_t late_steps = remaining - early_steps;
 
     int e_food = 0, e_danger = 0;
     for (size_t i = 0; i < early_steps; ++i) {
-        auto result = agent.agent_step();
-        if (result.got_food) e_food++;
-        if (result.hit_danger) e_danger++;
+        auto r = agent.agent_step();
+        if (r.got_food) e_food++;
+        if (r.hit_danger) e_danger++;
     }
 
     int l_food = 0, l_danger = 0;
     for (size_t i = 0; i < late_steps; ++i) {
-        auto result = agent.agent_step();
-        if (result.got_food) l_food++;
-        if (result.hit_danger) l_danger++;
+        auto r = agent.agent_step();
+        if (r.got_food) l_food++;
+        if (r.hit_danger) l_danger++;
     }
 
-    FitnessResult res;
-    res.early_safety = static_cast<float>(e_food) /
-                       std::max(1.0f, static_cast<float>(e_food + e_danger));
-    res.late_safety = static_cast<float>(l_food) /
-                      std::max(1.0f, static_cast<float>(l_food + l_danger));
-    res.improvement = res.late_safety - res.early_safety;
-    res.total_food = agent.world().total_food_collected();
-    res.total_danger = agent.world().total_danger_hits();
+    float early_safety = static_cast<float>(e_food) /
+                         std::max(1.0f, static_cast<float>(e_food + e_danger));
+    float late_safety = static_cast<float>(l_food) /
+                        std::max(1.0f, static_cast<float>(l_food + l_danger));
+    float improvement = late_safety - early_safety;
 
-    // Baldwin 适应度 + 连通性奖励
-    res.fitness = res.improvement * 3.0f
-                + res.late_safety * 1.0f
-                + static_cast<float>(res.total_food) * 0.001f
-                - static_cast<float>(res.total_danger) * 0.001f
-                + static_cast<float>(conn) * 0.05f;  // 连通性奖励
-    return res;
+    out_food = agent.world().total_food_collected();
+    out_danger = agent.world().total_danger_hits();
+
+    return early_safety * 1.0f + improvement * 2.0f + late_safety * 2.0f;
 }
 
-FitnessResult DevEvolutionEngine::evaluate(const DevGenome& genome) const {
-    FitnessResult avg{};
-    for (uint32_t seed : config_.eval_seeds) {
-        auto r = evaluate_single(genome, seed);
-        avg.fitness      += r.fitness;
-        avg.early_safety += r.early_safety;
-        avg.late_safety  += r.late_safety;
-        avg.improvement  += r.improvement;
-        avg.total_food   += r.total_food;
-        avg.total_danger += r.total_danger;
+// Task 1: 开放觅食 — 10×10, 5 food, 3 danger
+float DevEvolutionEngine::eval_open_field(const AgentConfig& base_cfg,
+                                           uint32_t seed, size_t steps) const {
+    AgentConfig cfg = base_cfg;
+    cfg.fast_eval = true;
+    cfg.world_config.width = 10;
+    cfg.world_config.height = 10;
+    cfg.world_config.n_food = 5;
+    cfg.world_config.n_danger = 3;
+    cfg.world_config.maze_type = MazeType::OPEN_FIELD;
+    cfg.world_config.seed = seed;
+
+    ClosedLoopAgent agent(cfg);
+    int food = 0, danger = 0;
+    return run_and_score(agent, steps, food, danger);
+}
+
+// Task 2: 稀疏奖赏 — 10×10, 1 food, 0 danger
+// 测试耐心和探索效率: 食物少且无危险参考点
+float DevEvolutionEngine::eval_sparse(const AgentConfig& base_cfg,
+                                       uint32_t seed, size_t steps) const {
+    AgentConfig cfg = base_cfg;
+    cfg.fast_eval = true;
+    cfg.world_config.width = 10;
+    cfg.world_config.height = 10;
+    cfg.world_config.n_food = 1;
+    cfg.world_config.n_danger = 0;
+    cfg.world_config.maze_type = MazeType::OPEN_FIELD;
+    cfg.world_config.seed = seed;
+
+    ClosedLoopAgent agent(cfg);
+    int food = 0, danger = 0;
+    float score = run_and_score(agent, steps, food, danger);
+    // 稀疏奖赏: 找到食物就给额外奖励 (因为只有 1 个, 很难找)
+    score += static_cast<float>(food) * 0.1f;
+    return score;
+}
+
+// Task 3: 反转学习 — 前半 seed_a, 后半 seed_b (大脑保留)
+// 测试灵活性: 旧策略失效时能否快速适应
+float DevEvolutionEngine::eval_reversal(const AgentConfig& base_cfg,
+                                         uint32_t seed_a, uint32_t seed_b,
+                                         size_t steps) const {
+    AgentConfig cfg = base_cfg;
+    cfg.fast_eval = true;
+    cfg.world_config.width = 10;
+    cfg.world_config.height = 10;
+    cfg.world_config.n_food = 5;
+    cfg.world_config.n_danger = 3;
+    cfg.world_config.maze_type = MazeType::OPEN_FIELD;
+    cfg.world_config.seed = seed_a;
+
+    ClosedLoopAgent agent(cfg);
+    size_t half = steps / 2;
+
+    // Phase 1: 正常学习 (seed_a)
+    for (size_t i = 0; i < half; ++i) {
+        agent.agent_step();
     }
-    float n = static_cast<float>(config_.eval_seeds.size());
-    avg.fitness /= n;  avg.early_safety /= n;
-    avg.late_safety /= n;  avg.improvement /= n;
-    return avg;
+
+    // Phase 2: 世界变了, 大脑保留 (seed_b)
+    agent.reset_world_with_seed(seed_b);
+
+    // 评估 Phase 2 表现 (反转后的适应能力)
+    int food = 0, danger = 0;
+    return run_and_score(agent, half, food, danger);
+}
+
+// 多任务评估: 3 种任务加权平均
+MultitaskFitness DevEvolutionEngine::evaluate(const DevGenome& genome) const {
+    // 连通性检查
+    int conn = Developer::check_connectivity(genome);
+    if (conn == 0) {
+        MultitaskFitness bad{};
+        bad.fitness = -2.0f;
+        return bad;
+    }
+
+    AgentConfig base_cfg = Developer::to_agent_config(genome);
+    size_t steps = config_.eval_steps;
+
+    // Task 1: 开放觅食 (3 seeds, 权重 1.0)
+    float open = 0;
+    open += eval_open_field(base_cfg, 42,  steps);
+    open += eval_open_field(base_cfg, 77,  steps);
+    open += eval_open_field(base_cfg, 123, steps);
+    open /= 3.0f;
+
+    // Task 2: 稀疏奖赏 (2 seeds, 权重 1.0)
+    float sparse = 0;
+    sparse += eval_sparse(base_cfg, 256, steps);
+    sparse += eval_sparse(base_cfg, 789, steps);
+    sparse /= 2.0f;
+
+    // Task 3: 反转学习 (2 seed pairs, 权重 1.5)
+    float reversal = 0;
+    reversal += eval_reversal(base_cfg, 42, 789, steps);
+    reversal += eval_reversal(base_cfg, 77, 256, steps);
+    reversal /= 2.0f;
+
+    MultitaskFitness res;
+    res.open_field = open;
+    res.sparse_reward = sparse;
+    res.reversal = reversal;
+    // 加权: 开放×1 + 稀疏×1 + 反转×1.5
+    // 反转高权重: 灵活性是区分专才和天才的关键
+    res.fitness = open * 1.0f + sparse * 1.0f + reversal * 1.5f;
+    res.fitness /= 3.5f;  // 归一化 (1+1+1.5=3.5)
+    res.fitness += static_cast<float>(conn) * 0.05f;  // 连通性奖励
+    return res;
 }
 
 // =============================================================================
@@ -165,6 +244,9 @@ DevGenome DevEvolutionEngine::run() {
 
     best_ever_.fitness = -999.0f;
 
+    // v53: 保留上一代精英的多任务分数 (修复精英显示 0.00 bug)
+    std::vector<MultitaskFitness> prev_results;
+
     for (size_t gen = 0; gen < config_.n_generations; ++gen) {
         auto t_gen = Clock::now();
 
@@ -174,12 +256,17 @@ DevGenome DevEvolutionEngine::run() {
         fflush(stdout);
 
         std::atomic<size_t> done{0};
-        std::vector<FitnessResult> results(population_.size());
+        std::vector<MultitaskFitness> results(population_.size());
 
         // 精英 (前 n_elite_ 个) 已有 fitness, 不重新评估
+        // v53 fix: 保留完整 MultitaskFitness (不只是 fitness 标量)
         size_t skip = (gen == 0) ? 0 : n_elite_;
         for (size_t i = 0; i < skip; ++i) {
-            results[i].fitness = population_[i].fitness;  // 保留原 fitness
+            if (i < prev_results.size()) {
+                results[i] = prev_results[i];  // 保留完整多任务分数
+            } else {
+                results[i].fitness = population_[i].fitness;
+            }
             done.fetch_add(1);
         }
 
@@ -205,10 +292,14 @@ DevGenome DevEvolutionEngine::run() {
         for (auto& th : threads) th.join();
         printf(" done\n");
 
+        // 找到最佳个体 + 保存其多任务分数
+        size_t best_idx = 0;
         for (size_t i = 0; i < population_.size(); ++i) {
             population_[i].fitness = results[i].fitness;
             population_[i].generation = static_cast<int>(gen);
+            if (results[i].fitness > results[best_idx].fitness) best_idx = i;
         }
+        MultitaskFitness best_result = results[best_idx];
 
         auto best_it = std::max_element(population_.begin(), population_.end(),
             [](const DevGenome& a, const DevGenome& b) { return a.fitness < b.fitness; });
@@ -223,8 +314,6 @@ DevGenome DevEvolutionEngine::run() {
         hall_of_fame_.push_back(*best_it);
 
         // 自适应变异: 停滞时加大探索 (逃离局部最优)
-        // 没停滞: 正常变异 (15% × 0.10σ)
-        // 停滞越久 → 变异越大 → 强制跳出当前山顶
         float scale = 1.0f + static_cast<float>(stagnation_count_) * 0.3f;
         float adapt_rate = std::min(config_.mutation_rate * scale, 0.50f);
         float adapt_sigma = std::min(config_.mutation_sigma * scale, 0.30f);
@@ -237,7 +326,25 @@ DevGenome DevEvolutionEngine::run() {
         printf("  Gen %2zu/%zu | best=%.4f avg=%.4f | best_ever=%.4f | %.1fs",
                gen + 1, config_.n_generations, best_it->fitness, avg_fit, best_ever_.fitness, gen_sec);
         if (stagnation_count_ > 0) printf(" [stag=%d mr=%.0f%% σ=%.3f]", stagnation_count_, adapt_rate*100, adapt_sigma);
-        printf("\n    %s\n", best_it->summary().c_str());
+        printf("\n    %s | open=%.2f sparse=%.2f rev=%.2f\n",
+               best_it->summary().c_str(),
+               best_result.open_field, best_result.sparse_reward, best_result.reversal);
+
+        // v53: 保存精英的多任务分数供下一代复用
+        // next_generation() 把 best_ever 放位置 0, top-3 放位置 1-3
+        {
+            // 按 fitness 找当代 top-3 的 result 索引
+            std::vector<size_t> sorted_idx(population_.size());
+            for (size_t i = 0; i < sorted_idx.size(); ++i) sorted_idx[i] = i;
+            std::sort(sorted_idx.begin(), sorted_idx.end(),
+                [&](size_t a, size_t b) { return results[a].fitness > results[b].fitness; });
+            prev_results.resize(std::min<size_t>(4, population_.size()) + 1);
+            prev_results[0] = best_result;  // 位置 0: best_ever 用当前最佳结果
+            if (improved) prev_results[0] = best_result;
+            for (size_t i = 0; i < 3 && i < sorted_idx.size(); ++i) {
+                prev_results[i + 1] = results[sorted_idx[i]];
+            }
+        }
 
         // 用自适应参数生成下一代
         float old_mr = config_.mutation_rate;

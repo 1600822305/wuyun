@@ -101,6 +101,9 @@ public:
     size_t size() const { return buffer_.size(); }
     bool empty() const { return buffer_.empty(); }
 
+    /** v53: 清空缓冲区 (反转学习: 旧世界经验不适用新布局) */
+    void clear() { buffer_.clear(); }
+
 private:
     size_t max_episodes_;
     size_t brain_steps_;

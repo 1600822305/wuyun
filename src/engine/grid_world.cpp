@@ -30,6 +30,12 @@ void GridWorld::reset() {
     }
 }
 
+void GridWorld::reset_with_seed(uint32_t new_seed) {
+    config_.seed = new_seed;
+    rng_.seed(new_seed);
+    reset();
+}
+
 void GridWorld::set_cell(int x, int y, CellType type) {
     if (in_bounds(x, y)) {
         grid_[idx(x, y)] = type;

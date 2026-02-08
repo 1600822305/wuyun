@@ -195,6 +195,29 @@ struct AgentConfig {
     //   第一次遇到 danger 的即时反应 (BG 还没学会回避)
     bool  enable_pag = true;
 
+    // v52: 皮层下反射弧 (先天硬连线, 不需要学习)
+    // SC 趋近反射: SC 深层 → M1 方向性激活
+    //   生物学: SC 深层运动地图与视觉地图对齐 (Stein & Meredith 1993)
+    //   看到亮/显著刺激 → SC 计算方位 → 驱动 M1 朝向 = "天生好奇"
+    //   这条通路 2-3 步出结果, 皮层慢通路 14 步
+    float sc_approach_gain = 25.0f;   // SC 深层→M1 趋近增益 (要压过噪声~35)
+
+    // PAG 冻结反射: PAG dlPAG → M1 全局抑制
+    //   生物学: PAG→脑干运动核抑制 = 冻结反应 (LeDoux 1996)
+    //   CeA 高活性 (恐惧) → PAG 激活 → 抑制所有 M1 输出 → STAY
+    //   v43 教训: PAG→M1 激活(驱动运动)是错的(PAG 没方向信息)
+    //   v52 正确: PAG→M1 抑制(压制运动) — 冻结不需要方向
+    float pag_freeze_gain = 30.0f;    // PAG dlPAG→M1 冻结抑制增益 (要压过趋近+噪声)
+
+    // v52b: 新奇性一次学习 (Phase B)
+    // 生物学: 新奇刺激 → VTA DA burst 远大于熟悉刺激 (Ljungberg 1992)
+    //   第一次碰到食物: DA burst × novelty_boost → 一次成型
+    //   第 N 次: DA burst × 1.0 (已熟悉, 不需要再放大)
+    //   第一次碰到危险: Amygdala STDP 已有 one-shot (a_plus=0.10)
+    //     + 新奇性放大 → 更强的恐惧记忆 + 更多回放
+    //   生物机制: 海马 CA1 新奇检测 → VTA (Lisman & Grace 2005)
+    float novelty_da_boost = 5.0f;    // 第一次奖励的 DA 放大倍数
+
     // v41: FPC 前额极皮层 (BA10) — 元认知/多步规划
     // Biology: 人脑层级最高的前额叶区域 (Koechlin 2003)
     //   维持长期目标, 多任务协调, 前瞻推理
@@ -241,6 +264,11 @@ public:
 
     /** 重置环境 (大脑保持不变, 只重置GridWorld) */
     void reset_world();
+
+    /** v53: 换种子重置环境 (反转学习: 大脑保留, 世界换布局)
+     *  食物/危险位置完全改变, 但大脑权重保留
+     *  → 测试: 旧策略失效时能否快速适应 */
+    void reset_world_with_seed(uint32_t seed);
 
     /**
      * 执行一个环境步:
@@ -360,6 +388,13 @@ private:
 
     // --- Frustration tracking (expected reward not received) ---
     float expected_reward_level_ = 0.0f;  // Tracks recent food rate → expected reward
+
+    // --- v52b: 新奇性跟踪 (一次学习) ---
+    // 每次遇到食物/危险, 新奇性减半 (habituation)
+    // 新奇性高 → DA 放大 + 回放加倍
+    // 生物学: 第一次 → 巨大 DA burst, 第 N 次 → 正常 DA burst
+    float food_novelty_   = 1.0f;   // 1.0 = 从没见过, 0.0 = 完全熟悉
+    float danger_novelty_ = 1.0f;
 
     // --- v36: Spatial value map (cognitive map / Tolman 1948) ---
     // Records reward outcomes at each grid position → value gradient for navigation.

@@ -83,6 +83,10 @@ public:
     /** 重置世界 (Agent回到起点, 重新放置食物/危险) */
     void reset();
 
+    /** v53: 换种子重置 (反转学习: 保持大脑, 换世界布局)
+     *  改变 RNG 种子 → 食物/危险位置完全不同 */
+    void reset_with_seed(uint32_t new_seed);
+
     /** Agent 执行动作, 返回结果 */
     StepResult act(Action action);
 

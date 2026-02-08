@@ -27,24 +27,16 @@ int main(int argc, char* argv[]) {
     int n_gen = (argc > 1) ? std::atoi(argv[1]) : 30;
     int n_pop = (argc > 2) ? std::atoi(argv[2]) : 40;
 
-    printf("=== WuYun DevGenome Evolution (间接编码) ===\n");
+    printf("=== WuYun DevGenome Evolution (v53: 多任务天才评估) ===\n");
     printf("  Population: %d, Generations: %d\n", n_pop, n_gen);
-    printf("  Genome: 124 发育规则基因 (增殖/导向/分化/修剪)\n");
-    printf("  Fitness: improvement*3 + late_safety*1 (Baldwin effect)\n\n");
+    printf("  Tasks: Open Field + Sparse Reward + Reversal Learning\n");
+    printf("  Fitness: open*1 + sparse*1 + reversal*1.5 (通用学习能力)\n\n");
 
     wuyun::EvolutionConfig config;
     config.n_generations = static_cast<size_t>(n_gen);
     config.population_size = static_cast<size_t>(n_pop);
-    config.eval_steps = 500;   // v51: 先验基因让学习更快, 500步应该够
-    config.eval_seeds = {42, 77, 123, 256, 789};
+    config.eval_steps = 400;   // v53: 每个任务 400 步
     config.ga_seed = 2026;
-
-    // 默认环境: 10x10 开放场地
-    config.world_config.width = 10;
-    config.world_config.height = 10;
-    config.world_config.n_food = 5;
-    config.world_config.n_danger = 3;
-    config.world_config.vision_radius = 2;
 
     wuyun::DevEvolutionEngine engine(config);
     auto best = engine.run();
@@ -56,15 +48,13 @@ int main(int argc, char* argv[]) {
                g->name.c_str(), g->value, g->min_val, g->max_val);
     }
 
-    // 详细评估
-    printf("\n=== Best DevGenome Detailed Evaluation ===\n");
+    // 详细多任务评估
+    printf("\n=== Best DevGenome Multi-Task Evaluation ===\n");
     auto result = engine.evaluate(best);
-    printf("  Fitness:     %.4f\n", result.fitness);
-    printf("  Early safety: %.3f\n", result.early_safety);
-    printf("  Late safety:  %.3f\n", result.late_safety);
-    printf("  Improvement:  %+.3f\n", result.improvement);
-    printf("  Total food:   %d\n", result.total_food);
-    printf("  Total danger: %d\n", result.total_danger);
+    printf("  Fitness (total): %.4f\n", result.fitness);
+    printf("  Open Field:      %.3f\n", result.open_field);
+    printf("  Sparse Reward:   %.3f\n", result.sparse_reward);
+    printf("  Reversal Learn:  %.3f\n", result.reversal);
 
     return 0;
 }

@@ -407,32 +407,56 @@ GridWorld 迷宫支持: `MazeType` 枚举 (T_MAZE/CORRIDOR/SIMPLE_MAZE) + `set_c
 评估三阶段早停: 连通性检查(0步)→运动检查(100步)→正式评估。
 **141 基因, 垃圾基因组秒淘汰。** 31/31 CTest。
 
+### Step 51: 先验基因 ✅ (2026-02-09)
+
+5 个 innate prior 基因 (hedonic/fear/sensory-motor/explore/approach), 先验=连接本身。
+500步+先验 > 2000步无先验, Gen3 达 1.72。**146 基因。** 31/31 CTest。
+
+### Step 52: 皮层下反射弧 + 一次学习 ✅ (2026-02-08)
+> 详细文档: [steps/step52_reflex_arcs.md](steps/step52_reflex_arcs.md)
+
+Phase A: SC 趋近反射 (inject_visual_patch→M1 cos 驱动, 2-3 步) + PAG 冻结 (dlPAG→M1 抑制)。
+Phase B: 新奇性回放放大 (第一次食物/危险→回放 5×, habituation 衰减)。
+Fitness 修复: early×1 + improvement×2 + late×2 (不惩罚先天能力)。
+**fitness 3.10, noise 88→24。149 基因 (+3)。** 31/31 CTest。
+
+### Step 53: 多任务"天才基因"评估 ✅ (2026-02-08)
+> 详细文档: [steps/step53_genius_eval.md](steps/step53_genius_eval.md)
+
+3 种任务选通用学习能力: 开放觅食 + 稀疏奖赏 + 反转学习 (×1.5 权重)。
+反转学习: reset_world_with_seed() 保留大脑换世界, 测试规则变了能否适应。
+进化发现: 天才需要更大脑(203n)、更高 lr(0.034)、更多探索(noise=65)。
+**Gen 5 冠军: open=2.67 sparse=1.75 rev=3.00, 同一大脑三种任务全过。** 31/31 CTest。
+
 ---
 
 ## 当前系统状态
 
 ```
-基因连接组 v3 (Step 50):
+基因连接组 v3 (Step 50-53):
   骨架: BG/VTA/丘脑/杏仁核/海马/LGN/M1/Hypo (固定, 18 基因控制大小/增益)
+  先验: 5 增益基因 + 3 反射弧/学习基因 (Step 51-52)
   皮层: 5 种可进化类型 × 8 维条形码 (50 基因, 连接从兼容性涌现)
   连接: W_connect 8×8 + 阈值 + 接口 (73 基因)
-  评估: 连通性→运动→正式 三阶段早停
+  评估: 多任务天才评估 (开放觅食 + 稀疏奖赏 + 反转学习)
 
 手工模式 (保留): 64区域 · ~252神经元 · ~139投射 (build_brain)
 环境: 10×10 开放场地 + T-迷宫 / 走廊 / 简单迷宫
 
-架构 (v45-50):
+架构 (v45-53):
   M1: 群体向量编码 (Georgopoulos 1986)
   VTA: 内部 RPE (Schultz 1997)
   基因层: 骨架固定 + 皮层涌现 (Barabasi 2019)
-  迷宫: T_MAZE / CORRIDOR / SIMPLE_MAZE
+  反射弧: SC 趋近 + PAG 冻结 (先天) + 新奇性回放 (一次学习)
+  进化: 多任务天才评估 (open + sparse + reversal×1.5)
 
-学习链路 18/18:
+学习链路 18/18 + 反射弧 2/2:
   ① V1→V2→V4→IT 视觉层级   ② L6 预测编码 + mismatch STDP
   ③ dlPFC→BG DA-STDP (乘法增益+侧向抑制)   ④ VTA 内部 RPE
   ⑤ ACh STDP 门控   ⑥ 杏仁核恐惧   ⑦ 海马 SWR 重放
-  ⑧ Baldwin 进化   ⑨ 小脑 CF-LTD   ⑩ 丘脑 TRN 门控
-  ⑪ NAcc 动机   ⑫ SNc 习惯   ⑬ SC 显著性   ⑭ PAG 防御
+  ⑧ 多任务进化   ⑨ 小脑 CF-LTD   ⑩ 丘脑 TRN 门控
+  ⑪ NAcc 动机   ⑫ SNc 习惯   ⑬ SC 定向趋近   ⑭ PAG 冻结防御
   ⑮ FPC 规划   ⑯ OFC 价值   ⑰ vmPFC 消退   ⑱ Hypo 享乐
+  ⑲ SC→M1 趋近反射 (先天)   ⑳ PAG→M1 冻结反射 (先天)
   
 31/31 CTest

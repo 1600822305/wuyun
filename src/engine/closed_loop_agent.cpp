@@ -679,6 +679,28 @@ void ClosedLoopAgent::reset_world() {
     history_idx_ = 0;
 }
 
+void ClosedLoopAgent::reset_world_with_seed(uint32_t seed) {
+    // v53: 反转学习 — 大脑保留, 世界换布局
+    // 只重置世界和历史, 不重置 agent_step_count_ (大脑继续成长)
+    // 不重置 novelty (已在旧世界 habituate, 新世界也不是第一次了)
+    world_.reset_with_seed(seed);
+    // 清空空间价值图 (旧世界的空间记忆不适用新布局)
+    if (!spatial_value_map_.empty()) {
+        std::fill(spatial_value_map_.begin(), spatial_value_map_.end(), 0.0f);
+    }
+    // 清空回放缓冲 (旧世界的经验不适用新布局)
+    if (config_.enable_replay) {
+        replay_buffer_.clear();
+    }
+    // 清空奖励历史 (重新统计)
+    std::fill(reward_history_.begin(), reward_history_.end(), 0.0f);
+    std::fill(food_history_.begin(), food_history_.end(), 0);
+    history_idx_ = 0;
+    expected_reward_level_ = 0.0f;
+    has_pending_reward_ = false;
+    pending_reward_ = 0.0f;
+}
+
 StepResult ClosedLoopAgent::agent_step() {
     // =====================================================================
     // Temporal credit assignment: reward → DA → BG eligibility traces
@@ -1093,11 +1115,64 @@ StepResult ClosedLoopAgent::agent_step() {
         //   dlPFC→BG pathway naturally biases action selection
         // No direct BG injection needed — the cortical pathway handles it.
 
+        // (0) v52: SC 趋近反射 — 皮层下快通路
+        //     SC 从视觉 patch 计算显著性方向 → 深层方向性神经元激活
+        //     深层群体向量 → M1 L5 cos 驱动 = "看到东西就走过去"
+        //     2-3 步出结果, 比皮层慢通路 (14 步) 快 5-7 倍
+        //     生物学: 视网膜→SC 浅层→SC 深层→脑干运动核 (Ingle 1973)
+        auto& l5 = m1_->column().l5();
+        if (sc_ && config_.sc_approach_gain > 0.01f) {
+            // 注入视觉 patch → SC 计算显著性方向
+            auto obs = world_.observe();
+            sc_->inject_visual_patch(obs, static_cast<int>(config_.vision_width),
+                                     static_cast<int>(config_.vision_height),
+                                     config_.sc_approach_gain);
+
+            // SC 深层群体向量 → M1 cos 驱动
+            const auto& sc_deep_fired = sc_->deep().fired();
+            const auto& sc_dirs = sc_->deep_preferred_dir();
+            float sc_vx = 0.0f, sc_vy = 0.0f;
+            for (size_t k = 0; k < sc_deep_fired.size(); ++k) {
+                if (sc_deep_fired[k]) {
+                    sc_vx += std::cos(sc_dirs[k]);
+                    sc_vy += std::sin(sc_dirs[k]);
+                }
+            }
+            float sc_mag = std::sqrt(sc_vx * sc_vx + sc_vy * sc_vy);
+            if (sc_mag > 0.1f) {
+                float sc_angle = std::atan2(sc_vy, sc_vx);
+                for (size_t j = 0; j < l5_size; ++j) {
+                    float cos_sim = std::cos(m1_preferred_dir_[j] - sc_angle);
+                    if (cos_sim > 0.0f) {
+                        l5.inject_basal(j, cos_sim * sc_mag * config_.sc_approach_gain);
+                    }
+                }
+            }
+        }
+
+        // (0b) v52: PAG 冻结反射 — 恐惧→运动抑制
+        //     PAG dlPAG 激活 (CeA→PAG 脉冲驱动) → 抑制全部 M1 L5
+        //     = "害怕就不动" (freeze response)
+        //     v43 教训: PAG→M1 激活是错的 (无方向信息→盲目运动→走进危险)
+        //     v52: PAG→M1 抑制 — 冻结不需要方向, 只需要停
+        //     生物学: PAG→脑干抑制性网状核→运动神经元池抑制 (Bandler 1994)
+        if (pag_ && config_.pag_freeze_gain > 0.01f) {
+            const auto& pag_dl_fired = pag_->dlpag().fired();
+            int dl_fires = 0;
+            for (size_t k = 0; k < pag_dl_fired.size(); ++k)
+                if (pag_dl_fired[k]) dl_fires++;
+            if (dl_fires > 0) {
+                float inhibition = static_cast<float>(dl_fires) * config_.pag_freeze_gain;
+                for (size_t j = 0; j < l5_size; ++j) {
+                    l5.inject_basal(j, -inhibition);
+                }
+            }
+        }
+
         // (1) v45: M1 L5 population vector exploration (Georgopoulos 1986)
         //     Each L5 neuron has a preferred direction θ_i.
         //     Neurons aligned with attractor_angle get strong drive (cosine weighting).
         //     BG population vector can override as learning progresses.
-        auto& l5 = m1_->column().l5();
         {
             std::uniform_real_distribution<float> jitter(-attractor_jitter, attractor_jitter);
             for (size_t j = 0; j < l5_size; ++j) {
@@ -1169,6 +1244,18 @@ StepResult ClosedLoopAgent::agent_step() {
     pending_reward_ = result.reward * config_.reward_scale;
     has_pending_reward_ = (std::abs(result.reward) > 0.05f);
 
+    // v52b: 新奇性 habituation 更新 (不放大奖励信号!)
+    // 生物学: 第一口食物不是 10 倍好吃, 而是被记了 10 倍久
+    //   奖励放大会炸掉 DA-STDP 权重 (reward_scale=30 × novelty=10 = 300×)
+    //   新奇性只影响回放次数, 不影响奖励强度
+    if (has_pending_reward_) {
+        if (result.reward > 0.05f) {
+            food_novelty_ *= 0.5f;   // habituation: 每次食物减半
+        } else if (result.reward < -0.05f) {
+            danger_novelty_ *= 0.5f;  // habituation: 每次危险减半
+        }
+    }
+
     // Update expected reward level (slow-moving average of food rate)
     // Biology: striatal tonically active neurons (TANs) track reward expectation
     // Used by LHb for frustrative non-reward detection
@@ -1181,16 +1268,27 @@ StepResult ClosedLoopAgent::agent_step() {
     if (config_.enable_replay) {
         replay_buffer_.end_episode(result.reward, static_cast<int>(action));
         // Positive replay: food found → replay old successes (consolidate Go)
+        // v52b: 新奇性放大回放 — 第一次食物回放更多次
+        //   生物学: 新奇经验触发更强 SWR replay (Atherton 2015)
+        //   第一次食物: novelty=1.0 → 回放 1 + boost 轮 (最多 1+boost 轮)
+        //   第 N 次: novelty≈0 → 回放 1 轮 (正常)
+        //   这是"一次学习"的核心: 不是 DA 更强, 而是练得更多
         if (result.reward > 0.05f && agent_step_count_ >= 10) {
-            run_awake_replay(result.reward);
+            int replay_rounds = 1 + static_cast<int>(
+                food_novelty_ * (config_.novelty_da_boost - 1.0f));
+            for (int p = 0; p < replay_rounds; ++p) {
+                run_awake_replay(result.reward);
+            }
         }
         // Negative replay: danger hit → replay old failures (consolidate NoGo)
-        // Previously disabled (D2 over-strengthening). Now safe with LHb-controlled DA pause.
-        // Biology: aversive SWR replay strengthens avoidance memories
-        // (Wu et al. 2017, de Lavilléon et al. 2015)
+        // v52b: 新奇性放大 — 第一次危险回放更多次
         if (config_.enable_negative_replay && config_.enable_lhb &&
             result.reward < -0.05f && agent_step_count_ >= 200) {
-            run_negative_replay(result.reward);
+            int replay_rounds = 1 + static_cast<int>(
+                danger_novelty_ * (config_.novelty_da_boost - 1.0f));
+            for (int p = 0; p < replay_rounds; ++p) {
+                run_negative_replay(result.reward);
+            }
         }
     }
 

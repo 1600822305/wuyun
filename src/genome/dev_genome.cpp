@@ -79,6 +79,8 @@ std::vector<Gene*> DevGenome::all_genes() {
     // 先验基因
     g.push_back(&hedonic_gain); g.push_back(&fear_valence);
     g.push_back(&sensory_motor); g.push_back(&explore_drive); g.push_back(&approach_bias);
+    // v52: 反射弧基因 + 一次学习
+    g.push_back(&sc_approach); g.push_back(&pag_freeze); g.push_back(&novelty_boost);
     // 皮层条形码
     for (int t = 0; t < N_CORTICAL_TYPES; ++t)
         for (int d = 0; d < BARCODE_DIM; ++d)
@@ -108,6 +110,7 @@ std::vector<const Gene*> DevGenome::all_genes() const {
     g.push_back(&ne_floor); g.push_back(&replay_passes); g.push_back(&dev_period);
     g.push_back(&hedonic_gain); g.push_back(&fear_valence);
     g.push_back(&sensory_motor); g.push_back(&explore_drive); g.push_back(&approach_bias);
+    g.push_back(&sc_approach); g.push_back(&pag_freeze); g.push_back(&novelty_boost);
     for (int t = 0; t < N_CORTICAL_TYPES; ++t)
         for (int d = 0; d < BARCODE_DIM; ++d)
             g.push_back(&cortical_barcode[t][d]);

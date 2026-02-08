@@ -61,6 +61,14 @@ AgentConfig Developer::to_agent_config(const DevGenome& genome) {
     cfg.background_drive_ratio = std::clamp(
         0.02f + genome.approach_bias.value, 0.02f, 0.3f);
 
+    // v52: 反射弧基因 — 皮层下硬连线回路
+    // sc_approach: SC 深层→M1 趋近增益 = "看到东西天生走过去"
+    cfg.sc_approach_gain = std::clamp(genome.sc_approach.value, 5.0f, 80.0f);
+    // pag_freeze: PAG→M1 冻结抑制 = "害怕天生不动"
+    cfg.pag_freeze_gain = std::clamp(genome.pag_freeze.value, 5.0f, 80.0f);
+    // novelty_boost: 新奇性 DA 放大 = "第一次碰到的东西记得最牢"
+    cfg.novelty_da_boost = std::clamp(genome.novelty_boost.value, 1.5f, 15.0f);
+
     cfg.homeostatic_target_rate = std::clamp(genome.homeo_target.value, 1.0f, 15.0f);
     cfg.homeostatic_eta = std::clamp(genome.homeo_eta.value, 0.0001f, 0.01f);
 

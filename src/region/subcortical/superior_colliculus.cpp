@@ -42,9 +42,17 @@ SuperiorColliculus::SuperiorColliculus(const SCConfig& config)
     , deep_(config.n_deep, SC_MOTOR_PARAMS())
     , psp_sup_(config.n_superficial, 0.0f)
     , psp_deep_(config.n_deep, 0.0f)
+    , deep_preferred_dir_(config.n_deep, 0.0f)
     , fired_(config.n_superficial + config.n_deep, 0)
     , spike_type_(config.n_superficial + config.n_deep, 0)
 {
+    // v52: 深层运动地图 — 均匀分布偏好方向
+    // 生物学: SC 深层神经元按方位角排列 (Stein & Meredith 1993)
+    // 4 个神经元: RIGHT=0, UP=π/2, LEFT=π, DOWN=-π/2
+    for (size_t i = 0; i < config.n_deep; ++i) {
+        deep_preferred_dir_[i] = 2.0f * 3.14159265f * static_cast<float>(i)
+                                / static_cast<float>(config.n_deep);
+    }
 }
 
 void SuperiorColliculus::step(int32_t t, float dt) {
@@ -110,6 +118,75 @@ void SuperiorColliculus::submit_spikes(SpikeBus& bus, int32_t t) {
 void SuperiorColliculus::inject_external(const std::vector<float>& currents) {
     for (size_t i = 0; i < std::min(currents.size(), superficial_.size()); ++i) {
         psp_sup_[i] += currents[i];
+    }
+}
+
+// =============================================================================
+// v52: 视觉定向反射 — 直接视网膜→SC 快通路
+//
+// 生物学: 视网膜神经节细胞 → SC 浅层 (retinotopic 视觉地图)
+//   SC 浅层计算刺激方位 → SC 深层 (运动地图)
+//   深层编码定向运动方向 = "朝那边看/走"
+//   这条通路 2-3 步就能产生运动输出, 远快于皮层 14 步
+//
+// 实现:
+//   计算视觉 patch 的显著性质心 (center-of-mass)
+//   排除中心像素 (agent 自身) 和背景 (空地=0.0)
+//   food(0.9) 产生强趋近, danger(0.3) 产生弱趋近
+//   danger 的弱趋近会被 PAG freeze 在学习后覆盖
+//   → 生物正确: 婴儿第一次也会碰危险物, 学了才避开
+// =============================================================================
+void SuperiorColliculus::inject_visual_patch(
+    const std::vector<float>& pixels, int width, int height, float gain)
+{
+    if (pixels.empty() || width <= 0 || height <= 0 || gain < 0.001f) return;
+
+    float center_x = (width - 1) / 2.0f;
+    float center_y = (height - 1) / 2.0f;
+    float sum_wx = 0.0f, sum_wy = 0.0f, sum_w = 0.0f;
+
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            size_t idx = static_cast<size_t>(y * width + x);
+            if (idx >= pixels.size()) continue;
+
+            float v = pixels[idx];
+            if (v < 0.05f) continue;  // 忽略空地 (0.0)
+
+            float dx = static_cast<float>(x) - center_x;
+            float dy = static_cast<float>(y) - center_y;
+            float dist = std::sqrt(dx * dx + dy * dy);
+
+            if (dist < 0.5f) continue;  // 忽略中心像素 (agent 自身)
+
+            // 权重 = 像素亮度 × 外周增益
+            // 外周刺激比中心刺激更显著 (SC 外周敏感)
+            float w = v * (0.5f + dist);
+            sum_wx += dx * w;
+            sum_wy += dy * w;
+            sum_w += w;
+        }
+    }
+
+    if (sum_w < 0.01f) {
+        saliency_direction_ = 0.0f;
+        saliency_magnitude_ = 0.0f;
+        return;
+    }
+
+    // 质心方向 (GridWorld: y 向下增长, UP 动作 = y-1)
+    float cx = sum_wx / sum_w;
+    float cy = sum_wy / sum_w;
+    saliency_direction_ = std::atan2(-cy, cx);  // -cy: 向上=正角度
+    saliency_magnitude_ = std::sqrt(cx * cx + cy * cy);
+
+    // 注入方向性电流到深层神经元
+    // 偏好方向与显著性方向匹配的神经元获得更强电流
+    for (size_t i = 0; i < deep_.size(); ++i) {
+        float cos_sim = std::cos(deep_preferred_dir_[i] - saliency_direction_);
+        if (cos_sim > 0.0f) {
+            psp_deep_[i] += cos_sim * saliency_magnitude_ * gain;
+        }
     }
 }
 
