@@ -208,6 +208,13 @@ void ClosedLoopAgent::build_brain() {
     engine_.add_projection("V4", "V2", 3);
     engine_.add_projection("IT", "V4", 3);
 
+    // v38: Thalamostriatal direct pathway (CM/Pf → striatum, Smith et al. 2004)
+    // LGN spikes reach BG in 1 step, providing fast sensory salience drive.
+    // Cortical pathway (LGN→V1→...→dlPFC→BG) takes ~14 steps but carries
+    // action-specific learned information via DA-STDP.
+    // Together: thalamic maintains MSN up-state, cortical determines WHICH direction.
+    engine_.add_projection("LGN", "BG", 1);
+
     // Decision → action: dlPFC → BG → MotorThal → M1
     engine_.add_projection("dlPFC", "BG", 2);
     engine_.add_projection("BG", "MotorThal", 2);
@@ -356,6 +363,11 @@ void ClosedLoopAgent::build_brain() {
     // --- Register topographic dlPFC→BG mapping (corticostriatal somatotopy) ---
     if (dlpfc_ && bg_) {
         bg_->set_topographic_cortical_source(dlpfc_->region_id(), dlpfc_->n_neurons());
+    }
+
+    // --- v38: Register LGN as thalamic source for thalamostriatal pathway ---
+    if (lgn_ && bg_) {
+        bg_->set_thalamic_source(lgn_->region_id());
     }
 
     // --- Enable predictive coding through visual hierarchy ---

@@ -417,6 +417,26 @@ void BasalGanglia::receive_spikes(const std::vector<SpikeEvent>& events) {
             continue;
         }
 
+        // v38: Thalamostriatal direct pathway (CM/Pf → striatum, Smith et al. 2004)
+        // Biology: intralaminar thalamic nuclei provide broad, fast sensory drive
+        //   to ALL MSN neurons, encoding behavioral salience (something appeared).
+        //   Does NOT encode action specificity — that's the cortical pathway's job.
+        // Effect: maintains MSN up-state firing so cortical input can be integrated.
+        // Key: thalamic spikes do NOT participate in DA-STDP (no eligibility trace).
+        //   Learning happens only on cortical→MSN synapses.
+        if (evt.region_id == thalamic_source_) {
+            float thal_current = THAL_MSN_CURRENT;
+            if (is_burst(static_cast<SpikeType>(evt.spike_type)))
+                thal_current *= 1.5f;
+            // Broad fanout: every thalamic spike drives ALL D1 and D2 neurons
+            for (size_t j = 0; j < d1_msn_.size(); ++j)
+                psp_d1_[j] += thal_current;
+            for (size_t j = 0; j < d2_msn_.size(); ++j)
+                psp_d2_[j] += thal_current;
+            // No input_active_ marking → no eligibility trace → no DA-STDP learning
+            continue;
+        }
+
         // Cortical spikes → route through pre-built random sparse maps
         // L5 corticostriatal axons are among the thickest white matter tracts
         // MSN up-state drive (40) + PSP (30) = 70 → reliable MSN firing from cortical input

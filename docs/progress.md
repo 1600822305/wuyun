@@ -343,642 +343,60 @@ DA-STDP + eligibility trace 是生物学上正确的，但极其低效:
 
 ---
 
-## Step 14: Awake SWR Replay — 经验重放记忆巩固
+### Step 14: Awake SWR Replay ✅ (2026-02-08)
+> 详细文档: [steps/step14_swr_replay.md](steps/step14_swr_replay.md)
 
-> 日期: 2026-02-08
-> 目标: 实现海马 Sharp-Wave Ripple 风格的经验重放，增强 DA-STDP 学习
-
-### 生物学基础
-
-清醒状态的海马 SWR (awake sharp-wave ripples) 在奖励事件后 100-300ms 内发生，
-以压缩时间尺度重放最近的奖赏关联空间序列 (Foster & Wilson 2006, Jadhav et al. 2012)。
-这不是简单的"重复当前经验"，而是**巩固旧的成功记忆**——对抗突触权重衰减导致的遗忘。
-
-### 核心设计
-
-```
-信号流:
-  正常学习: dlPFC spikes → SpikeBus → BG receive_spikes → DA-STDP (1次)
-  SWR 重放: 存储的 dlPFC 快照 → BG receive_spikes → replay_learning_step → DA-STDP (×N)
-
-关键决策:
-  1. 只重放正奖励 (食物) 事件，不重放负奖励 (危险)
-     — 生物学: SWR 优先重放奖赏关联序列
-     — 工程: 负奖励重放导致过度回避，行为振荡
-  2. 重放旧成功经验，不重放当前 episode
-     — 当前 episode 由 Phase A (pending_reward) 正常学习
-     — 重放巩固正在被权重衰减遗忘的旧记忆
-  3. 轻量级 replay_learning_step: 只步进 D1/D2 + DA-STDP
-     — 不步进 GPi/GPe/STN，避免破坏电机输出状态
-     — 重放模式下跳过权重衰减 (防止额外步数导致过度衰减)
-```
-
-### 新增/修改文件
-
-| 文件 | 变更 |
-|------|------|
-| `src/engine/episode_buffer.h` | **新增** EpisodeBuffer, SpikeSnapshot, Episode |
-| `src/region/subcortical/basal_ganglia.h` | 新增 replay_mode_, set_replay_mode(), replay_learning_step() |
-| `src/region/subcortical/basal_ganglia.cpp` | 实现 replay_learning_step(), apply_da_stdp 中 replay_mode 跳过 w_decay |
-| `src/engine/closed_loop_agent.h` | 新增 replay 配置参数, replay_buffer_, capture/replay 方法 |
-| `src/engine/closed_loop_agent.cpp` | brain loop 中记录 dlPFC spikes, 奖励后触发 run_awake_replay |
-
-### 调优过程
-
-| 尝试 | replay_passes | da_scale | 策略 | improvement | food | danger |
-|------|:---:|:---:|------|:---:|:---:|:---:|
-| v1: 重放当前, full step | 8 | 0.6 | 重放当前 ep + 正负奖励 | -0.004 | 127 | 144 |
-| v2: 只正奖励, full step | 8 | 0.6 | 只正奖励 + bg->step() | -0.019 | 115 | 163 |
-| v3: 轻量 replay_learning_step | 8 | 0.6 | + replay_learning_step | +0.108 | 93 | 145 |
-| v4: 降低强度 | 3 | 0.3 | 减少 passes/scale | -0.034 | 113 | 141 |
-| v5: 重放旧经验 | 3 | 0.3 | 重放旧成功 ep | +0.079 | 122 | 139 |
-| **v6: 最终** | **5** | **0.5** | **重放旧 + 中等强度** | **+0.120** | **98** | **129** |
-
-### 关键调优教训
-
-1. **不能重放当前 episode** — 与 Phase A 双重学习导致过拟合
-2. **不能重放负奖励** — D2 NoGo 通路过度强化导致行为瘫痪
-3. **不能用 bg->step() 重放** — GPi/GPe/STN 状态被破坏，后续动作选择异常
-4. **replay_learning_step 是关键** — 只步进 D1/D2 + DA-STDP，保护电机输出
-
-### 结果对比
-
-```
-指标              Step 13-D+E (基线)    Step 14 (SWR Replay)    变化
-improvement       +0.077               +0.120                  +56%
-late safety       0.524                0.667                   +27%
-total danger      ~80                  129                     注1
-total food        118                  98                      注2
-
-注1: danger 增加可能是统计噪声 (5×5 grid 方差大)
-注2: food 减少因 agent 更谨慎 (safety 提高的代价)
-关键: improvement 从正→更正 (+56%)，说明学习能力在增强
-```
-
-### 回归测试: 29/29 CTest 全通过
-
-### 系统状态
-
-```
-48区域 · ~5528+神经元 · ~109投射 · 179测试 · 29 CTest suites
-新增: Awake SWR Replay (EpisodeBuffer + replay_learning_step + 旧记忆巩固)
-学习改善: improvement +0.120 (+56% vs 基线), late safety 0.667 (+27%)
-```
+EpisodeBuffer + replay_learning_step (只步进 D1/D2, 保护 GPi/GPe)。
+只重放旧正奖励, 5 passes, DA=0.5。improvement +0.077→+0.120 (+56%), late safety +27%。29/29 CTest。
 
 ---
 
-## Step 15: 预测编码基础设施 — dlPFC→V1 反馈通路
+### Step 15 系列: 预测编码闭环 + 环境扩展 + 皮层巩固尝试 ✅ (2026-02-08)
+> 详细文档: [steps/step15_predictive_loop.md](steps/step15_predictive_loop.md)
 
-> 日期: 2026-02-08
-> 目标: 实现皮层预测编码 (dlPFC→V1 顶下反馈), 提升 DA-STDP 信用分配精度
-
-### 已实现的基础设施
-
-CorticalRegion 预测编码机制 (Step 4 时已存在):
-- `enable_predictive_coding()` — PC 模式
-- `add_feedback_source(region_id)` — 标记反馈源
-- `receive_spikes()` 将反馈 spikes 路由到 `pc_prediction_buf_`
-- 精度加权: NE→sensory precision, ACh→prior precision
-
-Step 15 新增:
-- **dlPFC→V1 投射** (delay=3, 可通过 `enable_predictive_coding` 配置开关)
-- **拓扑反馈映射**: dlPFC→V1 使用比例映射 (不是 neuron_id % buf_size)
-- **窄 fan-out** (=3): 空间特异性抑制/促进
-- **促进模式**: 从经典抑制性预测误差改为促进性注意放大 (Bastos et al. 2012)
-- **AgentConfig::enable_predictive_coding** 配置标志 (默认 false)
-
-### 修改文件
-
-| 文件 | 变更 |
-|------|------|
-| `src/region/cortical_region.cpp` | PC 反馈路径: 拓扑映射+窄fan-out, 促进模式 (0.1f gain) |
-| `src/engine/closed_loop_agent.h` | 新增 `enable_predictive_coding` 配置标志 |
-| `src/engine/closed_loop_agent.cpp` | dlPFC→V1 投射 + PC 启用 + 拓扑注册, 均受配置控制 |
-
-### 5 轮调优实验
-
-| 版本 | 模式 | 增益 | 映射 | fan | improvement | D1范围 |
-|------|------|:----:|------|:---:|:-----------:|:------:|
-| Step 14 基线 | 无PC | — | — | — | **+0.120** | 0.069 |
-| v1 抑制性 | suppressive | -0.5 | modular | 12 | -0.030 | — |
-| v2 弱抑制 | suppressive | -0.12 | modular | 12 | -0.019 | — |
-| v3 拓扑抑制 | suppressive | -0.12 | topo | 3 | -0.112 | 0.070 |
-| **v4 促进** | **facilitative** | **+0.3** | **topo** | **3** | **+0.022** | **0.106** |
-| v5 弱促进 | facilitative | +0.1 | topo | 3 | -0.161 | 0.070 |
-
-### 关键发现
-
-1. **经典预测编码 (抑制性) 在小视觉场景无效**
-   - 3×3 视野、3 种像素值 = 太少冗余可压缩
-   - dlPFC 反馈不是"预测"而是当前感知的延迟回声
-   - 抑制性回声压制 V1 L2/3 → 削弱 V1→dlPFC→BG 信号链
-
-2. **促进性注意 (Bastos 2012) 更有前途**
-   - 0.3f 增益: D1 权重范围 0.069→0.106 (+54%)
-   - 但 improvement 仅 +0.022 (不及无 PC 的 +0.120)
-   - 原因: 放大所有刺激 (含无关信号), 稀释信用分配
-
-3. **反馈环路 V1→dlPFC→V1 的固有问题**
-   - 正反馈: 促进→更多V1输出→更多dlPFC→更多促进→过驱动
-   - 负反馈: 抑制→更少V1输出→更少dlPFC→更少抑制→恢复→振荡
-   - 两种模式都增加系统方差, 不利于稳定学习
-
-4. **正确的启用时机**
-   - 环境扩大后 (更大视野, 更多刺激种类) PC 将变得有用
-   - 需要学习预测机制 (dlPFC L6 学习预测 V1 模式)
-   - 当前: 基础设施就绪, 一个配置标志即可启用
-
-### 决策: 默认禁用, 保留基础设施
-
-```
-enable_predictive_coding = false  // 默认不启用
-// 启用: config.enable_predictive_coding = true
-// 投射: dlPFC → V1 (delay=3)
-// 模式: 促进性注意 (0.1f gain, 拓扑映射, fan=3)
-// 待启用条件: 视野 > 3×3, 刺激种类 > 3, 或有学习预测机制
-```
-
-### 回归测试: 29/29 CTest 全通过 (性能恢复到 Step 14 水平)
+dlPFC→V1 反馈通路 (促进模式, 默认禁用)。小环境 PC 有害, 5×5 视野 PC 有益 (+0.121)。
+环境扩展 vision_radius 参数化 + 自动 LGN/V1/dlPFC 缩放。
+皮层巩固尝试失败 (LTD 主导), 基础设施保留待 NREM。29/29 CTest。
 
 ---
 
-## Step 15-B: 环境扩展 + 大环境 PC 验证
+### Step 16: 基因层 v1 (遗传算法) ✅ (2026-02-08)
+> 详细文档: [steps/step16_genome.md](steps/step16_genome.md)
 
-> 日期: 2026-02-08
-> 目标: 扩大 GridWorld 环境, 验证预测编码在更丰富视觉场景中的效果
-
-### 环境扩展实现
-
-| 特性 | 修改 |
-|------|------|
-| `GridWorldConfig::vision_radius` | 新增 (默认1=3×3, 2=5×5, 3=7×7) |
-| `GridWorld::observe()` | 从硬编码 3×3 改为参数化 (2r+1)×(2r+1) |
-| `ClosedLoopAgent` 构造 | 自动从 world_config 推算 vision_width/height |
-| LGN 缩放 | ~3 LGN neurons/pixel (9 pixels→30 LGN, 25 pixels→75 LGN) |
-| V1 缩放 | vis_scale = n_pixels/9 (线性) |
-| dlPFC 缩放 | sqrt(vis_scale) (平方根, 防止过度膨胀) |
-
-### 大环境 PC 对比实验
-
-```
-环境: 15×15 grid, 5 food, 4 danger, 5×5 视野 (25 pixels)
-脑: V1=447, dlPFC=223, LGN=100 neurons (自动缩放)
-训练: 1000 warmup + 4×1000 epochs
-```
-
-| 配置 | early safety | late safety | improvement | 5k food | 5k danger |
-|------|:-----------:|:-----------:|:-----------:|:-------:|:---------:|
-| No PC | 0.401 | 0.122 | -0.279 | 36 | 37 |
-| **PC ON** | 0.283 | 0.125 | **-0.158** | 28 | **22** |
-| **PC 优势** | | | **+0.121** | -8 | **-15** |
-
-### 关键发现
-
-1. **PC 在大环境中提供 +0.121 improvement 优势** — 与小环境 (3×3) 相反!
-2. **PC 显著减少后期 danger**: 22 vs 37 (降低 40%)
-3. **大环境本身太难**: 两个 agent 都退化 (15×15 太稀疏, 随机游走效率低)
-4. **PC 的价值在于减缓退化**: 通过注意力反馈维持对视觉特征的敏感性
-
-### Step 15 完整结论
-
-```
-预测编码效果与环境复杂度正相关:
-  - 3×3 视野 (9 pixels): PC 有害 (反馈=噪声)
-  - 5×5 视野 (25 pixels): PC 有益 (+0.121 improvement, -40% danger)
-  - 预测: 更大视野 (7×7+) PC 优势会更明显
-
-默认策略: enable_predictive_coding = false (小环境)
-大环境:   enable_predictive_coding = true  (视野 ≥ 5×5)
-```
-
-### 回归测试: 29/29 CTest 全通过 (5/5 learning_curve tests)
-
-### 系统状态
+23 基因直接编码, GA 引擎 (锦标赛/交叉/变异, 16 线程并行)。
+短评估陷阱发现: 2000 步优化短期表现, 需 ≥5000 步 + ≥3 seed。29/29 CTest。
 
 ---
 
-## Step 15-C: 皮层巩固尝试 (Awake SWR → 皮层 STDP)
+### Step 17: LHb 负RPE + 负经验重放 ✅ (2026-02-08)
+> 详细文档: [steps/step17_lhb_negative.md](steps/step17_lhb_negative.md)
 
-> 日期: 2026-02-08
-> 目标: 让 SWR 重放同时巩固 V1→dlPFC 皮层表征 (学习回路第⑨步)
-
-### 实现
-
-- `SpikeSnapshot::sensory_events` — 录制 V1 spikes
-- `CorticalRegion::replay_cortical_step()` — 轻量回放步 (PSP→L4 + column step + STDP, 不提交 spikes)
-- `capture_dlpfc_spikes()` 同时录制 V1 fired patterns
-- `run_awake_replay()` 回放时 V1 spikes → dlPFC receive_spikes → replay_cortical_step
-
-### 实验结果
-
-| 方案 | improvement | late safety | 问题 |
-|------|:-----------:|:-----------:|------|
-| **BG-only (基线)** | **+0.120** | **0.667** | — |
-| replay_cortical_step | +0.034 (-72%) | 0.527 | L4 fires, L23 无 WM 支撑 → LTD 主导 |
-| PSP priming only | +0.053 (-56%) | 0.600 | PSP 残留污染下一步真实视觉输入 |
-
-### 结论
-
-**Awake SWR 期间的皮层巩固不可行**:
-1. 回放时 L4 被 V1 spikes 驱动但 L23 缺乏 WM/attention 辅助 → STDP LTD 主导 → 削弱已学表征
-2. 即使仅注入 PSP (不步进), 残留电流也污染下一步的在线视觉处理
-
-**生物学解释**: awake SWR 主要巩固纹状体动作值 (Jadhav 2012)。
-皮层表征巩固发生在 **NREM 睡眠** 期间: 慢波 up/down 状态控制全脑同步重激活,
-不干扰在线处理。未来实现 NREM 睡眠巩固时可直接使用已建基础设施。
-
-### 保留的基础设施 (NREM 巩固就绪)
-
-```
-SpikeSnapshot::sensory_events      — V1 spikes 录制 ✅
-CorticalRegion::replay_cortical_step() — 轻量回放方法 ✅
-capture_dlpfc_spikes() 同时录制 V1 — 双通道录制 ✅
-→ 未来 NREM 睡眠巩固可直接调用, 无需额外开发
-```
-
-### 回归测试: 29/29 CTest 全通过, 基线完全恢复
-
-### 系统状态
-
-```
-48区域 · 自适应神经元数 · ~109投射 · 179测试 · 29 CTest suites
-新增: V1 spike 录制, replay_cortical_step 基础设施 (deferred to NREM)
-学习维持: improvement +0.120, late safety 0.667 (与 Step 14 一致)
-学习回路: ①-⑧ 完整, ⑨皮层巩固需NREM, ⑩PC就绪
-```
+LHb 外侧缰核 (负RPE→VTA DA pause→D2 NoGo) + 期望落空检测。
+17-B: LHb 受控负重放 (2 passes, DA floor=0.05)。improvement +0.158 (+32%)。29/29 CTest。
 
 ---
 
-## Step 16: 基因层 v1 (遗传算法自动优化参数)
+### Step 18: 海马空间记忆闭环 ✅ (2026-02-08)
+> 详细文档: [steps/step18_hippocampal_loop.md](steps/step18_hippocampal_loop.md)
 
-> 日期: 2026-02-08
-> 目标: 用遗传算法搜索 ClosedLoopAgent 的最优参数组合
-
-### 新增文件
-
-- `src/genome/genome.h/cpp` — Genome 数据结构 (23 个基因, 直接编码)
-- `src/genome/evolution.h/cpp` — GA 引擎 (锦标赛选择/均匀交叉/高斯变异, 多线程并行评估)
-- `tools/run_evolution.cpp` — 进化运行器
-
-### 参数化改造
-
-将 `build_brain()` / `agent_step()` 中 8 个硬编码参数提升为 `AgentConfig` 字段:
-- `lgn_gain/baseline/noise_amp` — 视觉编码
-- `bg_to_m1_gain, attractor_drive_ratio, background_drive_ratio` — 运动耦合
-- `ne_food_scale, ne_floor` — NE 探索调制
-- `homeostatic_target_rate, homeostatic_eta` — 稳态可塑性
-- `v1_size_factor, dlpfc_size_factor, bg_size_factor` — 脑区大小缩放
-
-### 23 个可进化基因
-
-```
-学习: da_stdp_lr, reward_scale, cortical_a_plus/minus, cortical_w_max
-探索: exploration_noise, bg_to_m1_gain, attractor_ratio, background_ratio
-重放: replay_passes, replay_da_scale
-视觉: lgn_gain, lgn_baseline, lgn_noise
-稳态: homeostatic_target, homeostatic_eta
-大小: v1_size, dlpfc_size, bg_size
-时序: brain_steps, reward_steps
-NE:   ne_food_scale, ne_floor
-```
-
-### 进化实验 (15 代 × 40 个体, 16 线程并行)
-
-首轮 (eval_steps=2000, 2 种子):
-- 10.7 分钟完成, best fitness 从 0.97 → 1.16
-- 进化发现: reward_scale ↑3×, dlpfc_size ↑2.3×, replay_passes ↑2×
-
-**关键发现: 短评估陷阱**
-
-| 评估方式 | 进化最优 | 10k 标准测试 | 问题 |
-|----------|----------|-------------|------|
-| 2000 步 × 2 种子 | fitness 1.16 | improvement **-0.120** | 优化了短期随机表现 |
-| 手动基线 | — | improvement **+0.120** | 真正的学习能力 |
-
-**根因**: 2000 步太短, 进化找到了"初始表现好"的参数 (高 reward_scale 导致 DA 饱和),
-而非"学习能力强"的参数。正确的适应度评估需要 ≥5000 步 + ≥3 种子。
-
-### 进化洞察 (值得关注但需长评估验证)
-
-- dlPFC 可能确实偏小 (进化一致倾向 ↑1.5-2.3×)
-- 更多重放 passes (5→8-10) 可能有益
-- bg_to_m1_gain 可能需要更强 (8→13)
-- 这些需要在 5000 步评估下重新进化验证
-
-### 已修正: 评估配置升级
-
-```
-eval_steps: 2000 → 5000 (捕捉完整学习曲线)
-eval_seeds: 2 → 3 (泛化性)
-默认参数: 恢复手动基线 (improvement +0.120, late safety 0.667)
-```
-
-### 回归测试: 29/29 CTest 全通过, 基线完全恢复
-
-### 系统状态
-
-```
-48区域 · 自适应神经元数 · ~109投射 · 179测试 · 29 CTest suites
-新增: 基因层 v1 (23基因, GA引擎, 多线程并行评估)
-学习维持: improvement +0.120, late safety 0.667
-```
+EC grid cell 空间编码 + CA3 奖励标记 (DA-modulated LTP) + Hipp→dlPFC 反馈投射。
+闭环路径: 位置→EC→DG→CA3→CA1→Sub→dlPFC→BG。29/29 CTest。
 
 ---
 
-## Step 17: LHb 负RPE 脑区 (外侧缰核)
+### Step 19: 杏仁核恐惧回避闭环 ✅ (2026-02-08)
+> 详细文档: [steps/step19_amygdala_fear.md](steps/step19_amygdala_fear.md)
 
-> 日期: 2026-02-08
-> 目标: 补全奖惩学习闭环 — 惩罚/期望落空 → LHb → VTA DA pause → D2 NoGo 强化
-
-### 生物学基础 (Matsumoto & Hikosaka 2007, Bromberg-Martin 2010)
-
-LHb 是大脑的"反奖励中心":
-- **负RPE编码**: 预期奖励未出现 或 遭遇惩罚 → LHb 兴奋
-- **VTA抑制**: LHb → RMTg(GABA中间神经元) → VTA DA pause
-- **D2 NoGo学习**: DA低于基线 → D2权重增强 → 抑制导致惩罚的动作
-- **互补关系**: VTA编码正RPE(食物→DA burst), LHb编码负RPE(危险→DA pause)
-
-### 新增文件
-
-- `src/region/limbic/lateral_habenula.h/cpp` — LateralHabenula 脑区类
-
-### 修改文件
-
-- `src/region/neuromod/vta_da.h/cpp` — 新增 `inject_lhb_inhibition()`, LHb抑制PSP缓冲, DA level计算整合LHb抑制
-- `src/engine/closed_loop_agent.h/cpp` — LHb区域创建/投射/接线, Phase A惩罚→LHb驱动, 期望落空检测
-- `src/CMakeLists.txt` — 添加 lateral_habenula.cpp
-
-### 信号通路
-
-```
-Phase A (奖励处理):
-  danger事件 → reward = -1.5
-    → VTA inject_reward(-1.5) → 负RPE → DA↓ (已有机制)
-    → LHb inject_punishment(1.5) → LHb burst → vta_inhibition=0.8 → VTA DA pause (新增!)
-    → DA_level ≈ 0 (远低于baseline 0.3) → da_error = -0.3
-    → D1: Δw = +lr × (-0.3) × elig → Go 弱化
-    → D2: Δw = -lr × (-0.3) × elig = +0.009 × elig → NoGo 强化
-
-期望落空 (Frustrative Non-Reward):
-  agent 学会取食后, 预期有食物但没拿到 → expected_reward_level > 0.05
-    → LHb inject_frustration(mild) → 温和DA dip → 微调D2
-
-Phase B (动作处理):
-  每个brain step: LHb → VTA抑制广播 (持续效应, 指数衰减)
-```
-
-### LHb 配置参数
-
-| 参数 | 默认值 | 含义 |
-|------|--------|------|
-| `enable_lhb` | true | 启用LHb负RPE |
-| `lhb_punishment_gain` | 1.5 | 惩罚信号→LHb兴奋增益 |
-| `lhb_frustration_gain` | 1.0 | 期望落空→LHb兴奋增益 |
-| `n_neurons` | 25×scale | LHb神经元数 |
-| `vta_inhibition_gain` | 0.8 | LHb输出→VTA抑制强度 |
-
-### VTA 修改详情
-
-- 新增 `lhb_inh_psp_` 持续抑制缓冲 (衰减常数 0.85, 与 reward_psp_ 对称)
-- DA neuron drive: `net_drive = 20 + reward_psp + psp - lhb_inh_psp` (LHb抑制扣减)
-- DA level: `total_negative = min(phasic_negative - lhb_suppression, 0)` (双重负信号)
-
-### 回归测试: 29/29 CTest 全通过, 零回归
-
-### Step 17-B: 负经验重放集成 (LHb-controlled avoidance replay)
-
-> 日期: 2026-02-08
-
-之前 Step 14 明确禁用了负重放: "负重放导致D2过度强化→行为振荡"。
-有了 LHb 的受控 DA pause 后，负重放变得安全且有效。
-
-#### 机制
-
-```
-danger事件 → run_negative_replay()
-  1. 收集最近的负奖励 episodes (reward < -0.05)
-  2. DA level 设为 baseline 以下: da_replay = 0.3 - |reward|×0.3 ∈ [0.05, 0.25]
-  3. 重放旧 danger 的 cortical spikes → BG DA-STDP
-  4. D2: Δw = -lr × (0.15-0.3) × elig = +0.0045×elig (NoGo 强化)
-  5. D1: Δw = +lr × (0.15-0.3) × elig = -0.0045×elig (Go 弱化)
-```
-
-#### 安全措施 (防止 D2 过度强化)
-
-- **fewer passes**: 负重放 2 passes vs 正重放 5 passes
-- **DA floor**: da_replay 不低于 0.05 (不会完全 DA 清零)
-- **延迟启用**: agent_step >= 200 才启动 (避免早期噪声)
-- **依赖 LHb**: enable_lhb=false 时自动禁用
-
-#### 效果验证
-
-| 指标 | 仅LHb (无负重放) | LHb + 负重放 | 提升 |
-|------|----------|--------|------|
-| Learner advantage | -0.0035 | **+0.0085** | ✅ 翻正 |
-| Learner safety | 0.44 | **0.63** | +43% |
-| 10k Improvement | -0.031 | **+0.158** | ✅ 翻正 |
-| 10k Late safety | 0.556 | **0.603** | +8% |
-
-**Improvement +0.158 超过 Step 14 基线 +0.120 (+32%)**
-
-### 回归测试: 29/29 CTest 全通过, 零回归
-
-### 系统状态
-
-```
-49区域 · 自适应神经元数 · ~110投射 · 29 CTest suites
-新增: LHb 负RPE + 负经验重放
-完整奖惩回路:
-  食物→VTA DA burst→D1 Go 强化 + 正重放巩固 (5 passes)
-  危险→LHb→VTA DA pause→D2 NoGo 强化 + 负重放巩固 (2 passes)
-学习能力: improvement +0.158 (+32% vs Step 14 基线 +0.120)
-```
+La→BLA STDP one-shot 恐惧条件化 + CeA→VTA/LHb 双重 DA pause。
+improvement +0.161 (+71%), late safety 0.779 (+35%)。历史最佳。29/29 CTest。
 
 ---
 
-## Step 18: 海马空间记忆闭环
+### Step 20: 睡眠巩固闭环 ✅ (2026-02-08)
+> 详细文档: [steps/step20_sleep_consolidation.md](steps/step20_sleep_consolidation.md)
 
-> 日期: 2026-02-08
-> 目标: 海马从被动接收变为主动影响行为 — 空间编码→记忆→决策反馈
-
-### 之前的问题
-
-海马在闭环里是"死胡同"：接收 dlPFC/V1 输入，有 CA3 STDP 编码，但无输出投射回决策回路。
-
-### 三个缺口补齐
-
-**A. 空间编码 (EC grid cells)**
-- `inject_spatial_context(x, y, w, h)`: 位置 → EC 网格细胞激活模式
-- 每个 EC 神经元有预计算的 2D 余弦调谐曲线 (4种空间频率)
-- 不同位置产生不同 EC 群体编码 → DG 模式分离 → CA3 place cells
-- 文献: Hafting et al. 2005, Moser & Moser 2008
-
-**B. 奖励标记 (DA-modulated LTP)**
-- `inject_reward_tag(magnitude)`: 奖励事件时增强 CA3 STDP
-- CA3 a_plus 临时提升 (1 + reward×3)× → 更强记忆痕迹
-- 同时 boost 已激活 CA3 neurons → 确保 STDP 配对
-- 文献: Lisman & Grace 2005 (DA gates hippocampal memory)
-
-**C. 输出投射 (Hippocampus → dlPFC)**
-- `engine_.add_projection("Hippocampus", "dlPFC", 3)` — Sub→EC→dlPFC
-- 当 CA3 模式补全激活 → CA1→Sub fires → SpikeBus → dlPFC
-- dlPFC 获得记忆检索信号 → 自然通过 BG 影响动作选择
-- 文献: Preston & Eichenbaum 2013
-
-### 修改文件
-
-- `src/region/limbic/hippocampus.h/cpp` — 新增空间编码、奖励标记、检索接口
-- `src/core/synapse_group.h` — 新增 `stdp_params()` 可变访问器
-- `src/engine/closed_loop_agent.cpp` — 集成：每步注入位置、奖励时标记、新增投射
-
-### 设计教训
-
-**移除了失败的 BG 方向偏置注入**: Sub 分 4 组映射到方向是假设 — 位置记忆≠导航指令。
-正确做法: 依靠自然 SpikeBus 投射路径 (Hippocampus→dlPFC→BG)。
-
-### 回归测试: 29/29 CTest 全通过
-
-### 系统状态
-
-```
-49区域 · ~111投射 · 29 CTest suites
-新增: EC grid cell 空间编码 + CA3 奖励标记 + Hippocampus→dlPFC 反馈投射
-闭环路径: 位置→EC→DG→CA3(STDP+奖励boost)→CA1→Sub→dlPFC→BG
-学习能力: improvement +0.094 (3×3环境空间记忆贡献有限)
-```
-
----
-
-## Step 19: 杏仁核恐惧回避闭环 (one-shot fear conditioning)
-
-> 日期: 2026-02-08
-> 目标: 杏仁核从未接入变为恐惧学习核心 — 视觉CS→恐惧记忆→DA pause→回避
-
-### 之前的问题
-
-Amygdala 类存在但完全未接入 ClosedLoopAgent。恐惧回避仅靠 VTA 负DA + LHb，效果微弱。
-
-### 实现
-
-**A. La→BLA STDP (one-shot 恐惧条件化)**
-- 启用 La→BLA 突触 STDP: a_plus=0.10 (10× cortical), a_minus=-0.03 (弱LTD)
-- w_max=3.0 (高天花板: 强恐惧关联)
-- 生物学: BLA LTP 是 NMDA 依赖的, 单次 CS-US 配对即可建立恐惧记忆
-- 文献: LeDoux 2000, Maren 2001, Rogan et al. 1997
-
-**B. inject_us() + fear_output() + cea_vta_drive()**
-- `inject_us(mag)`: 危险→BLA 强电流 (US), 驱动 BLA burst → STDP
-- `fear_output()`: CeA firing rate [0,1] — 恐惧强度
-- `cea_vta_drive()`: CeA→VTA/LHb 抑制信号 (×1.5 放大)
-
-**C. 闭环集成**
-- `build_brain`: 创建 Amygdala (La=25, BLA=40, CeA=15, ITC=10)
-- 投射: V1→Amygdala (视觉CS输入), Amygdala→VTA, Amygdala→LHb
-- Phase A: 危险→inject_us (US注入, La→BLA STDP)
-- Phase B: 每步 CeA→VTA inhibition + CeA→LHb amplification
-
-### 恐惧学习信号通路
-
-```
-第1次碰到危险:
-  V1(视觉CS) → Amygdala La → La→BLA(STDP: 未学习, 弱连接)
-  同时: inject_us(pain) → BLA burst
-  结果: La→BLA STDP 大幅增强 (a_plus=0.10, one-shot)
-
-第2次看到相似视觉:
-  V1(视觉CS) → Amygdala La → La→BLA(已增强!) → BLA→CeA burst
-  → CeA→VTA: DA pause (直接抑制)
-  → CeA→LHb: 放大 DA pause (间接抑制)
-  → BG: DA dip → D2 NoGo 强化 → 回避行为!
-```
-
-### 效果验证 (历史最佳!)
-
-| 指标 | Step 18 (海马) | **Step 19 (杏仁核)** | 变化 |
-|------|---------------|---------------------|------|
-| Test 4 Improvement | +0.094 | **+0.161** | +71% |
-| Test 4 Late safety | 0.579 | **0.779** | +35% |
-| Test 4 Total food | 113 | **126** | +12% |
-| Test 4 Early safety | 0.485 | **0.619** | +28% |
-
-### 回归测试: 29/29 CTest 全通过
-
-### 系统状态
-
-```
-50区域 · ~115投射 · 29 CTest suites
-新增: Amygdala 恐惧条件化 (La→BLA STDP + CeA→VTA/LHb)
-完整恐惧回路:
-  V1(CS) → La → BLA(STDP one-shot) → CeA → VTA DA pause → D2 NoGo
-  (叠加LHb): CeA → LHb → VTA 双重抑制
-学习能力: improvement +0.161, late safety 0.779 (历史最佳)
-```
-
----
-
-## Step 20: 睡眠巩固闭环 (NREM SWR offline replay)
-
-> 日期: 2026-02-08
-> 目标: 周期性睡眠巩固 — 500步醒→100步NREM SWR重放→醒来→循环
-
-### 实现
-
-**A. 睡眠/觉醒周期状态机**
-- `SleepCycleManager` 已存在，直接集成到 `ClosedLoopAgent`
-- `wake_step_counter_`: 觉醒步数计数器
-- `agent_step()` 开头检查: 达到 `wake_steps_before_sleep` 后触发 `run_sleep_consolidation()`
-
-**B. run_sleep_consolidation()**
-- 进入睡眠: `sleep_mgr_.enter_sleep()` + `hipp_->enable_sleep_replay()`
-- NREM SWR 重放: 从 `replay_buffer_` 收集正经验 episodes
-- 以 `sleep_positive_da` (0.40) 重放到 BG → D1 Go 巩固
-- 同时步进 Hippocampus (SWR generation mode)
-- 醒来: `sleep_mgr_.wake_up()` + `hipp_->disable_sleep_replay()`
-
-**C. AgentConfig 新增**
-- `enable_sleep_consolidation`: 开关 (默认 **false**)
-- `wake_steps_before_sleep`: 觉醒间隔 (1000)
-- `sleep_nrem_steps`: NREM 步数 (30)
-- `sleep_replay_passes`: 重放轮次 (1)
-- `sleep_positive_da`: DA 水平 (0.40)
-
-### 调优过程 (3 轮)
-
-| 版本 | 配置 | Test 4 Improvement | 问题 |
-|------|------|-------------------|------|
-| V1 | 80步/3pass/DA0.55/正+负 | +0.070 | D2 过度强化 (负经验主导) |
-| V2 | 80步/3pass/DA0.55/正only+平衡 | -0.088 | D1 过度巩固 (240学习步!) |
-| V3 | 30步/1pass/DA0.40/正only | -0.070 | 仍然有害 |
-| **禁用** | — | **+0.161** | Step 19 基线恢复 |
-
-### 根因分析
-
-3×3 环境中睡眠巩固有害的原因:
-1. **Awake replay 已充分**: 5 passes/食物 + 2 passes/危险 已经覆盖了巩固需求
-2. **过度巩固**: 即使 30 步/1 pass 也会过拟合早期经验
-3. **环境太小**: 3×3 grid 只有 9 个位置，食物吃掉后立刻重新出现在随机位置。
-   重复巩固旧食物位置的 Go pathway 在食物移动后变成错误策略
-4. **负重放叠加**: LHb + Amygdala + awake negative replay 已有 3 条回避学习通路，
-   睡眠负重放是第 4 条 → D2 过度强化
-
-### 决策: 默认禁用，保留基础设施
-
-睡眠巩固在更大环境中应有价值:
-- 更大 grid → 更多位置 → 更多遗忘 → sleep 对抗遗忘
-- 更长 episode → 更复杂策略 → sleep 巩固序列记忆
-- 可通过 `enable_sleep_consolidation = true` 随时启用
-
-### 回归测试: 29/29 CTest 全通过
-
-### 系统状态
-
-```
-50区域 · ~115投射 · 29 CTest suites
-新增: NREM SWR 睡眠巩固 (基础设施就绪, 默认禁用)
-  wake_step_counter_ → run_sleep_consolidation() → NREM replay → wake_up
-学习能力: improvement +0.161, late safety 0.779 (维持 Step 19 水平)
-下一步: 更大环境验证 / 皮层 STDP / 参数搜索
-```
+NREM SWR offline replay 集成到 ClosedLoopAgent。3×3 环境中过度巩固有害, 默认禁用。
+基础设施就绪 (enable_sleep_consolidation=true 启用)。29/29 CTest。
 
 ---
 
@@ -2268,5 +1686,81 @@ bg_->set_da_level(vta_->da_output());  // 改为步进后读取
 54区域 · ~146闭环神经元 · ~112投射
 VTA DA: firing-rate-based (修复 3 个 bug)
 皮层→MSN PSP: 0.7 → 0.9 (D1 可以发放)
+30/30 CTest 通过
+```
+
+---
+
+## Step 38: 丘脑-纹状体直接通路 (Thalamostriatal Pathway)
+
+> 日期: 2026-02-09
+> 核心突破: D1 发放 2→36 (18×), 权重范围 0.0045→0.0165 (3.7×), 2000步首次正向改善 +0.212
+
+### 问题诊断
+
+**视觉层级延迟超过 brain_steps_per_action**
+```
+LGN → V1 → V2 → V4 → IT → dlPFC → BG
+ d=2   d=2   d=2   d=2   d=2    d=2
+           最少需要 ~14 步到达 BG
+```
+- `brain_steps_per_action=12` < 14 步延迟
+- dlPFC L5 在第 14 步才开始发放 → 几乎无皮层脉冲在一个 agent step 内到达 BG
+- 结果: ~2.3 cortical events/step, D1 发放 2 次/950 engine steps
+
+### 解决方案: LGN→BG 直接投射
+
+**人脑解剖学事实** (Smith et al. 2004, Lanciego et al. 2012):
+- 板内核群 (CM/Pf) 直接投射到纹状体 MSN
+- 编码行为显著性 (Matsumoto et al. 2001)，不编码方向
+- MSN up-state 需要丘脑+皮层两条通路协同 (Stern et al. 1998)
+
+```
+快通路 (thalamostriatal): LGN → BG (delay=1, 1跳)
+  → MSN 获得"有东西出现"的粗糙信号 → 维持 up-state firing
+  → 不参与 DA-STDP 学习
+
+慢通路 (corticostriatal): LGN → V1 → ... → dlPFC → BG (delay=14, 6跳)
+  → MSN 获得"那是食物/危险, 在左/右"的精细信号
+  → DA-STDP 学习的是这条通路的权重
+```
+
+### 实现细节
+
+**BG::receive_spikes() 区分丘脑/皮层脉冲:**
+- 丘脑脉冲: 广泛投射到 ALL D1/D2 神经元, 弱电流 8.0 pA, 不标记 input_active_
+- 皮层脉冲: 通过学习权重的拓扑映射, 30 pA, 标记 input_active_ 参与 DA-STDP
+
+### 修改文件
+
+- `src/engine/closed_loop_agent.cpp`: 添加 `LGN→BG` 投射 (delay=1) + 注册丘脑源
+- `src/region/subcortical/basal_ganglia.h`: 添加 `thalamic_source_`, `THAL_MSN_CURRENT`, `set_thalamic_source()`
+- `src/region/subcortical/basal_ganglia.cpp`: receive_spikes() 区分丘脑/皮层通路
+
+### 效果对比
+
+| 指标 | Step 37 (VTA修复) | Step 38 (丘脑通路) | 变化 |
+|------|--------|--------|------|
+| D1 fires (50步) | 2 | **36** | **18×** |
+| D2 fires (50步) | 3 | **36** | **12×** |
+| Max eligibility | 6.6 | **10.9** | +65% |
+| Weight range | 0.0045 | **0.0165** | **3.7×** |
+| Elig at danger | 0.0-1.7 | **1.9-5.3** | ✅ 非零 |
+| 2000步 Improvement | -0.350 | **+0.212** | ✅ **正值！** |
+
+### 为什么有效
+
+1. LGN 每个 brain step 都发放 → 每步 ~25 个 spike 到达 BG (delay=1)
+2. 每个丘脑 spike 给 ALL D1/D2 注入 8.0 pA → D1 累积 PSP 远超阈值
+3. D1 频繁发放 → 与皮层 spike (虽然 14 步后才到) co-activate → 真正的 STDP 配对
+4. Eligibility trace 在 danger 发生时非零 → DA-STDP 可以学习
+
+### 系统状态
+
+```
+54区域 · ~146闭环神经元 · ~113投射
+VTA DA: firing-rate-based + 丘脑-纹状体直接通路
+D1 发放 36/50步 (从 2 → 18× 提升)
+2000步 Improvement: +0.212 (首次正值!)
 30/30 CTest 通过
 ```

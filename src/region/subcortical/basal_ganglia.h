@@ -116,6 +116,12 @@ public:
     /** 设置 DA 源区域 ID (来自 VTA 的脉冲将自动更新 DA 水平) */
     void set_da_source_region(uint32_t region_id) { da_source_region_ = region_id; }
 
+    /** v38: Register thalamic source for thalamostriatal direct pathway (CM/Pf → striatum)
+     *  Thalamic spikes provide broad, weak, non-learning drive to maintain MSN up-state.
+     *  Biology: intralaminar nuclei CM/Pf project to striatal MSN encoding behavioral
+     *  salience (Matsumoto et al. 2001), NOT action specificity (that's cortical). */
+    void set_thalamic_source(uint32_t region_id) { thalamic_source_ = region_id; }
+
     /** 获取 GPi 输出 (持续抑制 - 去抑制 = 动作选择) */
     const NeuronPopulation& gpi() const { return gpi_; }
 
@@ -173,6 +179,8 @@ private:
     float da_level_ = 0.3f;      // DA tonic baseline (matches VTA tonic_rate)
     uint32_t da_source_region_ = UINT32_MAX;  // VTA region ID (UINT32_MAX = not set)
     float da_spike_accum_ = 0.0f; // DA spike accumulator for rate estimation
+    uint32_t thalamic_source_ = UINT32_MAX;  // v38: LGN/thalamic region ID for thalamostriatal
+    static constexpr float THAL_MSN_CURRENT = 8.0f;  // Weak but broad thalamic drive per spike
     size_t total_cortical_inputs_ = 0;  // Cumulative cortical spike events (never cleared)
     static constexpr float DA_RATE_TAU = 0.98f; // exponential smoothing (slower decay, DA persists longer)
     static constexpr size_t SENSORY_SLOT_BASE = 252; // Input slots 252-255 = sensory direction channels
