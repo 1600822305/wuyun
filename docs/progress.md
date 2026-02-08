@@ -435,6 +435,15 @@ Fitness 修复: early×1 + improvement×2 + late×2 (不惩罚先天能力)。
 SpikeBus projections() 访问器 + SimulationEngine export_dot()/export_topology_summary()。
 **388 神经元, 4 分组 (皮层/皮层下/边缘/调质), DOT 可在线渲染。** 31/31 CTest。
 
+### Step 55: 连续空间环境 ✅ (2026-02-08)
+> 详细文档: [steps/step55_continuous_space.md](steps/step55_continuous_space.md)
+
+M1 群体向量从离散 4 方向输出升级为连续浮点位移:
+- **GridWorld**: `act_continuous(dx, dy)` — agent 在格子上做浮点移动, 碰撞检测用 floor(pos)
+- **decode_m1_continuous()**: 群体向量 → (angle, coherence) → (dx, dy), coherence 控制速度
+- **AgentConfig**: `continuous_movement=false` 默认关闭 (向后兼容), `continuous_step_size=0.8`
+- 离散模式零回归, 新增连续移动测试 (GridWorld 直接 + Agent 闭环)。**31/31 CTest。**
+
 ---
 
 ## 当前系统状态

@@ -245,6 +245,14 @@ struct AgentConfig {
     // Evolution fast-eval mode
     bool fast_eval = false;
 
+    // v55: Continuous movement (population vector → float displacement)
+    // Biology: real motor output is continuous velocity, not discrete direction selection.
+    // When enabled, M1 population vector (angle + magnitude) directly drives float displacement.
+    // GridWorld grid remains as substrate for food/danger/wall placement.
+    // Default false: backward compat with all existing tests.
+    bool  continuous_movement = false;
+    float continuous_step_size = 0.8f;  // max displacement per step (≤1.0 to avoid skipping cells)
+
     // GridWorld
     GridWorldConfig world_config;
 };
@@ -383,6 +391,8 @@ private:
 
     void build_brain();
     Action decode_m1_action(const std::vector<int>& l5_accum) const;
+    // v55: Continuous decode — returns (dx, dy) displacement from population vector
+    std::pair<float, float> decode_m1_continuous(const std::vector<int>& l5_accum) const;
     void inject_observation();
     void inject_reward(float reward);
 

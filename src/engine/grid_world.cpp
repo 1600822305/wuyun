@@ -25,6 +25,8 @@ void GridWorld::reset() {
         std::fill(grid_.begin(), grid_.end(), CellType::EMPTY);
         agent_x_ = static_cast<int>(config_.width / 2);
         agent_y_ = static_cast<int>(config_.height / 2);
+        agent_fx_ = static_cast<float>(agent_x_) + 0.5f;
+        agent_fy_ = static_cast<float>(agent_y_) + 0.5f;
         place_random(CellType::FOOD,   config_.n_food);
         place_random(CellType::DANGER, config_.n_danger);
     }
@@ -46,6 +48,8 @@ void GridWorld::set_agent_pos(int x, int y) {
     if (in_bounds(x, y)) {
         agent_x_ = x;
         agent_y_ = y;
+        agent_fx_ = static_cast<float>(x) + 0.5f;
+        agent_fy_ = static_cast<float>(y) + 0.5f;
     }
 }
 
@@ -240,8 +244,75 @@ StepResult GridWorld::act(Action action) {
         }
     }
 
+    // v55: sync float position with integer position in discrete mode
+    agent_fx_ = static_cast<float>(agent_x_) + 0.5f;
+    agent_fy_ = static_cast<float>(agent_y_) + 0.5f;
     result.agent_x = agent_x_;
     result.agent_y = agent_y_;
+    result.agent_fx = agent_fx_;
+    result.agent_fy = agent_fy_;
+    return result;
+}
+
+// v55: Continuous movement — agent moves by (dx, dy) float displacement.
+// Collision detection uses the grid cell at floor(new_position).
+// Biology: real movement is continuous; the grid is just the substrate for
+// placing food/danger/walls. Agent position is (fx, fy) in [0, width)×[0, height).
+StepResult GridWorld::act_continuous(float dx, float dy) {
+    StepResult result;
+    step_count_++;
+
+    float w = static_cast<float>(config_.width);
+    float h = static_cast<float>(config_.height);
+
+    // Proposed new position
+    float nfx = agent_fx_ + dx;
+    float nfy = agent_fy_ + dy;
+
+    // Clamp to world bounds (with small margin to stay inside)
+    nfx = std::clamp(nfx, 0.01f, w - 0.01f);
+    nfy = std::clamp(nfy, 0.01f, h - 0.01f);
+
+    // Grid cell of new position
+    int nx = static_cast<int>(std::floor(nfx));
+    int ny = static_cast<int>(std::floor(nfy));
+    nx = std::clamp(nx, 0, static_cast<int>(config_.width) - 1);
+    ny = std::clamp(ny, 0, static_cast<int>(config_.height) - 1);
+
+    // Check what's in the target cell
+    CellType target = grid_[idx(nx, ny)];
+
+    if (target == CellType::WALL) {
+        // Bounce back: don't move into wall
+        result.hit_wall = true;
+        result.reward = -0.1f;
+        // Stay at current position
+    } else {
+        // Move
+        agent_fx_ = nfx;
+        agent_fy_ = nfy;
+        agent_x_ = nx;
+        agent_y_ = ny;
+
+        if (target == CellType::FOOD) {
+            result.got_food = true;
+            result.reward = 1.0f;
+            food_collected_++;
+            grid_[idx(nx, ny)] = CellType::EMPTY;
+            respawn_food();
+        } else if (target == CellType::DANGER) {
+            result.hit_danger = true;
+            result.reward = -1.0f;
+            danger_hits_++;
+        } else {
+            result.reward = -0.01f;
+        }
+    }
+
+    result.agent_x = agent_x_;
+    result.agent_y = agent_y_;
+    result.agent_fx = agent_fx_;
+    result.agent_fy = agent_fy_;
     return result;
 }
 

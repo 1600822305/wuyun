@@ -292,6 +292,62 @@ static void test_long_run_stability() {
 }
 
 // =========================================================================
+// Test 8: v55 连续移动 (population vector → float displacement)
+// =========================================================================
+static void test_continuous_movement() {
+    printf("\n--- 测试8: v55 连续移动 ---\n");
+
+    // Test GridWorld act_continuous directly
+    GridWorldConfig wcfg;
+    wcfg.width = 10; wcfg.height = 10;
+    wcfg.n_food = 5; wcfg.n_danger = 2;
+    wcfg.seed = 42;
+    GridWorld world(wcfg);
+
+    // Agent starts at center (5, 5), float pos (5.5, 5.5)
+    float fx0 = world.agent_fx();
+    float fy0 = world.agent_fy();
+    printf("  Initial float pos: (%.2f, %.2f)\n", fx0, fy0);
+    TEST_ASSERT(fx0 > 0.0f && fy0 > 0.0f, "float pos initialized");
+
+    // Move right by 0.3
+    auto r1 = world.act_continuous(0.3f, 0.0f);
+    printf("  After +0.3x: (%.2f, %.2f) cell=(%d,%d)\n",
+           r1.agent_fx, r1.agent_fy, r1.agent_x, r1.agent_y);
+    TEST_ASSERT(std::abs(r1.agent_fx - (fx0 + 0.3f)) < 0.02f, "moved right 0.3");
+
+    // Small moves should stay in same cell
+    int cell_before = r1.agent_x;
+    auto r2 = world.act_continuous(0.1f, 0.0f);
+    TEST_ASSERT(r2.agent_x == cell_before, "small move stays in cell");
+
+    // Test ClosedLoopAgent with continuous_movement=true
+    AgentConfig cfg;
+    cfg.continuous_movement = true;
+    cfg.continuous_step_size = 0.8f;
+    cfg.fast_eval = true;
+    cfg.brain_steps_per_action = 6;
+    cfg.enable_sleep_consolidation = false;
+    cfg.enable_replay = false;
+    ClosedLoopAgent agent(cfg);
+
+    // Run 200 steps — should not crash, should collect some food
+    for (int i = 0; i < 200; ++i) {
+        agent.agent_step();
+    }
+    uint32_t food = agent.world().total_food_collected();
+    uint32_t steps = agent.world().total_steps();
+    printf("  Continuous agent: %u food / %u steps\n", food, steps);
+    TEST_ASSERT(steps == 200, "ran 200 steps");
+    // Agent should have moved (not stuck at origin)
+    float final_fx = agent.world().agent_fx();
+    float final_fy = agent.world().agent_fy();
+    printf("  Final pos: (%.2f, %.2f)\n", final_fx, final_fy);
+
+    printf("  [PASS]\n"); g_pass++;
+}
+
+// =========================================================================
 // main
 // =========================================================================
 int main() {
@@ -307,6 +363,7 @@ int main() {
     test_action_diversity();
     test_da_reward();
     test_long_run_stability();
+    test_continuous_movement();
 
     printf("\n========================================\n");
     printf("  通过: %d / %d\n", g_pass, g_pass + g_fail);

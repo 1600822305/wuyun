@@ -74,6 +74,9 @@ struct StepResult {
     bool   hit_wall  = false;
     int    agent_x   = 0;
     int    agent_y   = 0;
+    // v55: continuous position (same as int when using discrete act())
+    float  agent_fx  = 0.0f;
+    float  agent_fy  = 0.0f;
 };
 
 class GridWorld {
@@ -87,8 +90,14 @@ public:
      *  改变 RNG 种子 → 食物/危险位置完全不同 */
     void reset_with_seed(uint32_t new_seed);
 
-    /** Agent 执行动作, 返回结果 */
+    /** Agent 执行动作 (离散: ±1格移动), 返回结果 */
     StepResult act(Action action);
+
+    /** v55: Agent 连续移动 (dx,dy 浮点位移), 碰撞检测用 floor 格子
+     *  Biology: 真实运动是连续的, 格子只是底层基板
+     *  @param dx, dy  位移 (|displacement| ≤ 1.0 per step 典型)
+     *  @return StepResult 含浮点坐标 */
+    StepResult act_continuous(float dx, float dy);
 
     /** 获取 NxN 局部视野 (N=2*vision_radius+1, 行优先) */
     std::vector<float> observe() const;
@@ -99,6 +108,9 @@ public:
     // --- 访问器 ---
     int agent_x() const { return agent_x_; }
     int agent_y() const { return agent_y_; }
+    // v55: continuous position accessors
+    float agent_fx() const { return agent_fx_; }
+    float agent_fy() const { return agent_fy_; }
     size_t width()  const { return config_.width; }
     size_t height() const { return config_.height; }
     CellType cell(int x, int y) const;
@@ -123,6 +135,7 @@ private:
     GridWorldConfig config_;
     std::vector<CellType> grid_;  // row-major [y * width + x]
     int agent_x_ = 0, agent_y_ = 0;
+    float agent_fx_ = 0.0f, agent_fy_ = 0.0f;  // v55: continuous position
     std::mt19937 rng_;
 
     uint32_t food_collected_ = 0;

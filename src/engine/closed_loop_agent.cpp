@@ -1234,10 +1234,17 @@ StepResult ClosedLoopAgent::agent_step() {
     }
 
     // B3. Decode action from M1 L5 only (biological: M1 is the motor output)
-    Action action = decode_m1_action(l5_accum);
+    Action action = decode_m1_action(l5_accum);  // always compute for logging/efference
 
     // --- Phase C: Act in world + store reward ---
-    StepResult result = world_.act(action);
+    StepResult result;
+    if (config_.continuous_movement) {
+        // v55: Continuous movement — population vector → (dx, dy) float displacement
+        auto [dx, dy] = decode_m1_continuous(l5_accum);
+        result = world_.act_continuous(dx, dy);
+    } else {
+        result = world_.act(action);
+    }
 
     // Store reward as pending (will be processed at START of next agent_step)
     // Only trigger Phase A for significant rewards (food/danger), not step penalties
@@ -1364,6 +1371,53 @@ Action ClosedLoopAgent::decode_m1_action(const std::vector<int>& l5_accum) const
         }
     }
     return static_cast<Action>(best_dir);
+}
+
+// =============================================================================
+// v55: Continuous action decoding — population vector → (dx, dy) displacement
+// =============================================================================
+
+std::pair<float, float> ClosedLoopAgent::decode_m1_continuous(
+        const std::vector<int>& l5_accum) const {
+    // Same population vector computation as decode_m1_action, but output is
+    // continuous (dx, dy) instead of discrete Action.
+    // Magnitude controls speed: weak coherence → slow, strong → fast.
+    // Biology: motor cortex population vector predicts both direction AND speed
+    //   of arm movements (Georgopoulos 1988, Moran & Schwartz 1999).
+
+    if (l5_accum.size() < 2 || m1_preferred_dir_.empty())
+        return {0.0f, 0.0f};
+
+    float vx = 0.0f, vy = 0.0f;
+    float total_fires = 0.0f;
+    for (size_t i = 0; i < l5_accum.size() && i < m1_preferred_dir_.size(); ++i) {
+        if (l5_accum[i] > 0) {
+            float f = static_cast<float>(l5_accum[i]);
+            vx += f * std::cos(m1_preferred_dir_[i]);
+            vy += f * std::sin(m1_preferred_dir_[i]);
+            total_fires += f;
+        }
+    }
+
+    if (total_fires < 1.0f) return {0.0f, 0.0f};
+
+    // Normalize by total fires → coherence ∈ [0, 1]
+    // All neurons firing same direction → coherence=1 → full speed
+    // Neurons firing uniformly → coherence≈0 → near-zero speed (STAY equivalent)
+    float mag = std::sqrt(vx * vx + vy * vy);
+    float coherence = mag / total_fires;
+
+    if (coherence < 0.05f) return {0.0f, 0.0f};  // too incoherent → stay
+
+    // Scale to step size: coherence × max_step
+    float speed = coherence * config_.continuous_step_size;
+    float angle = std::atan2(vy, vx);
+
+    // GridWorld convention: +x = RIGHT, +y = DOWN
+    float dx = speed * std::cos(angle);
+    float dy = -speed * std::sin(angle);  // negate: math +y is UP, grid +y is DOWN
+
+    return {dx, dy};
 }
 
 // =============================================================================
