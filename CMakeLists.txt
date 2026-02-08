@@ -17,11 +17,18 @@ option(WUYUN_BUILD_PYTHON "Build pybind11 Python bindings" OFF)
 # Core C++ library
 add_subdirectory(src)
 
-# Evolution runner (Step 16: Genome Layer v1)
+# Evolution runner (Step 16: Genome Layer v1 — 直接编码)
 add_executable(run_evolution tools/run_evolution.cpp)
 target_link_libraries(run_evolution PRIVATE wuyun_core)
 if(MSVC)
     target_compile_options(run_evolution PRIVATE /utf-8)
+endif()
+
+# DevEvolution runner (Step 49: 间接编码发育基因组)
+add_executable(run_dev_evolution tools/run_dev_evolution.cpp)
+target_link_libraries(run_dev_evolution PRIVATE wuyun_core)
+if(MSVC)
+    target_compile_options(run_dev_evolution PRIVATE /utf-8)
 endif()
 
 # Quick scratch pad (类似 python -c 的快速实验)

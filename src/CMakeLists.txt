@@ -45,6 +45,7 @@ set(WUYUN_CORE_SOURCES
     genome/genome.cpp
     genome/evolution.cpp
     genome/dev_genome.cpp
+    genome/dev_evolution.cpp
     development/developer.cpp
 )
 

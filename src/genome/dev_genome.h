@@ -63,6 +63,14 @@ struct DevGenome {
     // 抑制性神经元比例 (全局)
     Gene inhibitory_prob {"inh_prob", 0.20f, 0.10f, 0.35f};
 
+    // 增殖梯度 (3 个轴: 前后/上下/内外)
+    // growth_gradient[0] >0: 前部增殖多 (大前额叶, 灵长类) <0: 后部多 (大感觉区, 啮齿类)
+    Gene growth_gradient[3] = {
+        {"grow_ap", 0.3f, -1.0f, 1.0f},   // 前后轴
+        {"grow_dv", 0.0f, -1.0f, 1.0f},   // 上下轴
+        {"grow_ml", 0.0f, -1.0f, 1.0f},   // 内外轴
+    };
+
     // --- 连接基因: 控制区域间连接 ---
     // connection_radius: 距离内的细胞有概率形成突触
     Gene connection_radius {"conn_radius", 0.3f, 0.1f, 0.6f};

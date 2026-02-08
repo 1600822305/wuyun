@@ -1,108 +1,51 @@
 #pragma once
 /**
- * Developer — 神经发育模拟器
+ * Developer — 神经发育模拟器 (v2: 完整人脑架构)
  *
- * 从 DevGenome 发育出完整的大脑 (SimulationEngine):
- *   Phase A: 增殖 → 按距离连接 → 分配到 BrainRegion
- *   Phase B: + 导向分子轴突导向 + 转录因子分化
- *   Phase C: + 迁移 + 活动依赖修剪
+ * 从 DevGenome 的发育规则计算出 AgentConfig 参数,
+ * 然后用标准 ClosedLoopAgent 构建完整的 64 区域人脑。
  *
- * 发育过程:
- *   1. 增殖: DevGenome.division_rounds → 祖细胞分裂 → N 个 NeuralCell
- *   2. 空间分配: 细胞按位置分配到区域类型 (SENSORY/MOTOR/PFC/SUB/NMOD)
- *   3. 连接: 距离 + 类型概率 → 突触形成
- *   4. 转换: NeuralCell → NeuronPopulation + SynapseGroup → BrainRegion
- *   5. 组装: BrainRegion + Projection → SimulationEngine
+ * 与 v1 (通用区域) 的区别:
+ *   v1: DevGenome → 5 个通用区域 (Sensory/Motor/PFC/Sub/Nmod) — 玩具
+ *   v2: DevGenome → AgentConfig → build_brain() → 64 区域完整人脑
  *
- * 生物学:
- *   - 增殖 = 神经干细胞分裂 (VZ/SVZ)
- *   - 空间分配 = 形态发生素梯度确定区域边界
- *   - 连接 = 轴突导向 (Phase A 用距离近似, Phase B 用化学梯度)
+ * 发育规则如何决定参数:
+ *   1. 增殖梯度 → 区域大小 (v1_size_factor, dlpfc_size_factor, bg_size_factor)
+ *      前后轴梯度决定前额叶 vs 感觉区的相对大小
+ *
+ *   2. 导向分子 → 连接强度 (暂不影响 — build_brain 固定投射, 但影响 gain)
+ *      bg_to_m1_gain, lgn_gain 等从发育规则计算
+ *
+ *   3. 分化梯度 → 受体密度 / 学习率
+ *      DA 梯度 → da_stdp_lr (前部高 = 更强学习)
+ *      NMDA 梯度 → cortical STDP 参数
+ *
+ *   4. 修剪阈值 → 稳态参数
+ *      pruning_threshold → homeostatic_target_rate, homeostatic_eta
+ *
+ * 生物学: 真实大脑的区域类型由基因决定 (PAX6→V1, FOXP2→Broca),
+ *   但区域大小、连接强度、受体密度由发育梯度决定。
+ *   这正是间接编码的正确层级。
  */
 
 #include "genome/dev_genome.h"
-#include "engine/simulation_engine.h"
+#include "engine/closed_loop_agent.h"
 #include <vector>
-#include <random>
 
 namespace wuyun {
-
-// =============================================================================
-// NeuralCell: 发育中的神经细胞
-// =============================================================================
-
-struct NeuralCell {
-    float x = 0.0f, y = 0.0f;    // 2D 位置 (归一化 [0,1])
-    RegionType region_type = RegionType::SENSORY;
-    bool is_inhibitory = false;
-    int  birth_order = 0;          // 出生顺序 (用于层归属)
-    int  region_index = 0;         // 所属区域在 regions 列表中的索引
-    float receptors[8] = {};       // Phase B: 对 8 种导向分子的受体表达强度
-};
-
-// =============================================================================
-// DevelopedRegion: 发育产生的区域描述
-// =============================================================================
-
-struct DevelopedRegion {
-    std::string name;
-    RegionType type;
-    float center_x, center_y;     // 区域中心位置
-    std::vector<int> cell_indices; // 属于该区域的细胞索引
-    int n_excitatory = 0;
-    int n_inhibitory = 0;
-};
-
-// =============================================================================
-// DevelopedConnection: 发育产生的跨区域连接
-// =============================================================================
-
-struct DevelopedConnection {
-    int src_region;
-    int dst_region;
-    int n_synapses;               // 突触数量
-    int delay;                    // 传导延迟
-};
-
-// =============================================================================
-// Developer: 发育模拟器
-// =============================================================================
 
 class Developer {
 public:
     /**
-     * 从 DevGenome 发育出完整大脑
-     * @param genome 发育基因组
-     * @param vision_pixels LGN 输入像素数 (用于感觉接口)
-     * @return 可直接用于 ClosedLoopAgent 的 SimulationEngine
+     * 从 DevGenome 计算 AgentConfig
+     * 发育规则 → 参数值, 然后 ClosedLoopAgent 用这些参数构建完整人脑
      */
-    static SimulationEngine develop(const DevGenome& genome,
-                                     size_t vision_pixels = 25,
-                                     uint32_t seed = 42);
+    static AgentConfig to_agent_config(const DevGenome& genome);
 
-    // --- 发育中间结果 (用于诊断) ---
-
-    /** 获取上次发育产生的细胞 */
-    static const std::vector<NeuralCell>& last_cells();
-
-    /** 获取上次发育产生的区域 */
-    static const std::vector<DevelopedRegion>& last_regions();
-
-    /** 获取上次发育产生的连接 */
-    static const std::vector<DevelopedConnection>& last_connections();
-
-private:
-    // 发育阶段
-    static void proliferate(const DevGenome& genome, std::mt19937& rng);
-    static void assign_regions(const DevGenome& genome);
-    static void form_connections(const DevGenome& genome, std::mt19937& rng);
-    static SimulationEngine assemble(const DevGenome& genome,
-                                      size_t vision_pixels);
-
-    // 发育中间状态 (static for diagnostic access)
-    static std::vector<NeuralCell> cells_;
-    static std::vector<DevelopedRegion> regions_;
-    static std::vector<DevelopedConnection> connections_;
+    /**
+     * 诊断: 打印发育过程 (哪些基因决定了哪些参数)
+     */
+    static std::string development_report(const DevGenome& genome);
 };
 
 } // namespace wuyun

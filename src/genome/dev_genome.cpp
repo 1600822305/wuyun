@@ -9,6 +9,7 @@ std::vector<Gene*> DevGenome::all_genes() {
     // Phase A: 增殖 + 连接
     for (int i = 0; i < 5; ++i) genes.push_back(&division_rounds[i]);
     genes.push_back(&inhibitory_prob);
+    for (int i = 0; i < 3; ++i) genes.push_back(&growth_gradient[i]);
     genes.push_back(&connection_radius);
     genes.push_back(&recurrent_prob);
     for (int i = 0; i < 25; ++i) genes.push_back(&cross_connect[i]);
@@ -38,6 +39,7 @@ std::vector<const Gene*> DevGenome::all_genes() const {
     std::vector<const Gene*> genes;
     for (int i = 0; i < 5; ++i) genes.push_back(&division_rounds[i]);
     genes.push_back(&inhibitory_prob);
+    for (int i = 0; i < 3; ++i) genes.push_back(&growth_gradient[i]);
     genes.push_back(&connection_radius);
     genes.push_back(&recurrent_prob);
     for (int i = 0; i < 25; ++i) genes.push_back(&cross_connect[i]);
