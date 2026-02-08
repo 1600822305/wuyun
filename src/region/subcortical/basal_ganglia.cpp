@@ -295,13 +295,16 @@ void BasalGanglia::step(int32_t t, float dt) {
     for (size_t i = 0; i < d2_msn_.size(); ++i) d2_msn_.inject_basal(i, da_exc_d2);
 
     // Inject decaying PSP buffers (cross-region synaptic time constant)
+    // v37: D1/D2 use slower CTX_MSN_PSP_DECAY (0.9, half-life 6.6 steps)
+    // because MSN long dendrites produce slower AMPA kinetics.
+    // Previously PSP_DECAY=0.7 → cortical spikes vanished before MSN reached threshold.
     for (size_t i = 0; i < psp_d1_.size(); ++i) {
         if (psp_d1_[i] > 0.5f) d1_msn_.inject_basal(i, psp_d1_[i]);
-        psp_d1_[i] *= PSP_DECAY;
+        psp_d1_[i] *= CTX_MSN_PSP_DECAY;
     }
     for (size_t i = 0; i < psp_d2_.size(); ++i) {
         if (psp_d2_[i] > 0.5f) d2_msn_.inject_basal(i, psp_d2_[i]);
-        psp_d2_[i] *= PSP_DECAY;
+        psp_d2_[i] *= CTX_MSN_PSP_DECAY;
     }
     for (size_t i = 0; i < psp_stn_.size(); ++i) {
         if (psp_stn_[i] > 0.5f) stn_.inject_basal(i, psp_stn_[i]);

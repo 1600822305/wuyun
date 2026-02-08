@@ -44,3 +44,25 @@
 - Hippocampus 扩展: Presubiculum, HATA
 - Amygdala 扩展: MeA, CoA, AB
 - 24 区域, 40 投射, 100 测试通过
+
+## 修复: V1→dlPFC→BG 信号衰减
+
+> 问题: CorticalRegion::receive_spikes fan-out=3, current=25f → PSP稳态3.1f ≪ 阈值15f
+
+**根因分析:**
+- L4 stellate: v_rest=-65, threshold=-50, R_s=1.0 → 需 I>15f 持续
+- LGN→V1: 0.62脉冲/步 × 3/50(fan-out/L4) × 25f = 0.93f/步 → 稳态3.1f (远低于阈值)
+
+**修复:**
+- ✅ `ColumnConfig::input_psp_regular/burst/fan_out_frac` 可配置参数
+- ✅ fan-out: 3固定 → 30%×L4_size (生物学皮层-皮层汇聚)
+- ✅ current: 25f/40f → 35f/55f (regular/burst)
+- ✅ `CorticalRegion` 存储 `psp_current_regular_/burst_/fan_out_`
+
+**修复后全链路数据:**
+```
+修复前: LGN=124 → V1=23    → dlPFC=0    → BG=120  → MotorThal=0   → M1=0
+修复后: LGN=124 → V1=7656  → dlPFC=4770 → BG=3408 → MotorThal=293 → M1=1120
+```
+- 额外收获: dlPFC→Hipp通路也打通 (dlPFC=6937→Hipp=18791, CA1=660)
+- **57 测试全通过**, 零回归

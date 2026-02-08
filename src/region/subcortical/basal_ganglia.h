@@ -206,7 +206,13 @@ private:
     size_t   topo_ctx_n_   = 0;           // Source neuron count
 
     // PSP 缓冲 (模拟突触时间常数)
-    static constexpr float PSP_DECAY = 0.7f;
+    static constexpr float PSP_DECAY = 0.7f;  // Internal BG / STN hyperdirect
+    // v37: Slower cortical→MSN PSP decay (AMPA ~10ms on MSN long dendrites)
+    // Previous: PSP_DECAY=0.7 (half-life 1.9 steps) → cortical spike decayed before
+    //   MSN charged from V_rest=-80 to V_thresh=-50. D1 fired ~1/950 engine steps.
+    // Fix: CTX_MSN_PSP_DECAY=0.9 (half-life 6.6 steps) → sustained cortical drive
+    //   gives MSN ~7 steps to integrate input → D1 fires reliably from cortical input.
+    static constexpr float CTX_MSN_PSP_DECAY = 0.9f;
     std::vector<float> psp_d1_;
     std::vector<float> psp_d2_;
     std::vector<float> psp_stn_;

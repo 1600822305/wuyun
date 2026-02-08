@@ -523,8 +523,11 @@ StepResult ClosedLoopAgent::agent_step() {
             if (lhb_) {
                 vta_->inject_lhb_inhibition(lhb_->vta_inhibition());
             }
-            bg_->set_da_level(vta_->da_output());  // Neuromodulatory broadcast
             engine_.step();
+            // v37: Read DA AFTER engine step (VTA processes reward during step)
+            // Previous bug: bg read da BEFORE engine step → missed the DA change
+            // on the first reward processing step entirely.
+            bg_->set_da_level(vta_->da_output());
         }
         has_pending_reward_ = false;
 

@@ -55,19 +55,43 @@ void VTA_DA::step(int32_t t, float dt) {
         if (fired_[i]) n_fired++;
     }
 
-    // DA level = tonic + phasic
-    // Biological: DA concentration depends on BOTH firing rate AND reuptake (DAT)
-    //   Reward  → burst firing → DA release >> reuptake → DA rises above tonic
-    //   Punishment → pause (no firing) → reuptake > release → DA drops BELOW tonic
-    // Implementation: use firing rate for positive phasic, RPE for negative phasic
+    // v37: DA level based on firing rate deviation from tonic baseline
+    // Biology (Grace 1991, Schultz 1997):
+    //   DA concentration depends on firing rate relative to tonic baseline:
+    //   - Burst firing (reward) → DA release >> reuptake → DA rises above tonic
+    //   - Firing pause (punishment/LHb) → reuptake > release → DA drops BELOW tonic
+    //
+    // Previous bug: negative phasic used instantaneous RPE (reward_input_, reset to 0
+    //   after 1 step). Even though reward_psp_ kept DA neurons suppressed for ~15 steps,
+    //   da_level_ returned to 0.3 after step 1 because phasic_negative = 0 when RPE = 0.
+    //   Result: DA dip lasted only 1 engine step → BG never saw punishment signal.
+    //
+    // Fix: compute DA purely from firing rate. When neurons fire more than tonic → DA up.
+    //   When neurons fire less (suppressed by negative reward_psp_) → DA down.
+    //   This naturally produces sustained DA dip for the entire reward_psp_ decay period.
     float firing_rate = static_cast<float>(n_fired) / static_cast<float>(da_neurons_.size());
-    float phasic_positive = firing_rate * config_.phasic_gain;  // From actual firing
-    // LHb-driven DA suppression: stronger and more reliable than RPE-only dip
-    // Biology: LHb burst → complete DA pause (near-zero firing for 200ms)
-    float lhb_suppression = lhb_inhibition_ * config_.phasic_gain;  // LHb → DA suppression
-    float phasic_negative = (last_rpe_ < 0.0f) ? last_rpe_ * config_.phasic_gain * 0.5f : 0.0f;  // RPE-based dip
-    float total_negative = std::min(phasic_negative - lhb_suppression, 0.0f);  // Combined suppression
-    da_level_ = std::clamp(config_.tonic_rate + phasic_positive + total_negative, 0.0f, 1.0f);
+
+    // Phasic component: deviation of firing rate from tracked tonic baseline
+    // phasic_gain * 3.0 amplifies the signal to produce meaningful DA swings
+    float phasic = 0.0f;
+    if (step_count_ >= WARMUP_STEPS) {
+        // After warmup: firing-rate-based DA (both burst AND pause detected)
+        phasic = (firing_rate - tonic_firing_smooth_) * config_.phasic_gain * 3.0f;
+    }
+    // During warmup: phasic=0 → DA stays at tonic_rate (no spurious D2 strengthening)
+
+    // LHb adds additional DA suppression (separate from firing pause)
+    float lhb_suppression = lhb_inhibition_ * config_.phasic_gain;
+
+    da_level_ = std::clamp(config_.tonic_rate + phasic - lhb_suppression, 0.0f, 1.0f);
+
+    // Update tonic firing rate estimate (always track, even during warmup)
+    // Fast convergence during warmup (α=0.1), slow tracking after (α=0.01)
+    if (std::abs(reward_psp_) < 5.0f && lhb_inh_psp_ < 5.0f) {
+        float alpha = (step_count_ < WARMUP_STEPS) ? 0.1f : 0.01f;
+        tonic_firing_smooth_ = tonic_firing_smooth_ * (1.0f - alpha) + firing_rate * alpha;
+    }
+    ++step_count_;
 
     // Reset inputs (consumed)
     reward_input_ = 0.0f;

@@ -72,6 +72,13 @@ private:
     float lhb_inh_psp_      = 0.0f;  // Sustained LHb inhibition (exponential decay)
     static constexpr float LHB_INH_PSP_DECAY = 0.85f;
 
+    // v37: Track tonic firing rate for firing-rate-based DA computation
+    // Biology: DA level reflects firing rate deviation from tonic baseline.
+    // Previous bug: negative phasic used RPE (reset after 1 step) → DA dip lasted 1 step only.
+    float tonic_firing_smooth_ = 0.0f;   // EMA of baseline firing rate (init 0, converges in warmup)
+    int   step_count_          = 0;      // Step counter for warmup period
+    static constexpr int WARMUP_STEPS = 50;  // Steps before firing-rate-based DA kicks in
+
     // PSP buffer for cross-region input (sustained synaptic drive)
     static constexpr float PSP_DECAY = 0.7f;
     std::vector<float> psp_da_;
