@@ -675,9 +675,8 @@ StepResult ClosedLoopAgent::agent_step() {
         // Previous: inject every 3 steps → single-pulse ΔV=2.25mV, never fires.
         inject_observation();
 
-        // v36: Inject spatial context EVERY brain step (same sustained-drive fix)
+        // v36: Inject spatial context EVERY brain step (sustained-drive)
         // EC grid cells need ~5+ steps of sustained current to charge and fire.
-        // Previously injected once before loop → single-pulse, EC never fired.
         if (hipp_) {
             hipp_->inject_spatial_context(
                 world_.agent_x(), world_.agent_y(),
@@ -1282,24 +1281,30 @@ void ClosedLoopAgent::update_spatial_value_map(float reward) {
     int h = static_cast<int>(world_.height());
     int ax = world_.agent_x(), ay = world_.agent_y();
 
-    // 1. Decay all values slightly (forgetting)
+    // 1. Asymmetric decay: food memories persist, danger memories extinguish
+    // Biology: fear extinction (Milad & Quirk 2002) is faster than reward memory
     for (auto& v : spatial_value_map_) {
-        v *= SPATIAL_VALUE_DECAY;
+        v *= (v >= 0.0f) ? SPATIAL_VALUE_DECAY_POS : SPATIAL_VALUE_DECAY_NEG;
     }
 
     // 2. Update current position with reward signal (food/danger only, not step cost)
-    // Step cost = -0.01 * reward_scale ≈ -0.014, food/danger ≈ ±1.0 * scale ≈ ±1.43
     if (std::abs(reward) > 0.1f) {
         int idx = ay * w + ax;
         spatial_value_map_[idx] += SPATIAL_VALUE_LR * (reward - spatial_value_map_[idx]);
+        // Clamp to prevent runaway accumulation
+        spatial_value_map_[idx] = std::clamp(spatial_value_map_[idx],
+                                              SPATIAL_VALUE_MIN, SPATIAL_VALUE_MAX);
 
         // 3. Diffuse to adjacent cells (spatial generalization)
-        // Biology: place fields have spatial extent, value spreads
-        float diffuse = SPATIAL_VALUE_LR * reward * 0.3f;  // 30% of direct update
-        if (ay > 0)     spatial_value_map_[(ay-1)*w + ax] += diffuse;
-        if (ay < h - 1) spatial_value_map_[(ay+1)*w + ax] += diffuse;
-        if (ax > 0)     spatial_value_map_[ay*w + (ax-1)] += diffuse;
-        if (ax < w - 1) spatial_value_map_[ay*w + (ax+1)] += diffuse;
+        // Only diffuse positive values (food attracts neighbors)
+        // Negative values don't diffuse — danger is localized, not area-wide
+        if (reward > 0.0f) {
+            float diffuse = SPATIAL_VALUE_LR * reward * 0.3f;
+            if (ay > 0)     spatial_value_map_[(ay-1)*w + ax] += diffuse;
+            if (ay < h - 1) spatial_value_map_[(ay+1)*w + ax] += diffuse;
+            if (ax > 0)     spatial_value_map_[ay*w + (ax-1)] += diffuse;
+            if (ax < w - 1) spatial_value_map_[ay*w + (ax+1)] += diffuse;
+        }
     }
 }
 

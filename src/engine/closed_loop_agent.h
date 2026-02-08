@@ -289,8 +289,15 @@ private:
     // Biology: hippocampal place cells + OFC value coding = spatial value memory.
     // Updated on reward events, decays slowly → persistent spatial knowledge.
     std::vector<float> spatial_value_map_;   // [width × height], init 0
-    static constexpr float SPATIAL_VALUE_DECAY = 0.999f;  // slow decay per agent step
-    static constexpr float SPATIAL_VALUE_LR   = 0.3f;     // learning rate for new rewards
+    // v37: asymmetric decay — positive values (food) persist, negative (danger) extinguish
+    // Biology: fear extinction is faster than reward memory (Milad & Quirk 2002)
+    // Previous: uniform 0.999 decay (half-life 693 steps) → negative values never cleared
+    //   → entire map became negative → all-direction NoGo → behavioral collapse
+    static constexpr float SPATIAL_VALUE_DECAY_POS = 0.998f;  // food: half-life ~346 steps
+    static constexpr float SPATIAL_VALUE_DECAY_NEG = 0.990f;  // danger: half-life ~69 steps (fast extinction)
+    static constexpr float SPATIAL_VALUE_LR    = 0.3f;   // learning rate
+    static constexpr float SPATIAL_VALUE_MAX   = 1.0f;   // cap positive values
+    static constexpr float SPATIAL_VALUE_MIN   = -0.5f;  // cap negative (prevent runaway)
     void update_spatial_value_map(float reward);
 
     // --- Awake SWR replay ---

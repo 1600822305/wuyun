@@ -47,7 +47,9 @@ struct BasalGangliaConfig {
 
     // MSN up-state drive: brings MSN from down state (-80mV) closer to threshold
     // Biological basis: MSN exhibit bistable up/down states (Wilson & Kawaguchi 1996)
-    // v26: keep tonic=40 (original), rely on multiplicative weight gain (3×) to amplify differences
+    // v37: kept at 25 (original). With b=2.0 (reduced from 3.0):
+    //   V_ss = -48.3 (1.7mV above threshold), post-spike V_ss ≈ -49.7 (0.3mV above)
+    //   D1 recovers in ~60 steps (vs ~100 with b=3.0)
     // Surmeier 2007: D1 enhances cortical INPUT gain, not tonic drive
     float msn_up_state_drive = 25.0f;
 

@@ -240,7 +240,12 @@ inline NeuronParams MSN_D1_PARAMS() {
     p.somatic.v_rest = -80.0f; p.somatic.v_threshold = -50.0f;  // 高阈值, 需强输入
     p.somatic.v_reset = -65.0f; p.somatic.tau_m = 25.0f;
     p.somatic.r_s = 0.8f; p.somatic.a = 0.01f;
-    p.somatic.b = 3.0f; p.somatic.tau_w = 300.0f;
+    // v37: b reduced from 3.0 to 2.0 (Humphries et al. 2009: MSN b ∈ [0.5, 2.0])
+    // b=3.0 caused post-spike V_ss=-50.7 (BELOW threshold) for ~100 steps
+    //   → D1 fires only ~5 times in 600 brain steps → DA-STDP ineffective
+    // b=1.5 gave hyperactivity (90 danger/2000 steps)
+    // b=2.0: post-spike V_ss≈-49.7 (≈0.3mV above threshold) → moderate recovery
+    p.somatic.b = 2.0f; p.somatic.tau_w = 300.0f;
     p.somatic.refractory_period = 3;
     p.kappa = 0.0f; p.kappa_backward = 0.0f;  // 单区室
     p.burst_spike_count = 1; p.burst_isi = 1;
@@ -253,7 +258,8 @@ inline NeuronParams MSN_D2_PARAMS() {
     p.somatic.v_rest = -80.0f; p.somatic.v_threshold = -50.0f;
     p.somatic.v_reset = -65.0f; p.somatic.tau_m = 25.0f;
     p.somatic.r_s = 0.8f; p.somatic.a = 0.01f;
-    p.somatic.b = 3.0f; p.somatic.tau_w = 300.0f;
+    // v37: same fix as D1 (symmetric D1/D2 params)
+    p.somatic.b = 2.0f; p.somatic.tau_w = 300.0f;
     p.somatic.refractory_period = 3;
     p.kappa = 0.0f; p.kappa_backward = 0.0f;
     p.burst_spike_count = 1; p.burst_isi = 1;
