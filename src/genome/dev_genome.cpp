@@ -76,6 +76,9 @@ std::vector<Gene*> DevGenome::all_genes() {
     g.push_back(&amyg_size); g.push_back(&hipp_size);
     g.push_back(&homeo_target); g.push_back(&homeo_eta);
     g.push_back(&ne_floor); g.push_back(&replay_passes); g.push_back(&dev_period);
+    // 先验基因
+    g.push_back(&hedonic_gain); g.push_back(&fear_valence);
+    g.push_back(&sensory_motor); g.push_back(&explore_drive); g.push_back(&approach_bias);
     // 皮层条形码
     for (int t = 0; t < N_CORTICAL_TYPES; ++t)
         for (int d = 0; d < BARCODE_DIM; ++d)
@@ -103,6 +106,8 @@ std::vector<const Gene*> DevGenome::all_genes() const {
     g.push_back(&amyg_size); g.push_back(&hipp_size);
     g.push_back(&homeo_target); g.push_back(&homeo_eta);
     g.push_back(&ne_floor); g.push_back(&replay_passes); g.push_back(&dev_period);
+    g.push_back(&hedonic_gain); g.push_back(&fear_valence);
+    g.push_back(&sensory_motor); g.push_back(&explore_drive); g.push_back(&approach_bias);
     for (int t = 0; t < N_CORTICAL_TYPES; ++t)
         for (int d = 0; d < BARCODE_DIM; ++d)
             g.push_back(&cortical_barcode[t][d]);

@@ -38,8 +38,28 @@ AgentConfig Developer::to_agent_config(const DevGenome& genome) {
     cfg.lgn_baseline = std::clamp(genome.lgn_baseline.value, 1.0f, 20.0f);
     cfg.lgn_noise_amp = 3.0f;
 
-    cfg.exploration_noise = std::clamp(genome.motor_noise.value, 10.0f, 100.0f);
-    cfg.reward_scale = std::clamp(genome.reward_scale.value, 0.5f, 5.0f);
+    // 先验基因: 发育过程中的初始连接强度
+    // hedonic_gain: Hypo→VTA 权重 = "食物天生产生多少DA"
+    // 不是事后注入, 是 reward_scale 本身就包含了先天食物敏感度
+    cfg.reward_scale = std::clamp(
+        genome.reward_scale.value * genome.hedonic_gain.value, 0.5f, 30.0f);
+
+    // fear_valence: CeA→VTA 抑制 = "危险天生有多可怕"
+    cfg.lhb_punishment_gain = std::clamp(genome.fear_valence.value, 0.5f, 8.0f);
+    cfg.amyg_us_gain = std::clamp(genome.fear_valence.value, 0.5f, 8.0f);
+
+    // explore_drive: 运动噪声 = "天生有多好奇"
+    cfg.exploration_noise = std::clamp(
+        genome.motor_noise.value * genome.explore_drive.value, 10.0f, 100.0f);
+
+    // sensory_motor: 皮层→BG 初始耦合 = "看到东西天生能影响动作"
+    // 通过 bg_to_m1_gain 间接控制 (更高增益 = 更强感觉运动耦合)
+    cfg.bg_to_m1_gain = std::clamp(
+        genome.bg_gain.value + genome.sensory_motor.value * 20.0f, 2.0f, 25.0f);
+
+    // approach_bias: 通过 background_drive_ratio 实现微弱趋近倾向
+    cfg.background_drive_ratio = std::clamp(
+        0.02f + genome.approach_bias.value, 0.02f, 0.3f);
 
     cfg.homeostatic_target_rate = std::clamp(genome.homeo_target.value, 1.0f, 15.0f);
     cfg.homeostatic_eta = std::clamp(genome.homeo_eta.value, 0.0001f, 0.01f);
