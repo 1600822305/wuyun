@@ -7,152 +7,121 @@
 namespace wuyun {
 
 // =============================================================================
-// 发育规则 → AgentConfig 参数映射
+// to_agent_config: DevGenome → AgentConfig
+//
+// 固定回路: 基因控制大小/增益 (内部拓扑继承 build_brain)
+// 皮层: 条形码决定哪些皮层区域被激活和连接强度
+//
+// 当前 ClosedLoopAgent 有固定的皮层区域名称 (V1,V2,V4,IT,dlPFC,M1)
+// 暂时将 5 种可进化皮层类型映射到这些固定名称:
+//   ctx0 → V1 (第一层感觉处理)
+//   ctx1 → V2/V4 (中间处理)
+//   ctx2 → IT (高级表征)
+//   ctx3 → dlPFC (决策)
+//   ctx4 → FPC (规划)
+//
+// 未来: ClosedLoopAgent 支持动态皮层区域后, 可以按条形码创建任意数量
 // =============================================================================
-//
-// 生物学原理:
-//   基因编码发育梯度 (形态发生素浓度、转录因子阈值),
-//   这些梯度在空间上变化, 决定每个区域的属性。
-//   我们不模拟 3D 空间, 而是用前后轴 (anterior-posterior) 梯度
-//   和径向 (radial) 梯度来计算各区域参数。
-//
-// 前后轴位置 (归一化 [0,1], 0=最前, 1=最后):
-//   FPC:     0.05  (最前)
-//   dlPFC:   0.15
-//   OFC:     0.20
-//   ACC:     0.25
-//   M1/PMC:  0.35
-//   BG:      0.50  (中部)
-//   Thal:    0.55
-//   Hipp:    0.60
-//   Amyg:    0.62
-//   VTA/SNc: 0.70
-//   V4/IT:   0.75
-//   V2:      0.85
-//   V1:      0.90  (最后)
-//   LGN:     0.95
-
-static float anterior_posterior(float position, const DevGenome& g) {
-    // 增殖梯度: growth_gradient[0] = 前后轴倾斜
-    // >0: 前部增殖更多 (大前额叶) — 灵长类特征
-    // <0: 后部增殖更多 (大感觉区) — 啮齿类特征
-    float ap_bias = g.growth_gradient[0].value;
-    // 在给定位置的增殖因子: 1.0 + bias × (0.5 - position)
-    // position=0(前) → 1.0 + bias×0.5 (前部增强)
-    // position=1(后) → 1.0 - bias×0.5 (后部减弱)
-    return 1.0f + ap_bias * (0.5f - position);
-}
 
 AgentConfig Developer::to_agent_config(const DevGenome& genome) {
     AgentConfig cfg;
 
     // =====================================================================
-    // 1. 增殖 → 区域大小
-    //    division_rounds 控制总规模, growth_gradient 控制前后比例
+    // 固定回路参数 (继承 build_brain, 只改大小/增益)
     // =====================================================================
 
-    // 感觉区 (V1) 在后部 (position=0.9)
-    float v1_growth = anterior_posterior(0.9f, genome);
-    // 感觉区基础大小 = 2^(division_rounds[SENSORY]) / 32 (归一化到 ~1.0)
-    float sensory_base = std::pow(2.0f, genome.division_rounds[0].value) / 32.0f;
-    cfg.v1_size_factor = std::clamp(sensory_base * v1_growth, 0.5f, 3.0f);
+    cfg.bg_size_factor = std::clamp(genome.bg_size.value, 0.5f, 2.0f);
+    cfg.da_stdp_lr = std::clamp(genome.da_stdp_lr.value, 0.005f, 0.15f);
+    cfg.bg_to_m1_gain = std::clamp(genome.bg_gain.value, 2.0f, 20.0f);
 
-    // 前额叶 (dlPFC) 在前部 (position=0.15)
-    float pfc_growth = anterior_posterior(0.15f, genome);
-    float pfc_base = std::pow(2.0f, genome.division_rounds[2].value) / 16.0f;
-    cfg.dlpfc_size_factor = std::clamp(pfc_base * pfc_growth, 0.5f, 3.0f);
+    cfg.lgn_gain = std::clamp(genome.lgn_gain.value, 50.0f, 500.0f);
+    cfg.lgn_baseline = std::clamp(genome.lgn_baseline.value, 1.0f, 20.0f);
+    cfg.lgn_noise_amp = 3.0f;
 
-    // 皮层下 (BG) 在中部 (position=0.5)
-    float bg_growth = anterior_posterior(0.5f, genome);
-    float sub_base = std::pow(2.0f, genome.division_rounds[3].value) / 16.0f;
-    cfg.bg_size_factor = std::clamp(sub_base * bg_growth, 0.5f, 2.0f);
+    cfg.exploration_noise = std::clamp(genome.motor_noise.value, 10.0f, 100.0f);
+    cfg.reward_scale = std::clamp(genome.reward_scale.value, 0.5f, 5.0f);
+
+    cfg.homeostatic_target_rate = std::clamp(genome.homeo_target.value, 1.0f, 15.0f);
+    cfg.homeostatic_eta = std::clamp(genome.homeo_eta.value, 0.0001f, 0.01f);
+
+    cfg.ne_floor = std::clamp(genome.ne_floor.value, 0.3f, 1.0f);
+    cfg.replay_passes = std::max(1, static_cast<int>(genome.replay_passes.value));
+    cfg.dev_period_steps = std::max<size_t>(0, static_cast<size_t>(genome.dev_period.value));
 
     // =====================================================================
-    // 2. 分化梯度 → 学习率和受体密度
-    //    DA 受体密度前部高 (前额叶 DA-STDP 更强)
-    //    NMDA 比后部高 (感觉区可塑性不同)
+    // 皮层大小: 条形码 + 分裂轮数 → 区域大小因子
     // =====================================================================
 
-    // DA-STDP 学习率: DA 梯度 + 基础 lr
-    // da_gradient > 0 → 前部 DA 高 → 更强的 DA-STDP
-    float da_factor = 1.0f + genome.da_gradient.value * 0.5f;
-    cfg.da_stdp_lr = std::clamp(genome.da_stdp_lr.value * da_factor, 0.005f, 0.15f);
+    // ctx0 → V1: LGN 条形码兼容性决定 V1 大小权重
+    float lgn_compat[N_CORTICAL_TYPES];
+    float bg_compat[N_CORTICAL_TYPES];
+    for (int t = 0; t < N_CORTICAL_TYPES; ++t) {
+        float bc[BARCODE_DIM];
+        for (int d = 0; d < BARCODE_DIM; ++d)
+            bc[d] = genome.cortical_barcode[t][d].value;
 
-    // 皮层 STDP: NMDA 梯度影响
-    // nmda_gradient > 0 → 后部 NMDA 高 → 感觉区 STDP 更活跃
-    float nmda_factor = 1.0f + genome.nmda_gradient.value * 0.3f;
-    cfg.cortical_stdp_a_plus = std::clamp(0.003f * nmda_factor, 0.001f, 0.02f);
-    cfg.cortical_stdp_a_minus = std::clamp(-0.005f * nmda_factor, -0.02f, -0.001f);
+        lgn_compat[t] = genome.barcode_compat(DevGenome::LGN_BARCODE, bc);
+        float bg_bc[BARCODE_DIM];
+        for (int d = 0; d < BARCODE_DIM; ++d)
+            bg_bc[d] = genome.cortical_to_bg[d].value;
+        bg_compat[t] = genome.barcode_compat(bc, bg_bc);
+    }
+
+    // 找到与 LGN 最兼容的皮层类型 → 映射到 V1
+    // 找到与 BG 最兼容的皮层类型 → 映射到 dlPFC
+    int best_sensory = 0, best_motor = 0;
+    for (int t = 0; t < N_CORTICAL_TYPES; ++t) {
+        if (lgn_compat[t] > lgn_compat[best_sensory]) best_sensory = t;
+        if (bg_compat[t] > bg_compat[best_motor]) best_motor = t;
+    }
+
+    // V1 大小: 由最兼容感觉类型的分裂轮数决定
+    float v1_div = genome.cortical_division[best_sensory].value;
+    cfg.v1_size_factor = std::clamp(std::pow(2.0f, v1_div) / 16.0f, 0.5f, 3.0f);
+
+    // dlPFC 大小: 由最兼容决策类型决定
+    float pfc_div = genome.cortical_division[best_motor].value;
+    cfg.dlpfc_size_factor = std::clamp(std::pow(2.0f, pfc_div) / 16.0f, 0.5f, 3.0f);
+
+    // =====================================================================
+    // 皮层 STDP 参数: 从皮层类型的兼容性强度推导
+    // 高皮层间兼容性 → 强侧向连接 → 需要更保守的 STDP
+    // =====================================================================
+
+    float avg_cortical_compat = 0.0f;
+    int cc = 0;
+    for (int a = 0; a < N_CORTICAL_TYPES; ++a) {
+        for (int b = 0; b < N_CORTICAL_TYPES; ++b) {
+            if (a == b) continue;
+            float bc_a[BARCODE_DIM], bc_b[BARCODE_DIM];
+            for (int d = 0; d < BARCODE_DIM; ++d) {
+                bc_a[d] = genome.cortical_barcode[a][d].value;
+                bc_b[d] = genome.cortical_barcode[b][d].value;
+            }
+            avg_cortical_compat += genome.barcode_compat(bc_a, bc_b);
+            cc++;
+        }
+    }
+    avg_cortical_compat /= std::max(1, cc);
+
+    // 高兼容性 → 更多连接 → 需要更小的 STDP 步长
+    float stdp_scale = std::clamp(1.0f / (1.0f + avg_cortical_compat * 0.5f), 0.3f, 2.0f);
+    cfg.cortical_stdp_a_plus = std::clamp(0.003f * stdp_scale, 0.001f, 0.02f);
+    cfg.cortical_stdp_a_minus = -std::abs(cfg.cortical_stdp_a_plus) * 1.5f;
     cfg.cortical_stdp_w_max = 1.5f;
 
     // =====================================================================
-    // 3. 连接强度 → 增益参数
-    //    cross_connect 概率矩阵 → 各通路增益
-    // =====================================================================
-
-    // 感觉→前额叶 连接 (Sensory→PFC cross_connect)
-    float s2p_strength = genome.cross_connect[0 * 5 + 2].value;  // SENSORY→PFC
-    cfg.lgn_gain = std::clamp(genome.sensory_gain.value * (1.0f + s2p_strength), 50.0f, 500.0f);
-    cfg.lgn_baseline = std::clamp(genome.sensory_gain.value * 0.05f, 1.0f, 20.0f);
-    cfg.lgn_noise_amp = 3.0f;
-
-    // 前额叶→皮层下 连接 (PFC→SUB cross_connect)
-    float p2b_strength = genome.cross_connect[2 * 5 + 3].value;  // PFC→SUB
-    cfg.bg_to_m1_gain = std::clamp(p2b_strength * 30.0f, 2.0f, 25.0f);
-
-    // =====================================================================
-    // 4. 探索参数 → 运动噪声
-    //    motor_noise 基因直接映射
-    // =====================================================================
-
-    cfg.exploration_noise = std::clamp(genome.motor_noise.value, 10.0f, 100.0f);
-    // attractor/background 比例从连接矩阵的对称性推导
-    float motor_recurrent = genome.cross_connect[1 * 5 + 1].value;  // MOTOR→MOTOR
-    cfg.attractor_drive_ratio = std::clamp(0.3f + motor_recurrent, 0.3f, 0.9f);
-    cfg.background_drive_ratio = std::clamp(0.1f - motor_recurrent * 0.2f, 0.02f, 0.3f);
-
-    // =====================================================================
-    // 5. 修剪 → 稳态可塑性
-    //    pruning_threshold → homeostatic 目标发放率
-    //    critical_period → 发育期长度
-    // =====================================================================
-
-    cfg.homeostatic_target_rate = std::clamp(
-        genome.homeostatic_target.value / genome.pruning_threshold.value,
-        1.0f, 15.0f);
-    cfg.homeostatic_eta = std::clamp(genome.homeostatic_eta.value, 0.0001f, 0.01f);
-    cfg.dev_period_steps = std::max<size_t>(0,
-        static_cast<size_t>(genome.critical_period.value));
-
-    // =====================================================================
-    // 6. 奖赏/重放参数
-    // =====================================================================
-
-    cfg.reward_scale = std::clamp(genome.reward_gain.value / 40.0f, 0.3f, 5.0f);
-
-    // 重放参数从连接矩阵的全局连通性推导
-    float total_connectivity = 0.0f;
-    for (int i = 0; i < 25; ++i) total_connectivity += genome.cross_connect[i].value;
-    cfg.replay_passes = std::clamp(static_cast<int>(total_connectivity * 2.0f), 1, 15);
-    cfg.replay_da_scale = 0.5f;
-
-    // =====================================================================
-    // 7. NE 探索调制
-    //    从 neuromod→sensory 连接推导
-    // =====================================================================
-
-    float n2s = genome.cross_connect[4 * 5 + 0].value;  // NMOD→SENSORY
-    cfg.ne_food_scale = std::clamp(n2s * 20.0f, 1.0f, 8.0f);
-    cfg.ne_floor = std::clamp(0.5f + n2s, 0.4f, 1.0f);
-
-    // =====================================================================
-    // 8. 时序参数
+    // 其他参数: 继承合理默认值
     // =====================================================================
 
     cfg.brain_steps_per_action = 12;
     cfg.reward_processing_steps = 9;
+    cfg.attractor_drive_ratio = 0.5f;
+    cfg.background_drive_ratio = 0.05f;
+    cfg.ne_food_scale = 4.0f;
+    cfg.replay_da_scale = 0.5f;
 
-    // 所有模块默认启用 (完整人脑架构)
+    // 全部模块启用 (49 步成果)
     cfg.enable_da_stdp = true;
     cfg.enable_homeostatic = true;
     cfg.enable_cortical_stdp = true;
@@ -163,7 +132,7 @@ AgentConfig Developer::to_agent_config(const DevGenome& genome) {
     cfg.enable_replay = true;
     cfg.enable_interleaved_replay = true;
     cfg.enable_negative_replay = true;
-    cfg.enable_sleep_consolidation = true;
+    cfg.enable_sleep_consolidation = false;  // 短评估不用睡眠
     cfg.enable_lc_ne = true;
     cfg.enable_nbm_ach = true;
     cfg.enable_drn_5ht = true;
@@ -180,43 +149,112 @@ AgentConfig Developer::to_agent_config(const DevGenome& genome) {
 }
 
 // =============================================================================
-// 诊断: 打印发育过程
+// 连通性检查
+// =============================================================================
+
+int Developer::check_connectivity(const DevGenome& genome) {
+    // 检查: 有多少皮层类型同时兼容 LGN(输入) 和 BG(输出)
+    // 至少 1 个 → 信号可以从感觉到运动
+    int connected = 0;
+    for (int t = 0; t < N_CORTICAL_TYPES; ++t) {
+        float bc[BARCODE_DIM];
+        for (int d = 0; d < BARCODE_DIM; ++d)
+            bc[d] = genome.cortical_barcode[t][d].value;
+
+        float lgn_c = genome.barcode_compat(DevGenome::LGN_BARCODE, bc);
+        float lgn_p = genome.conn_prob_from_compat(lgn_c);
+
+        float bg_bc[BARCODE_DIM];
+        for (int d = 0; d < BARCODE_DIM; ++d)
+            bg_bc[d] = genome.cortical_to_bg[d].value;
+        float bg_c = genome.barcode_compat(bc, bg_bc);
+        float bg_p = genome.conn_prob_from_compat(bg_c);
+
+        // 如果与 LGN 和 BG 都有 >30% 连接概率 → 可连通
+        if (lgn_p > 0.3f && bg_p > 0.3f) {
+            connected++;
+        }
+    }
+    return connected;
+}
+
+// =============================================================================
+// 诊断报告
 // =============================================================================
 
 std::string Developer::development_report(const DevGenome& genome) {
-    AgentConfig cfg = to_agent_config(genome);
     std::ostringstream ss;
+    ss << "=== 发育报告 (v3: 骨架固定+皮层涌现) ===\n\n";
 
-    ss << "=== 发育报告 ===\n";
-
-    // 增殖
-    ss << "\n--- 增殖 (区域大小) ---\n";
-    for (int i = 0; i < 5; ++i) {
-        const char* names[] = {"感觉", "运动", "前额叶", "皮层下", "调质"};
-        int n = 1 << static_cast<int>(genome.division_rounds[i].value);
-        ss << "  " << names[i] << ": " << n << " 细胞 (分裂 "
-           << static_cast<int>(genome.division_rounds[i].value) << " 轮)\n";
-    }
-    ss << "  前后轴梯度: " << genome.growth_gradient[0].value
-       << (genome.growth_gradient[0].value > 0 ? " (前部大=灵长类)" : " (后部大=啮齿类)") << "\n";
-
-    // 计算结果
-    ss << "\n--- 发育 → 参数 ---\n";
+    // 固定回路
+    ss << "--- 固定回路 ---\n";
     char buf[128];
-    snprintf(buf, sizeof(buf), "  V1 大小: %.2f, dlPFC 大小: %.2f, BG 大小: %.2f\n",
-             cfg.v1_size_factor, cfg.dlpfc_size_factor, cfg.bg_size_factor);
+    snprintf(buf, sizeof(buf), "  BG: size=%.2f, DA lr=%.4f, gain=%.1f\n",
+             genome.bg_size.value, genome.da_stdp_lr.value, genome.bg_gain.value);
     ss << buf;
-    snprintf(buf, sizeof(buf), "  DA-STDP lr: %.4f, 皮层 STDP a+: %.4f\n",
-             cfg.da_stdp_lr, cfg.cortical_stdp_a_plus);
+    snprintf(buf, sizeof(buf), "  LGN: gain=%.0f, base=%.1f\n",
+             genome.lgn_gain.value, genome.lgn_baseline.value);
     ss << buf;
-    snprintf(buf, sizeof(buf), "  探索噪声: %.1f, BG→M1 增益: %.1f\n",
-             cfg.exploration_noise, cfg.bg_to_m1_gain);
+    snprintf(buf, sizeof(buf), "  Motor: noise=%.0f\n", genome.motor_noise.value);
     ss << buf;
-    snprintf(buf, sizeof(buf), "  奖赏缩放: %.2f, 重放次数: %d\n",
-             cfg.reward_scale, cfg.replay_passes);
-    ss << buf;
-    snprintf(buf, sizeof(buf), "  稳态目标: %.1f, 发育期: %zu 步\n",
-             cfg.homeostatic_target_rate, cfg.dev_period_steps);
+
+    // 皮层类型
+    ss << "\n--- 皮层类型 (条形码) ---\n";
+    for (int t = 0; t < N_CORTICAL_TYPES; ++t) {
+        int n = 1 << std::clamp(static_cast<int>(genome.cortical_division[t].value), 2, 7);
+        ss << "  ctx" << t << " (" << n << "n): [";
+        for (int d = 0; d < BARCODE_DIM; ++d) {
+            if (d > 0) ss << ",";
+            snprintf(buf, sizeof(buf), "%.2f", genome.cortical_barcode[t][d].value);
+            ss << buf;
+        }
+        ss << "]\n";
+    }
+
+    // 兼容性
+    ss << "\n--- 连接兼容性 ---\n";
+    for (int a = 0; a < N_CORTICAL_TYPES; ++a) {
+        for (int b = 0; b < N_CORTICAL_TYPES; ++b) {
+            float bc_a[BARCODE_DIM], bc_b[BARCODE_DIM];
+            for (int d = 0; d < BARCODE_DIM; ++d) {
+                bc_a[d] = genome.cortical_barcode[a][d].value;
+                bc_b[d] = genome.cortical_barcode[b][d].value;
+            }
+            float p = genome.conn_prob_from_compat(genome.barcode_compat(bc_a, bc_b));
+            snprintf(buf, sizeof(buf), "%3.0f%%", p * 100.0f);
+            ss << buf << " ";
+        }
+        ss << "  ← ctx" << a << "\n";
+    }
+
+    // LGN→皮层 兼容性
+    ss << "\n--- LGN → 皮层 ---\n";
+    for (int t = 0; t < N_CORTICAL_TYPES; ++t) {
+        float bc[BARCODE_DIM];
+        for (int d = 0; d < BARCODE_DIM; ++d)
+            bc[d] = genome.cortical_barcode[t][d].value;
+        float p = genome.conn_prob_from_compat(
+            genome.barcode_compat(DevGenome::LGN_BARCODE, bc));
+        snprintf(buf, sizeof(buf), "  LGN→ctx%d: %3.0f%%\n", t, p * 100.0f);
+        ss << buf;
+    }
+
+    // 皮层→BG 兼容性
+    ss << "\n--- 皮层 → BG ---\n";
+    for (int t = 0; t < N_CORTICAL_TYPES; ++t) {
+        float bc[BARCODE_DIM], bg_bc[BARCODE_DIM];
+        for (int d = 0; d < BARCODE_DIM; ++d) {
+            bc[d] = genome.cortical_barcode[t][d].value;
+            bg_bc[d] = genome.cortical_to_bg[d].value;
+        }
+        float p = genome.conn_prob_from_compat(genome.barcode_compat(bc, bg_bc));
+        snprintf(buf, sizeof(buf), "  ctx%d→BG: %3.0f%%\n", t, p * 100.0f);
+        ss << buf;
+    }
+
+    // 连通性
+    int conn = check_connectivity(genome);
+    snprintf(buf, sizeof(buf), "\n连通皮层类型: %d/%d\n", conn, N_CORTICAL_TYPES);
     ss << buf;
 
     return ss.str();

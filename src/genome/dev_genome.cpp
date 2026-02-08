@@ -1,128 +1,169 @@
 #include "genome/dev_genome.h"
 #include <cstdio>
 #include <sstream>
+#include <algorithm>
 
 namespace wuyun {
 
+// 固定条形码: LGN 和 BG 的分子身份 (不进化)
+const float DevGenome::LGN_BARCODE[BARCODE_DIM] =
+    {1.0f, 0.8f, 0.1f, 0.0f, 0.2f, 0.0f, 0.1f, 0.0f};
+const float DevGenome::BG_BARCODE[BARCODE_DIM] =
+    {0.0f, 0.1f, 0.8f, 1.0f, 0.0f, 0.2f, 0.1f, 0.0f};
+
+DevGenome::DevGenome() {
+    // 皮层条形码
+    for (int t = 0; t < N_CORTICAL_TYPES; ++t) {
+        for (int d = 0; d < BARCODE_DIM; ++d) {
+            char name[32];
+            snprintf(name, sizeof(name), "ctx%d_bc%d", t, d);
+            cortical_barcode[t][d] = {name, 0.5f, 0.0f, 1.0f};
+        }
+        char dn[32], in[32];
+        snprintf(dn, sizeof(dn), "ctx%d_div", t);
+        snprintf(in, sizeof(in), "ctx%d_inh", t);
+        cortical_division[t] = {dn, 4.0f, 2.0f, 7.0f};
+        cortical_inh_frac[t] = {in, 0.2f, 0.05f, 0.4f};
+    }
+    // 兼容性矩阵
+    for (int i = 0; i < BARCODE_DIM; ++i) {
+        for (int j = 0; j < BARCODE_DIM; ++j) {
+            char name[16];
+            snprintf(name, sizeof(name), "W%d%d", i, j);
+            float def = (i == j) ? 0.3f : 0.0f;
+            w_connect[i][j] = {name, def, -1.0f, 1.0f};
+        }
+    }
+    // 皮层→BG 接口条形码
+    for (int d = 0; d < BARCODE_DIM; ++d) {
+        char name[16];
+        snprintf(name, sizeof(name), "c2bg_%d", d);
+        // 默认: 与 BG 条形码兼容 (维度 2,3 高)
+        cortical_to_bg[d] = {name, BG_BARCODE[d], 0.0f, 1.0f};
+    }
+}
+
+// =============================================================================
+// 条形码兼容性
+// =============================================================================
+
+float DevGenome::barcode_compat(const float bc_a[BARCODE_DIM],
+                                 const float bc_b[BARCODE_DIM]) const {
+    float result = 0.0f;
+    for (int i = 0; i < BARCODE_DIM; ++i)
+        for (int j = 0; j < BARCODE_DIM; ++j)
+            result += bc_a[i] * w_connect[i][j].value * bc_b[j];
+    return result;
+}
+
+float DevGenome::conn_prob_from_compat(float compat) const {
+    float x = compat - connect_threshold.value;
+    return 1.0f / (1.0f + std::exp(-x * 3.0f));
+}
+
+// =============================================================================
+// 基因操作
+// =============================================================================
+
 std::vector<Gene*> DevGenome::all_genes() {
-    std::vector<Gene*> genes;
-    // Phase A: 增殖 + 连接
-    for (int i = 0; i < 5; ++i) genes.push_back(&division_rounds[i]);
-    genes.push_back(&inhibitory_prob);
-    for (int i = 0; i < 3; ++i) genes.push_back(&growth_gradient[i]);
-    genes.push_back(&connection_radius);
-    genes.push_back(&recurrent_prob);
-    for (int i = 0; i < 25; ++i) genes.push_back(&cross_connect[i]);
-    genes.push_back(&da_stdp_lr);
-    genes.push_back(&homeostatic_eta);
-    genes.push_back(&homeostatic_target);
-    genes.push_back(&sensory_gain);
-    genes.push_back(&motor_noise);
-    genes.push_back(&reward_gain);
-    // Phase B: 导向分子 + 分化
-    for (int i = 0; i < 8; ++i) genes.push_back(&guidance_cx[i]);
-    for (int i = 0; i < 8; ++i) genes.push_back(&guidance_cy[i]);
-    for (int i = 0; i < 8; ++i) genes.push_back(&guidance_sigma[i]);
-    for (int i = 0; i < 8; ++i) genes.push_back(&guidance_amp[i]);
-    for (int i = 0; i < 8; ++i) genes.push_back(&guidance_attract[i]);
-    for (int i = 0; i < 40; ++i) genes.push_back(&receptor_expr[i]);
-    genes.push_back(&da_gradient);
-    genes.push_back(&nmda_gradient);
-    // Phase C: 修剪
-    genes.push_back(&pruning_threshold);
-    genes.push_back(&critical_period);
-    genes.push_back(&spontaneous_rate);
-    return genes;
+    std::vector<Gene*> g;
+    // 固定回路参数
+    g.push_back(&bg_size); g.push_back(&da_stdp_lr); g.push_back(&bg_gain);
+    g.push_back(&vta_size); g.push_back(&da_phasic_gain);
+    g.push_back(&thal_size); g.push_back(&thal_gate);
+    g.push_back(&lgn_gain); g.push_back(&lgn_baseline);
+    g.push_back(&motor_noise); g.push_back(&reward_scale);
+    g.push_back(&amyg_size); g.push_back(&hipp_size);
+    g.push_back(&homeo_target); g.push_back(&homeo_eta);
+    g.push_back(&ne_floor); g.push_back(&replay_passes); g.push_back(&dev_period);
+    // 皮层条形码
+    for (int t = 0; t < N_CORTICAL_TYPES; ++t)
+        for (int d = 0; d < BARCODE_DIM; ++d)
+            g.push_back(&cortical_barcode[t][d]);
+    // 皮层大小+抑制
+    for (int t = 0; t < N_CORTICAL_TYPES; ++t) g.push_back(&cortical_division[t]);
+    for (int t = 0; t < N_CORTICAL_TYPES; ++t) g.push_back(&cortical_inh_frac[t]);
+    // 兼容性矩阵
+    for (int i = 0; i < BARCODE_DIM; ++i)
+        for (int j = 0; j < BARCODE_DIM; ++j)
+            g.push_back(&w_connect[i][j]);
+    g.push_back(&connect_threshold);
+    // 接口条形码
+    for (int d = 0; d < BARCODE_DIM; ++d) g.push_back(&cortical_to_bg[d]);
+    return g;
 }
 
 std::vector<const Gene*> DevGenome::all_genes() const {
-    std::vector<const Gene*> genes;
-    for (int i = 0; i < 5; ++i) genes.push_back(&division_rounds[i]);
-    genes.push_back(&inhibitory_prob);
-    for (int i = 0; i < 3; ++i) genes.push_back(&growth_gradient[i]);
-    genes.push_back(&connection_radius);
-    genes.push_back(&recurrent_prob);
-    for (int i = 0; i < 25; ++i) genes.push_back(&cross_connect[i]);
-    genes.push_back(&da_stdp_lr);
-    genes.push_back(&homeostatic_eta);
-    genes.push_back(&homeostatic_target);
-    genes.push_back(&sensory_gain);
-    genes.push_back(&motor_noise);
-    genes.push_back(&reward_gain);
-    for (int i = 0; i < 8; ++i) genes.push_back(&guidance_cx[i]);
-    for (int i = 0; i < 8; ++i) genes.push_back(&guidance_cy[i]);
-    for (int i = 0; i < 8; ++i) genes.push_back(&guidance_sigma[i]);
-    for (int i = 0; i < 8; ++i) genes.push_back(&guidance_amp[i]);
-    for (int i = 0; i < 8; ++i) genes.push_back(&guidance_attract[i]);
-    for (int i = 0; i < 40; ++i) genes.push_back(&receptor_expr[i]);
-    genes.push_back(&da_gradient);
-    genes.push_back(&nmda_gradient);
-    genes.push_back(&pruning_threshold);
-    genes.push_back(&critical_period);
-    genes.push_back(&spontaneous_rate);
-    return genes;
+    std::vector<const Gene*> g;
+    g.push_back(&bg_size); g.push_back(&da_stdp_lr); g.push_back(&bg_gain);
+    g.push_back(&vta_size); g.push_back(&da_phasic_gain);
+    g.push_back(&thal_size); g.push_back(&thal_gate);
+    g.push_back(&lgn_gain); g.push_back(&lgn_baseline);
+    g.push_back(&motor_noise); g.push_back(&reward_scale);
+    g.push_back(&amyg_size); g.push_back(&hipp_size);
+    g.push_back(&homeo_target); g.push_back(&homeo_eta);
+    g.push_back(&ne_floor); g.push_back(&replay_passes); g.push_back(&dev_period);
+    for (int t = 0; t < N_CORTICAL_TYPES; ++t)
+        for (int d = 0; d < BARCODE_DIM; ++d)
+            g.push_back(&cortical_barcode[t][d]);
+    for (int t = 0; t < N_CORTICAL_TYPES; ++t) g.push_back(&cortical_division[t]);
+    for (int t = 0; t < N_CORTICAL_TYPES; ++t) g.push_back(&cortical_inh_frac[t]);
+    for (int i = 0; i < BARCODE_DIM; ++i)
+        for (int j = 0; j < BARCODE_DIM; ++j)
+            g.push_back(&w_connect[i][j]);
+    g.push_back(&connect_threshold);
+    for (int d = 0; d < BARCODE_DIM; ++d) g.push_back(&cortical_to_bg[d]);
+    return g;
 }
 
 size_t DevGenome::n_genes() const { return all_genes().size(); }
 
 void DevGenome::randomize(std::mt19937& rng) {
-    for (Gene* g : all_genes()) {
-        std::uniform_real_distribution<float> dist(g->min_val, g->max_val);
-        g->value = dist(rng);
+    for (Gene* gene : all_genes()) {
+        std::uniform_real_distribution<float> dist(gene->min_val, gene->max_val);
+        gene->value = dist(rng);
     }
 }
 
 void DevGenome::mutate(std::mt19937& rng, float mutation_rate, float sigma) {
     std::uniform_real_distribution<float> coin(0.0f, 1.0f);
-    for (Gene* g : all_genes()) {
-        if (coin(rng) < mutation_rate) {
-            g->mutate(rng, sigma);
-        }
+    for (Gene* gene : all_genes()) {
+        if (coin(rng) < mutation_rate) gene->mutate(rng, sigma);
     }
 }
 
 DevGenome DevGenome::crossover(const DevGenome& a, const DevGenome& b, std::mt19937& rng) {
     DevGenome child;
-    auto a_genes = a.all_genes();
-    auto b_genes = b.all_genes();
-    auto c_genes = child.all_genes();
-
+    auto ag = a.all_genes();
+    auto bg_genes = b.all_genes();
+    auto cg = child.all_genes();
     std::uniform_int_distribution<int> coin(0, 1);
-    for (size_t i = 0; i < c_genes.size(); ++i) {
-        c_genes[i]->value = coin(rng) ? a_genes[i]->value : b_genes[i]->value;
-    }
+    for (size_t i = 0; i < cg.size(); ++i)
+        cg[i]->value = coin(rng) ? ag[i]->value : bg_genes[i]->value;
     return child;
 }
 
 std::string DevGenome::summary() const {
     char buf[256];
-    int n_total = 0;
-    for (int i = 0; i < 5; ++i) {
-        n_total += (1 << static_cast<int>(division_rounds[i].value));
-    }
+    int total_n = 0;
+    for (int t = 0; t < N_CORTICAL_TYPES; ++t)
+        total_n += 1 << std::clamp(static_cast<int>(cortical_division[t].value), 2, 7);
+    // 加固定区域估算
+    total_n += static_cast<int>(20 * bg_size.value);  // BG ~20
+    total_n += static_cast<int>(4 * vta_size.value);   // VTA ~4
+
     snprintf(buf, sizeof(buf),
-        "fit=%.4f div=%d+%d+%d+%d+%d=%dn inh=%.0f%% lr=%.4f",
-        fitness,
-        1 << static_cast<int>(division_rounds[0].value),
-        1 << static_cast<int>(division_rounds[1].value),
-        1 << static_cast<int>(division_rounds[2].value),
-        1 << static_cast<int>(division_rounds[3].value),
-        1 << static_cast<int>(division_rounds[4].value),
-        n_total,
-        inhibitory_prob.value * 100.0f,
-        da_stdp_lr.value);
+        "fit=%.4f ctx=%dn bg=%.1f lr=%.4f noise=%.0f",
+        fitness, total_n, bg_size.value, da_stdp_lr.value, motor_noise.value);
     return std::string(buf);
 }
 
 std::string DevGenome::to_json() const {
     std::ostringstream ss;
     ss << "{\n";
-    for (const Gene* g : all_genes()) {
-        ss << "  \"" << g->name << "\": " << g->value << ",\n";
-    }
-    ss << "  \"fitness\": " << fitness << ",\n";
-    ss << "  \"generation\": " << generation << "\n";
-    ss << "}\n";
+    for (const Gene* gene : all_genes())
+        ss << "  \"" << gene->name << "\": " << gene->value << ",\n";
+    ss << "  \"fitness\": " << fitness << "\n}\n";
     return ss.str();
 }
 

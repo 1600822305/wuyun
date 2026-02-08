@@ -399,34 +399,40 @@ GridWorld 迷宫支持: `MazeType` 枚举 (T_MAZE/CORRIDOR/SIMPLE_MAZE) + `set_c
 - **关键期**: 自发活动 → 稳态调整 → 连接精炼
 进化验证: 5 代后适应度 +0.66, 最佳基因组发育出 300 神经元。**31/31 CTest。**
 
+### Step 50: 基因连接组模型 — 骨架固定 + 皮层涌现 ✅ (2026-02-09)
+> 详细文档: [steps/step50_genetic_connectome.md](steps/step50_genetic_connectome.md)
+
+重写间接编码: 骨架固定 (BG/VTA/丘脑/杏仁核/海马 内部拓扑写死, 49步成果全保留) +
+皮层涌现 (5种可进化皮层类型, 8维分子条形码, 兼容性决定连接, Barabasi 2019)。
+评估三阶段早停: 连通性检查(0步)→运动检查(100步)→正式评估。
+**141 基因, 垃圾基因组秒淘汰。** 31/31 CTest。
+
 ---
 
 ## 当前系统状态
 
 ```
-双轨系统:
-  手工模式: 64区域 · ~252闭环神经元 · ~139投射 (build_brain)
-  发育模式: 124基因 → develop() → 大脑结构涌现 (DevGenome)
+基因连接组 v3 (Step 50):
+  骨架: BG/VTA/丘脑/杏仁核/海马/LGN/M1/Hypo (固定, 18 基因控制大小/增益)
+  皮层: 5 种可进化类型 × 8 维条形码 (50 基因, 连接从兼容性涌现)
+  连接: W_connect 8×8 + 阈值 + 接口 (73 基因)
+  评估: 连通性→运动→正式 三阶段早停
 
+手工模式 (保留): 64区域 · ~252神经元 · ~139投射 (build_brain)
 环境: 10×10 开放场地 + T-迷宫 / 走廊 / 简单迷宫
 
-架构升级 (v45-49):
-  M1: 群体向量编码 (Georgopoulos 1986), 均匀偏好方向
-  VTA: 内部 RPE (Schultz 1997), Hypothalamus→VTA SpikeBus
-  基因层: 间接编码 — 增殖/导向分子/分化/修剪 发育模拟
-  迷宫: T_MAZE(5×5) / CORRIDOR(10×3) / SIMPLE_MAZE(7×7)
+架构 (v45-50):
+  M1: 群体向量编码 (Georgopoulos 1986)
+  VTA: 内部 RPE (Schultz 1997)
+  基因层: 骨架固定 + 皮层涌现 (Barabasi 2019)
+  迷宫: T_MAZE / CORRIDOR / SIMPLE_MAZE
 
 学习链路 18/18:
   ① V1→V2→V4→IT 视觉层级   ② L6 预测编码 + mismatch STDP
-  ③ dlPFC→BG DA-STDP (乘法增益+侧向抑制)   ④ VTA 内部 RPE (Hypo hedonic - OFC prediction)
-  ⑤ ACh STDP 门控 (巩固+反转)   ⑥ 杏仁核 one-shot 恐惧   ⑦ 海马 CA3 + SWR 重放
-  ⑧ Baldwin 进化   ⑨ 小脑 CF-LTD + DCN→BG   ⑩ 丘脑 NE/ACh TRN 门控 + 丘脑纹状体通路
-  ⑪ NAcc 动机/奖赏整合   ⑫ SNc 习惯维持 (tonic DA)   ⑬ SC 显著性→皮层
-  ⑭ PAG 恐惧→NE觉醒   ⑮ FPC 前额极规划   ⑯ OFC 价值预测
-  ⑰ vmPFC 恐惧消退   ⑱ Hypothalamus 享乐感觉通路
-
-间接编码 (DevGenome):
-  124 基因 → 发育模拟 → 大脑涌现
-  8 种导向分子 → 820 突触涌现
-  进化 5 代 → 最佳 300 神经元
-  31/31 CTest
+  ③ dlPFC→BG DA-STDP (乘法增益+侧向抑制)   ④ VTA 内部 RPE
+  ⑤ ACh STDP 门控   ⑥ 杏仁核恐惧   ⑦ 海马 SWR 重放
+  ⑧ Baldwin 进化   ⑨ 小脑 CF-LTD   ⑩ 丘脑 TRN 门控
+  ⑪ NAcc 动机   ⑫ SNc 习惯   ⑬ SC 显著性   ⑭ PAG 防御
+  ⑮ FPC 规划   ⑯ OFC 价值   ⑰ vmPFC 消退   ⑱ Hypo 享乐
+  
+31/31 CTest

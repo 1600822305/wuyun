@@ -1,188 +1,128 @@
 #pragma once
 /**
- * DevGenome — 发育基因组 (间接编码)
+ * DevGenome v3 — 混合基因连接组
  *
- * 与直接编码 Genome 的区别:
- *   Genome (直接): 23 个浮点数 → to_agent_config() → 手工 build_brain()
- *   DevGenome (间接): ~80 个发育规则 → develop() → 大脑结构涌现
+ * 核心设计: 骨架固定, 皮层涌现
+ *   固定回路 (~10 种): BG/丘脑/杏仁核/海马/VTA/LGN/M1/Hypothalamus
+ *     内部拓扑写死 (3 亿年进化的产物, 不让 30 代重新发明)
+ *     基因只控制: 大小/增益/学习率
+ *   皮层涌现 (~5 种): 可进化皮层类型
+ *     条形码由基因决定 (Barabasi 2019)
+ *     皮层间连接从条形码兼容性涌现
+ *     皮层↔固定回路的接口也用条形码匹配
  *
- * 基因不编码"大脑长什么样"，而是编码"大脑怎么长出来":
- *   - 增殖基因: 分裂几轮 → 神经元数量涌现
- *   - 连接基因: 导向分子梯度 → 连接拓扑涌现
- *   - 分化基因: 转录因子 → 神经元类型涌现
+ * 效果:
+ *   固定回路保证信号必达 (LGN→皮层→BG→M1, 每步 80-90% 有效)
+ *   进化只需找最优皮层组合 (30 代可行)
+ *   不丢弃 49 步成果 (BG 乘法增益, VTA RPE, 群体向量 等全保留)
  *
- * 生物学基础:
- *   - 基因组瓶颈 (Zador 2019): 20,000 基因 → 100 万亿突触
- *   - NDP (Nature 2023): 从单细胞通过局部通信生长功能网络
- *
- * Phase A: 增殖 + 距离连接 (~20 基因)
- * Phase B: + 导向分子 + 分化 (~50 基因)
- * Phase C: + 迁移 + 修剪 (~80 基因)
+ * 生物学: 真实大脑也是这样——
+ *   BG/丘脑/杏仁核/海马的基本回路在爬行动物就已固定
+ *   皮层的面积分配和层间连接是哺乳类进化的主战场
  */
 
-#include "genome/genome.h"  // 复用 Gene 结构
+#include "genome/genome.h"  // Gene 结构
 #include <vector>
 #include <random>
+#include <cmath>
 
 namespace wuyun {
 
-class SimulationEngine;  // forward
-struct GridWorldConfig;
+static constexpr int N_CORTICAL_TYPES = 5;   // 可进化皮层类型数
+static constexpr int BARCODE_DIM = 8;         // 条形码维度
 
 // =============================================================================
-// 区域类型 (发育中的细胞分类)
-// =============================================================================
-
-enum class RegionType : uint8_t {
-    SENSORY   = 0,  // 感觉皮层 (V1, A1, S1...)
-    MOTOR     = 1,  // 运动皮层 (M1, PMC...)
-    PREFRONTAL= 2,  // 前额叶 (dlPFC, OFC, FPC...)
-    SUBCORTICAL=3,  // 皮层下 (BG, Thalamus...)
-    NEUROMOD  = 4,  // 调质核团 (VTA, LC, DRN...)
-    N_TYPES   = 5
-};
-
-// =============================================================================
-// DevGenome: 发育基因组
+// DevGenome v3: 骨架固定 + 皮层涌现
 // =============================================================================
 
 struct DevGenome {
-    // ===================== Phase A: 增殖 + 连接 =====================
+    // =====================================================================
+    // 第一部分: 固定回路参数 (~30 基因)
+    // 这些回路的"存在"和"内部拓扑"写死 (继承 build_brain)
+    // 基因只控制大小/增益/学习率
+    // =====================================================================
 
-    // --- 增殖基因: 控制每种区域类型的神经元数量 ---
-    // division_rounds[type] → 2^rounds 个神经元
-    // 例: division_rounds[SENSORY]=5 → 2^5=32 个感觉神经元
-    Gene division_rounds[5] = {
-        {"div_sensory",     5.0f, 3.0f, 8.0f},   // 8~256 neurons
-        {"div_motor",       4.0f, 3.0f, 7.0f},   // 8~128 neurons
-        {"div_prefrontal",  4.0f, 3.0f, 7.0f},
-        {"div_subcortical", 4.0f, 3.0f, 7.0f},
-        {"div_neuromod",    3.0f, 2.0f, 5.0f},   // 4~32 neurons
-    };
+    // BG 基底节 (D1/D2/GPi/GPe/STN 内部连接写死)
+    Gene bg_size       {"bg_size",     1.0f, 0.5f, 2.0f};
+    Gene da_stdp_lr    {"da_lr",       0.05f, 0.005f, 0.15f};
+    Gene bg_gain       {"bg_gain",     6.0f, 2.0f, 20.0f};
 
-    // 抑制性神经元比例 (全局)
-    Gene inhibitory_prob {"inh_prob", 0.20f, 0.10f, 0.35f};
+    // VTA DA (内部 RPE 计算写死)
+    Gene vta_size      {"vta_size",    1.0f, 0.5f, 2.0f};
+    Gene da_phasic_gain {"da_ph_gain", 0.5f, 0.1f, 1.5f};
 
-    // 增殖梯度 (3 个轴: 前后/上下/内外)
-    // growth_gradient[0] >0: 前部增殖多 (大前额叶, 灵长类) <0: 后部多 (大感觉区, 啮齿类)
-    Gene growth_gradient[3] = {
-        {"grow_ap", 0.3f, -1.0f, 1.0f},   // 前后轴
-        {"grow_dv", 0.0f, -1.0f, 1.0f},   // 上下轴
-        {"grow_ml", 0.0f, -1.0f, 1.0f},   // 内外轴
-    };
+    // 丘脑 (MotorThal, TRN 门控写死)
+    Gene thal_size     {"thal_size",   1.0f, 0.5f, 2.0f};
+    Gene thal_gate     {"thal_gate",   0.5f, 0.1f, 1.0f};
 
-    // --- 连接基因: 控制区域间连接 ---
-    // connection_radius: 距离内的细胞有概率形成突触
-    Gene connection_radius {"conn_radius", 0.3f, 0.1f, 0.6f};
+    // LGN 感觉中继
+    Gene lgn_gain      {"lgn_gain",    200.0f, 50.0f, 500.0f};
+    Gene lgn_baseline  {"lgn_base",    10.0f, 1.0f, 20.0f};
 
-    // 同类型内连接概率 (循环连接)
-    Gene recurrent_prob {"recurrent_prob", 0.15f, 0.05f, 0.40f};
+    // M1 运动输出
+    Gene motor_noise   {"mot_noise",   40.0f, 10.0f, 100.0f};
 
-    // 跨类型连接概率矩阵 (5×5 = 25 个基因)
-    // cross_prob[src_type * 5 + dst_type]
-    Gene cross_connect[25] = {
-        // →SENS  →MOT   →PFC   →SUB   →NMOD   (src↓)
-        {"s2s", 0.15f, 0.02f, 0.50f}, {"s2m", 0.05f, 0.01f, 0.20f},
-        {"s2p", 0.10f, 0.02f, 0.30f}, {"s2b", 0.08f, 0.01f, 0.25f},
-        {"s2n", 0.03f, 0.01f, 0.15f},
-        // MOT→
-        {"m2s", 0.05f, 0.01f, 0.20f}, {"m2m", 0.10f, 0.02f, 0.30f},
-        {"m2p", 0.08f, 0.01f, 0.25f}, {"m2b", 0.10f, 0.02f, 0.30f},
-        {"m2n", 0.05f, 0.01f, 0.20f},
-        // PFC→
-        {"p2s", 0.08f, 0.01f, 0.25f}, {"p2m", 0.10f, 0.02f, 0.30f},
-        {"p2p", 0.12f, 0.02f, 0.35f}, {"p2b", 0.15f, 0.02f, 0.40f},
-        {"p2n", 0.05f, 0.01f, 0.20f},
-        // SUB→
-        {"b2s", 0.05f, 0.01f, 0.20f}, {"b2m", 0.10f, 0.02f, 0.30f},
-        {"b2p", 0.08f, 0.01f, 0.25f}, {"b2b", 0.10f, 0.02f, 0.30f},
-        {"b2n", 0.05f, 0.01f, 0.20f},
-        // NMOD→
-        {"n2s", 0.08f, 0.01f, 0.25f}, {"n2m", 0.05f, 0.01f, 0.20f},
-        {"n2p", 0.08f, 0.01f, 0.25f}, {"n2b", 0.05f, 0.01f, 0.20f},
-        {"n2n", 0.03f, 0.01f, 0.15f},
-    };
+    // Hypothalamus 奖赏感觉
+    Gene reward_scale  {"rew_scale",   2.5f, 0.5f, 5.0f};
 
-    // --- 学习基因: DA-STDP 和稳态 ---
-    Gene da_stdp_lr      {"da_lr",     0.05f, 0.005f, 0.15f};
-    Gene homeostatic_eta {"homeo_eta", 0.005f, 0.0001f, 0.01f};
-    Gene homeostatic_target {"homeo_target", 8.0f, 1.0f, 15.0f};
+    // 杏仁核 (La→BLA→CeA 内部写死)
+    Gene amyg_size     {"amyg_size",   1.0f, 0.5f, 2.0f};
 
-    // --- 感觉/运动接口基因 ---
-    Gene sensory_gain    {"sens_gain",  200.0f, 50.0f, 500.0f};
-    Gene motor_noise     {"mot_noise",  40.0f, 10.0f, 100.0f};
-    Gene reward_gain     {"rew_gain",   100.0f, 20.0f, 300.0f};
+    // 海马 (DG→CA3→CA1 内部写死)
+    Gene hipp_size     {"hipp_size",   1.0f, 0.5f, 2.0f};
 
-    // ===================== Phase B: 导向分子 + 分化 =====================
+    // 稳态
+    Gene homeo_target  {"homeo_tgt",   8.0f, 1.0f, 15.0f};
+    Gene homeo_eta     {"homeo_eta",   0.005f, 0.0001f, 0.01f};
 
-    // 8 种导向分子, 每种 4 个参数 (cx, cy, sigma, amplitude) = 32 基因
-    // 生物学: Netrin(吸引), Slit(排斥), Ephrin(拓扑), Semaphorin(层特异)
-    Gene guidance_cx[8] = {
-        {"g0_cx",0.5f,0.0f,1.0f}, {"g1_cx",0.2f,0.0f,1.0f},
-        {"g2_cx",0.8f,0.0f,1.0f}, {"g3_cx",0.5f,0.0f,1.0f},
-        {"g4_cx",0.3f,0.0f,1.0f}, {"g5_cx",0.7f,0.0f,1.0f},
-        {"g6_cx",0.5f,0.0f,1.0f}, {"g7_cx",0.5f,0.0f,1.0f},
-    };
-    Gene guidance_cy[8] = {
-        {"g0_cy",0.8f,0.0f,1.0f}, {"g1_cy",0.3f,0.0f,1.0f},
-        {"g2_cy",0.3f,0.0f,1.0f}, {"g3_cy",0.5f,0.0f,1.0f},
-        {"g4_cy",0.6f,0.0f,1.0f}, {"g5_cy",0.6f,0.0f,1.0f},
-        {"g6_cy",0.1f,0.0f,1.0f}, {"g7_cy",0.9f,0.0f,1.0f},
-    };
-    Gene guidance_sigma[8] = {
-        {"g0_s",0.2f,0.05f,0.5f}, {"g1_s",0.15f,0.05f,0.5f},
-        {"g2_s",0.15f,0.05f,0.5f}, {"g3_s",0.25f,0.05f,0.5f},
-        {"g4_s",0.2f,0.05f,0.5f}, {"g5_s",0.2f,0.05f,0.5f},
-        {"g6_s",0.15f,0.05f,0.5f}, {"g7_s",0.15f,0.05f,0.5f},
-    };
-    Gene guidance_amp[8] = {
-        {"g0_a",1.0f,0.1f,2.0f}, {"g1_a",1.0f,0.1f,2.0f},
-        {"g2_a",0.8f,0.1f,2.0f}, {"g3_a",0.6f,0.1f,2.0f},
-        {"g4_a",0.7f,0.1f,2.0f}, {"g5_a",0.7f,0.1f,2.0f},
-        {"g6_a",1.0f,0.1f,2.0f}, {"g7_a",0.5f,0.1f,2.0f},
-    };
-    // 吸引/排斥: >0.5=吸引, <0.5=排斥
-    Gene guidance_attract[8] = {
-        {"g0_at",0.8f,0.0f,1.0f}, {"g1_at",0.7f,0.0f,1.0f},
-        {"g2_at",0.3f,0.0f,1.0f}, {"g3_at",0.6f,0.0f,1.0f},
-        {"g4_at",0.2f,0.0f,1.0f}, {"g5_at",0.5f,0.0f,1.0f},
-        {"g6_at",0.9f,0.0f,1.0f}, {"g7_at",0.4f,0.0f,1.0f},
-    };
+    // NE 探索
+    Gene ne_floor      {"ne_floor",    0.6f, 0.3f, 1.0f};
 
-    // 受体表达: 5 种区域类型 × 8 种分子 = 40 基因
-    // receptor_expr[type * 8 + molecule] = 该区域类型对该分子的敏感度
-    Gene receptor_expr[40] = {
-        // SENSORY 对 8 种分子的受体
-        {"s_r0",0.8f,0.0f,1.0f},{"s_r1",0.3f,0.0f,1.0f},{"s_r2",0.2f,0.0f,1.0f},{"s_r3",0.5f,0.0f,1.0f},
-        {"s_r4",0.1f,0.0f,1.0f},{"s_r5",0.4f,0.0f,1.0f},{"s_r6",0.6f,0.0f,1.0f},{"s_r7",0.7f,0.0f,1.0f},
-        // MOTOR 对 8 种分子的受体
-        {"m_r0",0.3f,0.0f,1.0f},{"m_r1",0.7f,0.0f,1.0f},{"m_r2",0.5f,0.0f,1.0f},{"m_r3",0.4f,0.0f,1.0f},
-        {"m_r4",0.6f,0.0f,1.0f},{"m_r5",0.2f,0.0f,1.0f},{"m_r6",0.3f,0.0f,1.0f},{"m_r7",0.1f,0.0f,1.0f},
-        // PFC 对 8 种分子的受体
-        {"p_r0",0.2f,0.0f,1.0f},{"p_r1",0.5f,0.0f,1.0f},{"p_r2",0.7f,0.0f,1.0f},{"p_r3",0.8f,0.0f,1.0f},
-        {"p_r4",0.3f,0.0f,1.0f},{"p_r5",0.6f,0.0f,1.0f},{"p_r6",0.4f,0.0f,1.0f},{"p_r7",0.2f,0.0f,1.0f},
-        // SUB 对 8 种分子的受体
-        {"b_r0",0.5f,0.0f,1.0f},{"b_r1",0.4f,0.0f,1.0f},{"b_r2",0.3f,0.0f,1.0f},{"b_r3",0.6f,0.0f,1.0f},
-        {"b_r4",0.8f,0.0f,1.0f},{"b_r5",0.5f,0.0f,1.0f},{"b_r6",0.2f,0.0f,1.0f},{"b_r7",0.3f,0.0f,1.0f},
-        // NMOD 对 8 种分子的受体
-        {"n_r0",0.4f,0.0f,1.0f},{"n_r1",0.6f,0.0f,1.0f},{"n_r2",0.4f,0.0f,1.0f},{"n_r3",0.3f,0.0f,1.0f},
-        {"n_r4",0.5f,0.0f,1.0f},{"n_r5",0.3f,0.0f,1.0f},{"n_r6",0.5f,0.0f,1.0f},{"n_r7",0.6f,0.0f,1.0f},
-    };
+    // 重放
+    Gene replay_passes {"replay_n",    7.0f, 1.0f, 15.0f};
 
-    // 分化梯度: DA/NMDA 受体密度随前后轴变化
-    Gene da_gradient  {"da_grad",  0.5f, -1.0f, 1.0f};  // >0: 前部 DA 高 (前额叶样)
-    Gene nmda_gradient{"nmda_grad",0.3f, -1.0f, 1.0f};  // >0: 后部 NMDA 高 (感觉样)
+    // 发育期
+    Gene dev_period    {"dev_per",     50.0f, 0.0f, 200.0f};
 
-    // ===================== Phase C: 修剪 + 关键期 =====================
-    Gene pruning_threshold {"prune_thr", 0.3f, 0.1f, 0.8f};   // 低于此活动水平的突触被修剪
-    Gene critical_period   {"crit_per",  50.0f, 10.0f, 200.0f}; // 自发活动步数 (关键期长度)
-    Gene spontaneous_rate  {"spont_rate", 0.1f, 0.02f, 0.3f};   // 自发活动强度
+    // =====================================================================
+    // 第二部分: 可进化皮层 (~85 基因)
+    // 5 种皮层类型, 每种有条形码 + 大小 + 属性
+    // =====================================================================
 
-    // --- 元数据 ---
+    // 皮层类型条形码: 5 × 8 = 40 基因
+    Gene cortical_barcode[N_CORTICAL_TYPES][BARCODE_DIM];
+
+    // 皮层类型大小: 5 基因
+    Gene cortical_division[N_CORTICAL_TYPES];
+
+    // 皮层类型抑制比: 5 基因
+    Gene cortical_inh_frac[N_CORTICAL_TYPES];
+
+    // =====================================================================
+    // 第三部分: 连接兼容性 (~73 基因)
+    // =====================================================================
+
+    // 兼容性矩阵: 8×8 = 64 基因
+    Gene w_connect[BARCODE_DIM][BARCODE_DIM];
+
+    // 连接阈值
+    Gene connect_threshold {"conn_thr", 0.5f, -1.0f, 2.0f};
+
+    // 皮层→BG 接口条形码 (哪种皮层投射到 BG): 8 基因
+    Gene cortical_to_bg[BARCODE_DIM];
+
+    // LGN→皮层 接口条形码 (LGN 投射到哪种皮层): 不需要 (LGN 有固定条形码)
+
+    // =====================================================================
+    // 元数据
+    // =====================================================================
     float fitness = 0.0f;
     int   generation = 0;
 
-    // ===================== 操作 =====================
+    // =====================================================================
+    // 操作
+    // =====================================================================
+    DevGenome();
 
     std::vector<Gene*> all_genes();
     std::vector<const Gene*> all_genes() const;
@@ -194,6 +134,21 @@ struct DevGenome {
 
     std::string summary() const;
     std::string to_json() const;
+
+    // =====================================================================
+    // 条形码兼容性计算
+    // =====================================================================
+
+    // 固定类型条形码 (LGN/M1/VTA/Hypo — 不进化)
+    static const float LGN_BARCODE[BARCODE_DIM];
+    static const float BG_BARCODE[BARCODE_DIM];
+
+    // 计算两个条形码之间的连接兼容性
+    float barcode_compat(const float bc_a[BARCODE_DIM],
+                         const float bc_b[BARCODE_DIM]) const;
+
+    // 兼容性 → 连接概率
+    float conn_prob_from_compat(float compat) const;
 };
 
 } // namespace wuyun

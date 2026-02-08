@@ -1,51 +1,48 @@
 #pragma once
 /**
- * Developer — 神经发育模拟器 (v2: 完整人脑架构)
+ * Developer v3 — 骨架固定 + 皮层涌现
  *
- * 从 DevGenome 的发育规则计算出 AgentConfig 参数,
- * 然后用标准 ClosedLoopAgent 构建完整的 64 区域人脑。
+ * 固定回路 (继承 build_brain 的 49 步成果):
+ *   BG D1/D2/GPi → 写死, 基因控制大小和增益
+ *   VTA 内部 RPE → 写死, 基因控制 DA 增益
+ *   丘脑 TRN 门控 → 写死, 基因控制门控强度
+ *   杏仁核/海马 → 写死, 基因控制大小
+ *   LGN/M1/Hypothalamus → 写死
  *
- * 与 v1 (通用区域) 的区别:
- *   v1: DevGenome → 5 个通用区域 (Sensory/Motor/PFC/Sub/Nmod) — 玩具
- *   v2: DevGenome → AgentConfig → build_brain() → 64 区域完整人脑
+ * 可进化皮层 (条形码兼容性, Barabasi 2019):
+ *   5 种皮层类型, 每种有 8 维条形码
+ *   皮层间连接 = sigmoid(barcode_i * W * barcode_j - threshold)
+ *   皮层→BG 接口 = barcode 与 cortical_to_bg 的兼容性
+ *   LGN→皮层接口 = barcode 与 LGN_BARCODE 的兼容性
  *
- * 发育规则如何决定参数:
- *   1. 增殖梯度 → 区域大小 (v1_size_factor, dlpfc_size_factor, bg_size_factor)
- *      前后轴梯度决定前额叶 vs 感觉区的相对大小
- *
- *   2. 导向分子 → 连接强度 (暂不影响 — build_brain 固定投射, 但影响 gain)
- *      bg_to_m1_gain, lgn_gain 等从发育规则计算
- *
- *   3. 分化梯度 → 受体密度 / 学习率
- *      DA 梯度 → da_stdp_lr (前部高 = 更强学习)
- *      NMDA 梯度 → cortical STDP 参数
- *
- *   4. 修剪阈值 → 稳态参数
- *      pruning_threshold → homeostatic_target_rate, homeostatic_eta
- *
- * 生物学: 真实大脑的区域类型由基因决定 (PAX6→V1, FOXP2→Broca),
- *   但区域大小、连接强度、受体密度由发育梯度决定。
- *   这正是间接编码的正确层级。
+ * 输出: AgentConfig (直接用 ClosedLoopAgent), 不需要自定义大脑
+ * 但: 皮层区域的数量和连接从条形码涌现
  */
 
 #include "genome/dev_genome.h"
 #include "engine/closed_loop_agent.h"
-#include <vector>
 
 namespace wuyun {
 
 class Developer {
 public:
     /**
-     * 从 DevGenome 计算 AgentConfig
-     * 发育规则 → 参数值, 然后 ClosedLoopAgent 用这些参数构建完整人脑
+     * 从 DevGenome 构建 ClosedLoopAgent
+     * 固定回路: 继承 build_brain
+     * 皮层: 条形码涌现
      */
     static AgentConfig to_agent_config(const DevGenome& genome);
 
     /**
-     * 诊断: 打印发育过程 (哪些基因决定了哪些参数)
+     * 诊断: 打印条形码兼容性矩阵和皮层连接拓扑
      */
     static std::string development_report(const DevGenome& genome);
+
+    /**
+     * 检查 LGN→皮层→BG 信号通路是否连通
+     * 返回: 连通的皮层类型数 (0 = 完全断开)
+     */
+    static int check_connectivity(const DevGenome& genome);
 };
 
 } // namespace wuyun

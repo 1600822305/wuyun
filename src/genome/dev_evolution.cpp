@@ -68,52 +68,71 @@ std::vector<DevGenome> DevEvolutionEngine::next_generation(std::vector<DevGenome
 // =============================================================================
 
 FitnessResult DevEvolutionEngine::evaluate_single(const DevGenome& genome, uint32_t seed) const {
-    // 1. 发育: DevGenome → AgentConfig (完整 64 区域人脑)
-    AgentConfig cfg = Developer::to_agent_config(genome);
-    cfg.fast_eval = true;  // 跳过海马等慢模块加速评估
-    cfg.world_config = config_.world_config;
-    cfg.world_config.seed = seed;
-
-    // 2. 构建完整 ClosedLoopAgent (与直接编码用完全相同的 build_brain)
-    ClosedLoopAgent agent(cfg);
-
-    // 3. 评估 (与 EvolutionEngine::evaluate_single 完全相同的 Baldwin 适应度)
-    size_t early_steps = config_.eval_steps / 5;
-    size_t late_steps = config_.eval_steps - early_steps;
-
-    int early_food = 0, early_danger = 0;
-    for (size_t i = 0; i < early_steps; ++i) {
-        auto result = agent.agent_step();
-        if (result.got_food) early_food++;
-        if (result.hit_danger) early_danger++;
-    }
-
-    if (early_food == 0 && early_danger == 0 && early_steps >= 100) {
+    // --- 早停 1: 连通性检查 (0 步, 瞬间) ---
+    // 如果没有皮层类型同时兼容 LGN 和 BG → 信号永远到不了运动输出
+    int conn = Developer::check_connectivity(genome);
+    if (conn == 0) {
         FitnessResult bad{};
-        bad.fitness = -1.0f;
+        bad.fitness = -2.0f;  // 直接淘汰, 不浪费计算
         return bad;
     }
 
-    int late_food = 0, late_danger = 0;
+    // 1. 发育: DevGenome → AgentConfig (骨架固定 + 皮层涌现)
+    AgentConfig cfg = Developer::to_agent_config(genome);
+    cfg.fast_eval = true;
+    cfg.world_config = config_.world_config;
+    cfg.world_config.seed = seed;
+
+    // 2. 构建完整 ClosedLoopAgent
+    ClosedLoopAgent agent(cfg);
+
+    // --- 早停 2: 100 步内是否有运动 ---
+    int early_events = 0;
+    for (size_t i = 0; i < 100; ++i) {
+        auto result = agent.agent_step();
+        if (result.got_food || result.hit_danger) early_events++;
+    }
+    if (early_events == 0) {
+        // 100 步零事件 = agent 不动或被困
+        FitnessResult bad{};
+        bad.fitness = -1.5f;
+        return bad;
+    }
+
+    // 3. 正式评估 (剩余步数)
+    size_t remaining = config_.eval_steps - 100;
+    size_t early_steps = remaining / 5;
+    size_t late_steps = remaining - early_steps;
+
+    int e_food = 0, e_danger = 0;
+    for (size_t i = 0; i < early_steps; ++i) {
+        auto result = agent.agent_step();
+        if (result.got_food) e_food++;
+        if (result.hit_danger) e_danger++;
+    }
+
+    int l_food = 0, l_danger = 0;
     for (size_t i = 0; i < late_steps; ++i) {
         auto result = agent.agent_step();
-        if (result.got_food) late_food++;
-        if (result.hit_danger) late_danger++;
+        if (result.got_food) l_food++;
+        if (result.hit_danger) l_danger++;
     }
 
     FitnessResult res;
-    res.early_safety = static_cast<float>(early_food) /
-                       std::max(1.0f, static_cast<float>(early_food + early_danger));
-    res.late_safety = static_cast<float>(late_food) /
-                      std::max(1.0f, static_cast<float>(late_food + late_danger));
+    res.early_safety = static_cast<float>(e_food) /
+                       std::max(1.0f, static_cast<float>(e_food + e_danger));
+    res.late_safety = static_cast<float>(l_food) /
+                      std::max(1.0f, static_cast<float>(l_food + l_danger));
     res.improvement = res.late_safety - res.early_safety;
     res.total_food = agent.world().total_food_collected();
     res.total_danger = agent.world().total_danger_hits();
 
+    // Baldwin 适应度 + 连通性奖励
     res.fitness = res.improvement * 3.0f
                 + res.late_safety * 1.0f
                 + static_cast<float>(res.total_food) * 0.001f
-                - static_cast<float>(res.total_danger) * 0.001f;
+                - static_cast<float>(res.total_danger) * 0.001f
+                + static_cast<float>(conn) * 0.05f;  // 连通性奖励
     return res;
 }
 
