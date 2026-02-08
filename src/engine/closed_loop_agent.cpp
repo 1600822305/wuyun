@@ -612,6 +612,14 @@ StepResult ClosedLoopAgent::agent_step() {
         }
         lc_->inject_arousal(arousal);
     }
+
+    // v35b: ACC→dlPFC 注意力增益 (冲突/惊讶 → dlPFC更专注)
+    // Biology: ACC→dlPFC投射增强PFC上下控制 (Shenhav 2013 EVC)
+    // 高冲突/惊讶 → attention_gain↑ → dlPFC神经元对输入更敏感 → 决策更精确
+    if (acc_ && dlpfc_) {
+        float att_gain = 1.0f + acc_->attention_signal() * 0.5f;  // [1.0, 1.5]
+        dlpfc_->set_attention_gain(att_gain);
+    }
     // v34: DRN-5HT wellbeing 注入 (持续获得食物→5-HT↑→更耐心)
     if (drn_) {
         drn_->inject_wellbeing(food_rate(200));
@@ -633,6 +641,15 @@ StepResult ClosedLoopAgent::agent_step() {
         float fr = static_cast<float>(food_count) / static_cast<float>(std::max(total, 1));
         noise_scale = std::max(config_.ne_floor, 1.0f - fr * config_.ne_food_scale);
     }
+
+    // v35b: ACC foraging_signal → 探索噪声增强 (Kolling 2012)
+    // Biology: dACC觅食信号: 当前策略不如全局平均 → 应该切换策略 → 探索↑
+    // foraging_signal高 → noise_scale↑ → 更多随机动作 → 突破当前局部最优
+    if (acc_) {
+        noise_scale *= (1.0f + acc_->foraging_signal() * 0.3f);
+        noise_scale = std::clamp(noise_scale, 0.3f, 2.0f);
+    }
+
     float effective_noise = config_.exploration_noise * noise_scale;
 
     int attractor_group = -1;
@@ -694,6 +711,16 @@ StepResult ClosedLoopAgent::agent_step() {
                 float da_gain = std::clamp(1.6f - 2.0f * sht, 0.5f, 1.5f);
                 float da_baseline = 0.3f;
                 da = da_baseline + (da - da_baseline) * da_gain;
+                da = std::clamp(da, 0.0f, 1.0f);
+            }
+            // v35b: ACC波动性 → DA误差缩放 (Behrens 2007)
+            // Biology: 高波动性 → 环境在变 → DA RPE误差放大 → 学得快
+            //          低波动性 → 环境稳定 → DA RPE误差压缩 → 保持稳定
+            // learning_rate_modulation ∈ [0.5, 2.0], baseline=1.0
+            if (acc_) {
+                float lr_mod = acc_->learning_rate_modulation();
+                float da_baseline = 0.3f;
+                da = da_baseline + (da - da_baseline) * lr_mod;
                 da = std::clamp(da, 0.0f, 1.0f);
             }
             bg_->set_da_level(da);

@@ -3151,12 +3151,39 @@ lc_->inject_arousal(arousal);
 | `tests/cpp/test_bg_learning.cpp` | 反转学习测试关闭synaptic_consolidation |
 | `tests/cpp/test_cortical_stdp.cpp` | 训练增强测试修正LTP/LTD比例+时间戳 |
 
+### Step 35b: ACC 输出全接线
+
+**日期**: 2025-02-08
+
+Step 35 中 ACC 只接了 `arousal_drive()→LC`，其余 3 个输出计算了但未使用。现在全部接线：
+
+| ACC 输出 | 接线目标 | 生物学机制 |
+|----------|----------|-----------|
+| `attention_signal()` | `dlpfc_->set_attention_gain(1.0 + att×0.5)` | ACC→dlPFC: 冲突/惊讶→PFC上下控制↑ (Shenhav 2013) |
+| `foraging_signal()` | `noise_scale *= (1.0 + forage×0.3)` | dACC觅食: 当前策略<全局平均→探索噪声↑ (Kolling 2012) |
+| `learning_rate_modulation()` | DA error scaling: `da = baseline + (da-baseline)×lr_mod` | 波动性→DA RPE放大/压缩→学习速度调制 (Behrens 2007) |
+
+信号流总结：
+```
+BG D1竞争 → ACC冲突 ─┬→ LC arousal → NE↑ → 探索噪声
+                      └→ dlPFC attention_gain → 决策精度
+
+奖励结果 → ACC惊讶 ──┬→ LC arousal → NE↑
+                      └→ dlPFC attention_gain
+
+奖励波动 → ACC波动性 ──→ DA error scaling → 学习率调制
+
+局部vs全局 → ACC觅食 ──→ noise_scale↑ → 策略切换
+```
+
+30/30 CTest 通过，零回归。
+
 ### 系统状态
 
 ```
 54区域 · ~146闭环神经元(+26 ACC) · ~112投射(+2 dlPFC↔ACC)
 所有模块启用，无有害模块
-新增机制: ACC冲突监测 + PRO惊讶 + 波动性学习率调制 + 觅食决策
-改进: 探索/利用由神经动力学涌现驱动，替代硬编码ne_floor
+ACC 4路输出全接线: arousal→LC, attention→dlPFC, lr_mod→DA, foraging→noise
+改进: 探索/利用/注意力/学习率 全部由神经动力学涌现驱动
 30/30 CTest 通过
 ```
