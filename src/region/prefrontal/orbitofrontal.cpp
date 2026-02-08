@@ -51,13 +51,18 @@ OrbitofrontalCortex::OrbitofrontalCortex(const OFCConfig& config)
 }
 
 void OrbitofrontalCortex::step(int32_t t, float dt) {
-    // --- DA modulation of value neurons ---
-    // High DA (reward present) → boost positive value neurons
-    // Low DA (punishment/omission) → boost negative value neurons
-    // Biology: OFC encodes expected value, DA signals actual outcome
-    //   When DA > baseline: "better than expected" → strengthen pos associations
-    //   When DA < baseline: "worse than expected" → strengthen neg associations
+    // --- DA gain modulation of value neurons ---
+    // v43 biological fix: DA as GAIN modulator, not additive drive
+    //   (Servan-Schreiber 1990: DA modulates signal-to-noise ratio)
+    //   Without sensory input (psp=0): DA alone CANNOT make OFC fire
+    //   With sensory input (psp>0): DA amplifies the response
+    //   → OFC only fires for stimuli it has sensory evidence for
+    //
+    // pos_gain: DA > baseline → amplify positive value (reward-predicting)
+    // neg_gain: DA < baseline → amplify negative value (punishment-predicting)
     float da_diff = da_level_ - 0.3f;  // Deviation from baseline
+    float pos_gain = 1.0f + std::max(0.0f,  da_diff) * 3.0f;  // [1.0, ~1.3]
+    float neg_gain = 1.0f + std::max(0.0f, -da_diff) * 3.0f;  // [1.0, ~1.3]
 
     // --- Inhibitory → value competition ---
     // PV interneurons enforce winner-take-all between pos and neg value
@@ -68,15 +73,14 @@ void OrbitofrontalCortex::step(int32_t t, float dt) {
 
     // --- Positive value neurons ---
     for (size_t i = 0; i < value_pos_.size(); ++i) {
-        float da_boost = std::max(0.0f, da_diff) * 50.0f;  // DA+ boosts pos
-        value_pos_.inject_basal(i, psp_pos_[i] + da_boost - inh_drive);
+        // Multiplicative: DA amplifies sensory PSP, doesn't add constant drive
+        value_pos_.inject_basal(i, psp_pos_[i] * pos_gain - inh_drive);
         psp_pos_[i] *= PSP_DECAY;
     }
 
     // --- Negative value neurons ---
     for (size_t i = 0; i < value_neg_.size(); ++i) {
-        float da_boost = std::max(0.0f, -da_diff) * 50.0f; // DA- boosts neg
-        value_neg_.inject_basal(i, psp_neg_[i] + da_boost - inh_drive);
+        value_neg_.inject_basal(i, psp_neg_[i] * neg_gain - inh_drive);
         psp_neg_[i] *= PSP_DECAY;
     }
 
@@ -112,7 +116,8 @@ void OrbitofrontalCortex::step(int32_t t, float dt) {
 
 void OrbitofrontalCortex::receive_spikes(const std::vector<SpikeEvent>& events) {
     for (const auto& evt : events) {
-        float current = is_burst(static_cast<SpikeType>(evt.spike_type)) ? 35.0f : 22.0f;
+        // v43 fix: 35/22→15/10 (was too strong → OFC fired on every input → noise)
+        float current = is_burst(static_cast<SpikeType>(evt.spike_type)) ? 15.0f : 10.0f;
         // Route to both pos and neg value neurons (let DA modulation decide winner)
         size_t pos_idx = evt.neuron_id % value_pos_.size();
         size_t neg_idx = evt.neuron_id % value_neg_.size();

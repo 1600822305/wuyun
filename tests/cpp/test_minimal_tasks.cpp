@@ -531,6 +531,19 @@ static void test_ablation() {
         {"关 LC-NE",            [](AgentConfig& c) { c.enable_lc_ne = false; }},
         {"关 NBM-ACh",          [](AgentConfig& c) { c.enable_nbm_ach = false; }},
         {"关 DRN-5HT",          [](AgentConfig& c) { c.enable_drn_5ht = false; }},
+        // v43: Step 40-42 新区域消融
+        {"关 NAcc",              [](AgentConfig& c) { c.enable_nacc = false; }},
+        {"关 SNc",               [](AgentConfig& c) { c.enable_snc = false; }},
+        {"关 SC",                [](AgentConfig& c) { c.enable_sc = false; }},
+        {"关 PAG",               [](AgentConfig& c) { c.enable_pag = false; }},
+        {"关 FPC",               [](AgentConfig& c) { c.enable_fpc = false; }},
+        {"关 OFC",               [](AgentConfig& c) { c.enable_ofc = false; }},
+        {"关 vmPFC",             [](AgentConfig& c) { c.enable_vmpfc = false; }},
+        {"关 all_new (回Step39)",[](AgentConfig& c) {
+            c.enable_nacc = false; c.enable_snc = false; c.enable_sc = false;
+            c.enable_pag = false; c.enable_fpc = false;
+            c.enable_ofc = false; c.enable_vmpfc = false;
+        }},
     };
 
     int n_configs = sizeof(configs) / sizeof(configs[0]);

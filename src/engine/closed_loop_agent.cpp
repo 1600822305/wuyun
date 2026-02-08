@@ -236,8 +236,8 @@ void ClosedLoopAgent::build_brain() {
     if (config_.enable_fpc) {
         // IT → FPC (object identity → goal planning: "food exists → seek it")
         engine_.add_projection("IT", "FPC", 3);
-        // dlPFC ↔ FPC (bidirectional: goals ↔ decisions)
-        engine_.add_projection("dlPFC", "FPC", 3);
+        // v43 fix: dlPFC→FPC removed (feedback loop amplified noise)
+        //   FPC→dlPFC is one-way top-down: goals modulate decisions, not vice versa
         engine_.add_projection("FPC", "dlPFC", 3);
         // Hippocampus → FPC (memory-guided planning: "I remember food at X")
         if (!config_.fast_eval) {
@@ -365,9 +365,10 @@ void ClosedLoopAgent::build_brain() {
         if (config_.enable_amygdala) {
             engine_.add_projection("Amygdala", "PAG", 1);
         }
-        // PAG → M1 (defense output → emergency motor bias, bypassing BG)
-        // Biology: PAG→brainstem→spinal cord; we shortcut to M1 (delay=1, fast)
-        engine_.add_projection("PAG", "M1", 1);
+        // v43 fix: PAG→M1 removed (PAG has no directional info → blind motor bias
+        //   caused agent to move randomly during fear → walked INTO danger)
+        //   Correct role: PAG→LC (fear→NE arousal, heightened vigilance)
+        //   Motor defense comes from BG learning (D2 NoGo for dangerous directions)
         // PAG → LC (fear → NE arousal, via SpikeBus)
         // Anti-cheat: replaces lc_->inject_arousal(pag_->arousal_drive()) scalar bypass.
         // Biology: PAG→LC increases NE release during threat (Aston-Jones 1991)
@@ -387,8 +388,10 @@ void ClosedLoopAgent::build_brain() {
 
         // LGN → SC (retinal input, fast: delay=1)
         engine_.add_projection("LGN", "SC", 1);
-        // SC → BG (saliency drive, fast: delay=1, supplements LGN→BG thalamostriatal)
-        engine_.add_projection("SC", "BG", 1);
+        // v43 fix: SC→BG changed to SC→dlPFC
+        //   SC→BG was redundant with LGN→BG thalamostriatal → doubled noise in BG
+        //   SC→dlPFC: saliency enhances cortical decision-making instead
+        engine_.add_projection("SC", "dlPFC", 2);
         // V1 → SC (cortical feedback to SC deep layer, delay=2)
         engine_.add_projection("V1", "SC", 2);
     }

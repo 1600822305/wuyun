@@ -324,12 +324,22 @@ PAG: dlPAG 主动逃跑 + vlPAG 被动冻结, Amygdala→PAG→LC 恐惧警觉�
 OFC: IT/Amygdala→OFC→dlPFC/NAcc 价值引导决策。vmPFC: OFC/Hippocampus→vmPFC→Amygdala/NAcc 安全评估。
 **D1 50→61, elig 107→120, ctx 655→689。** 30/30 CTest。
 
+### Step 43: 消融验证 + 生物学修复 ✅ (2026-02-09)
+> 详细文档: [steps/step43_ablation_biofix.md](steps/step43_ablation_biofix.md)
+
+消融发现 4 个有害区域 (SC+0.47, PAG+0.91, OFC+0.91, FPC+0.25)。按人脑解剖学修复:
+- **PAG**: 移除 PAG→M1 (解剖上 PAG 不投射 M1, 盲目运动偏置导致走进危险), 保留 PAG→LC (恐惧→NE 觉醒)
+- **SC**: SC→BG 改为 SC→dlPFC (与 LGN→BG 重复 → 噪声翻倍, SC 显著性应增强皮层决策)
+- **FPC**: 移除 dlPFC→FPC (层级最高区域不应接收即时决策反馈, 保留单向 FPC→dlPFC top-down)
+- **OFC**: DA 加法驱动改为乘法增益门控 (Servan-Schreiber 1990: DA 调制信噪比, 无输入时 DA 不能驱动发放)
+**修复后全部 7 个新区域翻正: all_new -0.43 (有用)。** 30/30 CTest。
+
 ---
 
 ## 当前系统状态
 
 ```
-63区域 · ~228闭环神经元 · ~140投射 · 30/30 CTest
+63区域 · ~228闭环神经元 · ~137投射 · 30/30 CTest
 默认环境: 10×10 grid, 5×5 vision (25px), 5 food, 3 danger
 
 学习链路 17/17:
@@ -337,12 +347,10 @@ OFC: IT/Amygdala→OFC→dlPFC/NAcc 价值引导决策。vmPFC: OFC/Hippocampus�
   ③ dlPFC→BG DA-STDP (乘法增益+侧向抑制)   ④ VTA DA burst/pause
   ⑤ ACh STDP 门控 (巩固+反转)   ⑥ 杏仁核 one-shot 恐惧   ⑦ 海马 CA3 + SWR 重放
   ⑧ Baldwin 进化   ⑨ 小脑 CF-LTD + DCN→BG   ⑩ 丘脑 NE/ACh TRN 门控 + 丘脑纹状体通路
-  ⑪ NAcc 动机/奖赏整合   ⑫ SNc 习惯维持 (tonic DA)   ⑬ SC 皮层下快速显著性
-  ⑭ PAG 应急防御 (CeA→PAG 硬连线)   ⑮ FPC 前额极规划 (BA10→dlPFC top-down)
-  ⑯ OFC 价值预测 (DA调制刺激-结果)   ⑰ vmPFC 恐惧消退/安全信号
+  ⑪ NAcc 动机/奖赏整合   ⑫ SNc 习惯维持 (tonic DA)   ⑬ SC 显著性→皮层
+  ⑭ PAG 恐惧→NE觉醒 (CeA→PAG→LC)   ⑮ FPC 前额极规划 (单向→dlPFC)
+  ⑯ OFC 价值预测 (DA增益门控)   ⑰ vmPFC 恐惧消退/安全信号
 
-关键指标:
-  D1 发放: 61/50步 (从 0→2→36→47→58→50→61)
-  皮层→BG events: 689/10步
-  Max eligibility: 120.0, Weight range: 0.0639
-  learner advantage: +0.036
+消融结果 (全部有用或中性):
+  NAcc -0.39 | SNc -0.30 | SC -0.25 | PAG -0.41
+  FPC -0.29 | OFC ±0.00 | vmPFC -0.50 | all_new -0.43
