@@ -45,6 +45,13 @@ if(MSVC)
     target_compile_options(benchmark_continuous PRIVATE /utf-8)
 endif()
 
+# v58 MultiRoomEnv benchmark
+add_executable(benchmark_multiroom tools/benchmark_multiroom.cpp)
+target_link_libraries(benchmark_multiroom PRIVATE wuyun_core)
+if(MSVC)
+    target_compile_options(benchmark_multiroom PRIVATE /utf-8)
+endif()
+
 # Quick scratch pad (类似 python -c 的快速实验)
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tools/scratch.cpp")
     add_executable(scratch tools/scratch.cpp)

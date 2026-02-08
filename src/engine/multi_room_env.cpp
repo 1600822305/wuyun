@@ -170,6 +170,8 @@ size_t MultiRoomEnv::vis_height() const { return cfg_.vision_side(); }
 Environment::Result MultiRoomEnv::step(float dx, float dy) {
     step_count_++;
 
+    int prev_ix = agent_ix_, prev_iy = agent_iy_;
+
     // Continuous movement with collision detection (same logic as GridWorld)
     float nx = agent_fx_ + dx;
     float ny = agent_fy_ + dy;
@@ -203,22 +205,25 @@ Environment::Result MultiRoomEnv::step(float dx, float dy) {
         agent_iy_ = new_iy;
     }
 
-    // Check cell events (only on cell transition, same as GridWorld v55)
+    // Check cell events ONLY on cell transition (v55 danger trap fix)
+    bool cell_changed = (agent_ix_ != prev_ix || agent_iy_ != prev_iy);
     Result result{};
     result.pos_x = agent_fx_;
     result.pos_y = agent_fy_;
 
-    Cell& cell = grid_[idx(agent_ix_, agent_iy_)];
-    if (cell == Cell::FOOD) {
-        result.reward = 1.0f;
-        result.positive_event = true;
-        food_collected_++;
-        cell = Cell::EMPTY;
-        respawn_food();
-    } else if (cell == Cell::DANGER) {
-        result.reward = -1.0f;
-        result.negative_event = true;
-        danger_hits_++;
+    if (cell_changed) {
+        Cell& cell = grid_[idx(agent_ix_, agent_iy_)];
+        if (cell == Cell::FOOD) {
+            result.reward = 1.0f;
+            result.positive_event = true;
+            food_collected_++;
+            cell = Cell::EMPTY;
+            respawn_food();
+        } else if (cell == Cell::DANGER) {
+            result.reward = -1.0f;
+            result.negative_event = true;
+            danger_hits_++;
+        }
     }
 
     return result;
