@@ -438,11 +438,20 @@ SpikeBus projections() 访问器 + SimulationEngine export_dot()/export_topology
 ### Step 55: 连续空间环境 ✅ (2026-02-08)
 > 详细文档: [steps/step55_continuous_space.md](steps/step55_continuous_space.md)
 
-M1 群体向量从离散 4 方向输出升级为连续浮点位移:
-- **GridWorld**: `act_continuous(dx, dy)` — agent 在格子上做浮点移动, 碰撞检测用 floor(pos)
-- **decode_m1_continuous()**: 群体向量 → (angle, coherence) → (dx, dy), coherence 控制速度
-- **AgentConfig**: `continuous_movement=false` 默认关闭 (向后兼容), `continuous_step_size=0.8`
-- 离散模式零回归, 新增连续移动测试 (GridWorld 直接 + Agent 闭环)。**31/31 CTest。**
+M1 群体向量从离散 4 方向升级为连续浮点位移 (**唯一输出模式**, 离散已删除):
+- **GridWorld**: `act_continuous(dx, dy)` + `cell_changed` 防 danger 陷阱
+- **decode_m1_continuous()**: coherence=|群体向量|/总发放 → 速度控制
+- **Benchmark** (500步×5seeds): danger↓93%, food+73%, safety+88%
+- `decode_m1_action()` 保留仅用于 efference copy/replay/callback。**31/31 CTest。**
+
+### Step 56: 丘脑皮层预测反馈 ✅ (2026-02-08)
+
+V1 L6 → LGN 皮层丘脑反馈闭环 (Sherman & Guillery 2006):
+- **ThalamicRelay**: `add_cortical_feedback_source()` — 区分前馈/反馈源
+  - 反馈源脉冲 → relay APICAL (12 pA, 调制预测)
+  - 前馈源脉冲 → relay BASAL (20-30 pA, 驱动)
+- **build_brain**: V1→LGN SpikeBus (delay=3) + V1 注册为 LGN 反馈源
+- **NMDA Mg²⁺ 电压门控**: 已完整实现 (B(V)查找表, mg_conc=1.0)。**31/31 CTest。**
 
 ---
 
@@ -456,11 +465,11 @@ M1 群体向量从离散 4 方向输出升级为连续浮点位移:
   连接: W_connect 8×8 + 阈值 + 接口 (73 基因)
   评估: 多任务天才评估 (开放觅食 + 稀疏奖赏 + 反转学习)
 
-手工模式 (保留): 64区域 · ~252神经元 · ~139投射 (build_brain)
-环境: 10×10 开放场地 + T-迷宫 / 走廊 / 简单迷宫
+手工模式 (保留): 64区域 · ~252神经元 · ~140投射 (build_brain)
+环境: 10×10 连续空间 + T-迷宫 / 走廊 / 简单迷宫
 
 架构 (v45-53):
-  M1: 群体向量编码 (Georgopoulos 1986)
+  M1: 群体向量编码 → 连续浮点位移 (Georgopoulos 1986)
   VTA: 内部 RPE (Schultz 1997)
   基因层: 骨架固定 + 皮层涌现 (Barabasi 2019)
   反射弧: SC 趋近 + PAG 冻结 (先天) + 新奇性回放 (一次学习)
