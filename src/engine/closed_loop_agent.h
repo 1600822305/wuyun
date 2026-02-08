@@ -40,6 +40,7 @@
 #include "region/subcortical/superior_colliculus.h"
 #include "region/subcortical/periaqueductal_gray.h"
 #include "region/anterior_cingulate.h"
+#include "region/prefrontal/orbitofrontal.h"
 #include "engine/sleep_cycle.h"
 #include "plasticity/homeostatic.h"
 #include <memory>
@@ -198,6 +199,17 @@ struct AgentConfig {
     //   FPC → dlPFC top-down 调制 (目标→计划→动作)
     bool  enable_fpc = true;
 
+    // v42: OFC 眶额皮层 (BA11/47) — 刺激-结果关联 (价值预测)
+    // Biology: OFC 编码"看到X→预期Y奖赏", DA 调制更新 (Rolls 2000)
+    //   pos value: 食物相关刺激 | neg value: 危险相关刺激
+    //   OFC → dlPFC/NAcc 价值信号引导决策
+    bool  enable_ofc = true;
+
+    // v42: vmPFC 腹内侧前额叶 (BA14/25) — 情绪调节/恐惧消退
+    // Biology: vmPFC → Amygdala ITC "安全信号", 驱动恐惧消退 (Milad & Quirk 2002)
+    //   综合 OFC 价值 + Hippocampus 上下文 → 安全评估
+    bool  enable_vmpfc = true;
+
     // v27: Developmental period (critical period for visual feature learning)
     // Biology: infant visual cortex spends ~6 months self-organizing via Hebbian STDP
     // before goal-directed behavior begins. Agent random-walks during dev period,
@@ -279,6 +291,8 @@ public:
     SuperiorColliculus* sc()   const { return sc_; }
     PeriaqueductalGray*  pag()  const { return pag_; }
     CorticalRegion*     fpc()  const { return fpc_; }
+    OrbitofrontalCortex* ofc()  const { return ofc_; }
+    CorticalRegion*     vmpfc() const { return vmpfc_; }
 
 private:
     AgentConfig config_;
@@ -310,6 +324,8 @@ private:
     SuperiorColliculus* sc_    = nullptr;   // v40: SC saliency
     PeriaqueductalGray*  pag_   = nullptr;   // v41: PAG defense
     CorticalRegion*     fpc_   = nullptr;   // v41: FPC planning
+    OrbitofrontalCortex* ofc_   = nullptr;   // v42: OFC value
+    CorticalRegion*     vmpfc_  = nullptr;   // v42: vmPFC emotion regulation
 
     // State
     int    agent_step_count_ = 0;

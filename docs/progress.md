@@ -317,24 +317,31 @@ NAcc 分离动机(ventral)与运动选择(dorsal), SNc tonic DA 稳定已学权�
 PAG: dlPAG 主动逃跑 + vlPAG 被动冻结, Amygdala→PAG→LC 恐惧警觉。FPC: 层级最高前额叶, IT/dlPFC/Hippocampus→FPC→dlPFC top-down 目标调制。
 **30/30 CTest, 皮层 events 616→655。**
 
+### Step 42: Phase 3 价值+情绪扩展 ✅ (2026-02-09)
+
+两新区域: OFC 眶额皮层 (12n, 刺激-结果价值预测, DA 调制) + vmPFC 腹内侧前额叶 (8n, 恐惧消退/安全信号)。
+OFC: IT/Amygdala→OFC→dlPFC/NAcc 价值引导决策。vmPFC: OFC/Hippocampus→vmPFC→Amygdala/NAcc 安全评估。
+**D1 50→61, elig 107→120, ctx 655→689。** 30/30 CTest。
+
 ---
 
 ## 当前系统状态
 
 ```
-60区域 · ~208闭环神经元 · ~130投射 · 30/30 CTest
+63区域 · ~228闭环神经元 · ~140投射 · 30/30 CTest
 默认环境: 10×10 grid, 5×5 vision (25px), 5 food, 3 danger
 
-学习链路 15/15:
+学习链路 17/17:
   ① V1→V2→V4→IT 视觉层级   ② L6 预测编码 + mismatch STDP
   ③ dlPFC→BG DA-STDP (乘法增益+侧向抑制)   ④ VTA DA burst/pause
   ⑤ ACh STDP 门控 (巩固+反转)   ⑥ 杏仁核 one-shot 恐惧   ⑦ 海马 CA3 + SWR 重放
   ⑧ Baldwin 进化   ⑨ 小脑 CF-LTD + DCN→BG   ⑩ 丘脑 NE/ACh TRN 门控 + 丘脑纹状体通路
   ⑪ NAcc 动机/奖赏整合   ⑫ SNc 习惯维持 (tonic DA)   ⑬ SC 皮层下快速显著性
   ⑭ PAG 应急防御 (CeA→PAG 硬连线)   ⑮ FPC 前额极规划 (BA10→dlPFC top-down)
+  ⑯ OFC 价值预测 (DA调制刺激-结果)   ⑰ vmPFC 恐惧消退/安全信号
 
 关键指标:
-  D1 发放: 50/50步 (从 0→2→36→47→58→50)
-  皮层→BG events: 655/10步
-  Max eligibility: 107.3, Weight range: 0.0725
+  D1 发放: 61/50步 (从 0→2→36→47→58→50→61)
+  皮层→BG events: 689/10步
+  Max eligibility: 120.0, Weight range: 0.0639
   learner advantage: +0.036

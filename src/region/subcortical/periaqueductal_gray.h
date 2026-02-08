@@ -47,20 +47,14 @@ public:
     const std::vector<uint8_t>& fired()      const override { return fired_; }
     const std::vector<int8_t>&  spike_type()  const override { return spike_type_; }
 
-    /** Inject CeA fear drive (amygdala output → PAG activation)
-     *  High fear → dlPAG flight OR vlPAG freeze depending on threat proximity */
-    void inject_fear(float cea_drive);
+    // Anti-cheat: NO inject_fear(). PAG receives CeA drive through SpikeBus only
+    // (Amygdala→PAG projection, delay=1). Fear gating is intrinsic to PAG neurons.
 
-    /** Defense output: how strongly PAG is driving defensive motor behavior
-     *  > 0: active defense (flight) — biases M1 away from threat
-     *  Used by ClosedLoopAgent to inject emergency motor bias */
+    /** Defense output (diagnostic only, not used for decisions) */
     float defense_output() const { return defense_level_; }
-
-    /** Freeze output: how strongly PAG is suppressing movement
-     *  > 0: passive defense — suppresses all motor output */
+    /** Freeze output (diagnostic only) */
     float freeze_output() const { return freeze_level_; }
-
-    /** Arousal drive to LC (fear → NE ↑ → heightened alertness) */
+    /** Arousal level (diagnostic only — PAG→LC via SpikeBus projection) */
     float arousal_drive() const { return arousal_; }
 
     NeuronPopulation& dlpag() { return dlpag_; }
@@ -75,7 +69,6 @@ private:
     std::vector<float> psp_dl_;
     std::vector<float> psp_vl_;
 
-    float fear_input_ = 0.0f;
     float defense_level_ = 0.0f;
     float freeze_level_ = 0.0f;
     float arousal_ = 0.0f;

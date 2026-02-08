@@ -30,6 +30,7 @@ set(WUYUN_CORE_SOURCES
     region/limbic/hypothalamus.cpp
     region/limbic/lateral_habenula.cpp
     region/anterior_cingulate.cpp
+    region/prefrontal/orbitofrontal.cpp
     region/neuromod/vta_da.cpp
     region/neuromod/snc_da.cpp
     region/neuromod/lc_ne.cpp

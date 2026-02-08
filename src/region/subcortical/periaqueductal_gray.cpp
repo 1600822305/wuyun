@@ -50,39 +50,37 @@ PeriaqueductalGray::PeriaqueductalGray(const PAGConfig& config)
 }
 
 void PeriaqueductalGray::step(int32_t t, float dt) {
-    // --- Fear gating: only activate if fear exceeds threshold ---
-    // Biology: PAG requires sufficient CeA excitation to trigger defense
-    // Prevents random noise from causing defensive responses
-    float gated_fear = std::max(0.0f, fear_input_ - FEAR_THRESHOLD);
+    // --- Anti-cheat: purely spike-driven PAG ---
+    // PAG receives CeA spikes through SpikeBus (Amygdala→PAG projection, delay=1).
+    // No inject_fear() — fear intensity is encoded in spike rate arriving via psp_dl_/psp_vl_.
+    // PAG neurons have low thresholds (-45mV dlPAG, -48mV vlPAG) so they activate
+    // with sufficient CeA input, providing intrinsic fear gating.
 
     // --- dlPAG: active defense (flight) ---
-    // Activated by moderate-to-high fear → "run away"
     // Biology: dlPAG stimulation produces active escape behaviors
+    // Low threshold + fast τ_m → responds rapidly to CeA spike bursts
     for (size_t i = 0; i < dlpag_.size(); ++i) {
-        float fear_drive = gated_fear * 150.0f;  // Strong drive from fear
-        dlpag_.inject_basal(i, psp_dl_[i] + fear_drive);
+        dlpag_.inject_basal(i, psp_dl_[i]);
         psp_dl_[i] *= PSP_DECAY;
     }
 
     // --- vlPAG: passive defense (freeze) ---
-    // Activated by sustained low-moderate fear → "freeze in place"
-    // Biology: vlPAG inhibits dlPAG when threat is nearby (freeze > flight)
-    // In GridWorld: freeze = suppress motor output (less effective than flight)
+    // Biology: vlPAG activated by moderate sustained input, inhibited by dlPAG
+    // Higher threshold (-48mV) → needs more input to activate than dlPAG
     for (size_t i = 0; i < vlpag_.size(); ++i) {
-        float fear_drive = gated_fear * 100.0f;  // Weaker than dlPAG
-        // vlPAG gets inhibited by dlPAG (mutual antagonism)
+        // vlPAG gets inhibited by dlPAG (mutual antagonism: flight suppresses freeze)
         float dl_inhibition = 0.0f;
         for (size_t j = 0; j < dlpag_.size(); ++j) {
             if (dlpag_.fired()[j]) dl_inhibition += 5.0f;
         }
-        vlpag_.inject_basal(i, psp_vl_[i] + fear_drive - dl_inhibition);
+        vlpag_.inject_basal(i, psp_vl_[i] - dl_inhibition);
         psp_vl_[i] *= PSP_DECAY;
     }
 
     dlpag_.step(t, dt);
     vlpag_.step(t, dt);
 
-    // --- Compute defense outputs ---
+    // --- Compute defense outputs (diagnostic, NOT used for decisions) ---
     size_t dl_fires = 0, vl_fires = 0;
     for (size_t i = 0; i < dlpag_.size(); ++i)
         if (dlpag_.fired()[i]) dl_fires++;
@@ -92,21 +90,11 @@ void PeriaqueductalGray::step(int32_t t, float dt) {
     float dl_rate = static_cast<float>(dl_fires) / static_cast<float>(std::max<size_t>(dlpag_.size(), 1));
     float vl_rate = static_cast<float>(vl_fires) / static_cast<float>(std::max<size_t>(vlpag_.size(), 1));
 
-    // Defense: active flight response (smoothed)
     defense_level_ = defense_level_ * 0.8f + dl_rate * 0.2f;
-    // Freeze: passive defense (smoothed)
     freeze_level_ = freeze_level_ * 0.8f + vl_rate * 0.2f;
-    // Arousal: both PAG columns drive LC arousal
     arousal_ = arousal_ * 0.9f + (dl_rate + vl_rate) * 0.5f * 0.1f;
 
-    // Decay fear input (must be re-injected each step)
-    fear_input_ *= 0.5f;
-
     aggregate_state();
-}
-
-void PeriaqueductalGray::inject_fear(float cea_drive) {
-    fear_input_ = cea_drive;
 }
 
 void PeriaqueductalGray::receive_spikes(const std::vector<SpikeEvent>& events) {

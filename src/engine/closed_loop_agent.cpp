@@ -365,6 +365,15 @@ void ClosedLoopAgent::build_brain() {
         if (config_.enable_amygdala) {
             engine_.add_projection("Amygdala", "PAG", 1);
         }
+        // PAG → M1 (defense output → emergency motor bias, bypassing BG)
+        // Biology: PAG→brainstem→spinal cord; we shortcut to M1 (delay=1, fast)
+        engine_.add_projection("PAG", "M1", 1);
+        // PAG → LC (fear → NE arousal, via SpikeBus)
+        // Anti-cheat: replaces lc_->inject_arousal(pag_->arousal_drive()) scalar bypass.
+        // Biology: PAG→LC increases NE release during threat (Aston-Jones 1991)
+        if (config_.enable_lc_ne) {
+            engine_.add_projection("PAG", "LC", 1);
+        }
     }
 
     // --- v40: Superior Colliculus 上丘 (Krauzlis 2013: subcortical saliency) ---
@@ -382,6 +391,53 @@ void ClosedLoopAgent::build_brain() {
         engine_.add_projection("SC", "BG", 1);
         // V1 → SC (cortical feedback to SC deep layer, delay=2)
         engine_.add_projection("V1", "SC", 2);
+    }
+
+    // --- v42: OFC 眶额皮层 (Rolls 2000: stimulus-outcome value) ---
+    // Encodes expected value of visual stimuli: "food-like pattern → positive value"
+    // DA modulates value updates (volume transmission, not SpikeBus)
+    if (config_.enable_ofc) {
+        OFCConfig ofc_cfg;
+        ofc_cfg.n_value_pos = n_act * s;    // 4: positive value
+        ofc_cfg.n_value_neg = n_act * s;    // 4: negative value
+        ofc_cfg.n_inh       = n_act * s;    // 4: E/I balance
+        engine_.add_region(std::make_unique<OrbitofrontalCortex>(ofc_cfg));
+
+        // IT → OFC (object identity → value association: "food" → pos value)
+        engine_.add_projection("IT", "OFC", 2);
+        // Amygdala → OFC (emotional valence → value modulation)
+        if (config_.enable_amygdala) {
+            engine_.add_projection("Amygdala", "OFC", 2);
+        }
+        // OFC → dlPFC (value signal → decision bias)
+        engine_.add_projection("OFC", "dlPFC", 2);
+        // OFC → NAcc (value → motivation)
+        if (config_.enable_nacc) {
+            engine_.add_projection("OFC", "NAcc", 2);
+        }
+    }
+
+    // --- v42: vmPFC 腹内侧前额叶 (Milad & Quirk 2002: fear extinction) ---
+    // Safety signal: context + value → "this place is safe now" → Amygdala ITC → CeA inhibition
+    if (config_.enable_vmpfc) {
+        add_ctx("vmPFC", n_act * 2, false);  // 8: smaller than dlPFC
+
+        // OFC → vmPFC (value information → safety assessment)
+        if (config_.enable_ofc) {
+            engine_.add_projection("OFC", "vmPFC", 2);
+        }
+        // Hippocampus → vmPFC (context: "this location was safe before")
+        if (!config_.fast_eval) {
+            engine_.add_projection("Hippocampus", "vmPFC", 3);
+        }
+        // vmPFC → Amygdala (safety signal → ITC excitation → CeA suppression)
+        if (config_.enable_amygdala) {
+            engine_.add_projection("vmPFC", "Amygdala", 2);
+        }
+        // vmPFC → NAcc (value-based motivation)
+        if (config_.enable_nacc) {
+            engine_.add_projection("vmPFC", "NAcc", 2);
+        }
     }
 
     // --- v40: SNc 黑质致密部 (Yin & Knowlton 2006: habit learning) ---
@@ -457,6 +513,8 @@ void ClosedLoopAgent::build_brain() {
     sc_    = dynamic_cast<SuperiorColliculus*>(engine_.find_region("SC"));
     pag_   = dynamic_cast<PeriaqueductalGray*>(engine_.find_region("PAG"));
     fpc_   = dynamic_cast<CorticalRegion*>(engine_.find_region("FPC"));
+    ofc_   = dynamic_cast<OrbitofrontalCortex*>(engine_.find_region("OFC"));
+    vmpfc_ = dynamic_cast<CorticalRegion*>(engine_.find_region("vmPFC"));
 
     // --- Topographic mappings through visual hierarchy ---
     // V1→V2: retinotopic (preserve spatial layout)
@@ -648,6 +706,11 @@ StepResult ClosedLoopAgent::agent_step() {
         // NAcc processes reward signal for motivation, independent of BG motor selection
         if (nacc_) {
             nacc_->set_da_level(vta_->da_output());
+        }
+        // v42: Feed VTA DA to OFC (value update signal, volume transmission)
+        // DA+ → strengthen positive value associations, DA- → strengthen negative
+        if (ofc_) {
+            ofc_->set_da_level(vta_->da_output());
         }
 
         // v40: SNc habit maintenance — blend tonic DA with VTA phasic DA
@@ -867,15 +930,9 @@ StepResult ClosedLoopAgent::agent_step() {
         if (lhb_) {
             vta_->inject_lhb_inhibition(lhb_->vta_inhibition());
         }
-        // v41: PAG defense circuit — CeA → PAG → emergency motor bias
-        // Biology: CeA fear output drives PAG, which bypasses BG for immediate defense
-        if (pag_ && amyg_) {
-            pag_->inject_fear(amyg_->cea_vta_drive());
-            // PAG arousal → LC (fear heightens alertness)
-            if (lc_) {
-                lc_->inject_arousal(pag_->arousal_drive() * 0.2f);
-            }
-        }
+        // v41 anti-cheat: PAG defense is fully spike-driven.
+        // CeA→PAG and PAG→M1/LC all via SpikeBus projections.
+        // No inject_fear() or arousal_drive() scalar bypasses.
         // Amygdala CeA → VTA/LHb: fear-driven DA pause
         // Biology: when Amygdala detects threatening visual pattern (learned CS),
         // CeA fires → drives VTA DA pause via RMTg, amplifying avoidance signal.
