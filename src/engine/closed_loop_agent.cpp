@@ -1233,18 +1233,13 @@ StepResult ClosedLoopAgent::agent_step() {
         }
     }
 
-    // B3. Decode action from M1 L5 only (biological: M1 is the motor output)
-    Action action = decode_m1_action(l5_accum);  // always compute for logging/efference
+    // B3. Decode action from M1 L5 (biological: M1 is the motor output)
+    // v55: continuous movement is the ONLY mode — no discrete 4-direction path
+    auto [dx, dy] = decode_m1_continuous(l5_accum);
+    Action action = decode_m1_action(l5_accum);  // nearest cardinal for efference copy/replay
 
-    // --- Phase C: Act in world + store reward ---
-    StepResult result;
-    if (config_.continuous_movement) {
-        // v55: Continuous movement — population vector → (dx, dy) float displacement
-        auto [dx, dy] = decode_m1_continuous(l5_accum);
-        result = world_.act_continuous(dx, dy);
-    } else {
-        result = world_.act(action);
-    }
+    // --- Phase C: Act in world ---
+    StepResult result = world_.act_continuous(dx, dy);
 
     // Store reward as pending (will be processed at START of next agent_step)
     // Only trigger Phase A for significant rewards (food/danger), not step penalties

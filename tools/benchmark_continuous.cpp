@@ -5,8 +5,8 @@
  * 默认: 2000 步, 5 个种子
  *
  * 对比:
- *   A: 离散模式 (continuous_movement=false) — 现有默认
- *   B: 连续模式 (continuous_movement=true)  — v55 新增
+ *   A: 离散模式 (act(Action) 直接调用 GridWorld)
+ *   B: 连续模式 (ClosedLoopAgent 默认, act_continuous)
  *
  * 输出: food, danger, improvement, late_safety 对比
  */
@@ -33,9 +33,8 @@ struct BenchResult {
     float elapsed_sec = 0;
 };
 
-BenchResult run_one(bool continuous, uint32_t seed, size_t steps) {
+BenchResult run_one(bool /*continuous — now always true*/, uint32_t seed, size_t steps) {
     AgentConfig cfg;
-    cfg.continuous_movement = continuous;
     cfg.continuous_step_size = 0.8f;
     cfg.world_config.width = 10;
     cfg.world_config.height = 10;

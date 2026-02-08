@@ -321,9 +321,8 @@ static void test_continuous_movement() {
     auto r2 = world.act_continuous(0.1f, 0.0f);
     TEST_ASSERT(r2.agent_x == cell_before, "small move stays in cell");
 
-    // Test ClosedLoopAgent with continuous_movement=true
+    // Test ClosedLoopAgent with continuous movement (the only mode)
     AgentConfig cfg;
-    cfg.continuous_movement = true;
     cfg.continuous_step_size = 0.8f;
     cfg.fast_eval = true;
     cfg.brain_steps_per_action = 6;
