@@ -327,6 +327,13 @@ private:
     OrbitofrontalCortex* ofc_   = nullptr;   // v42: OFC value
     CorticalRegion*     vmpfc_  = nullptr;   // v42: vmPFC emotion regulation
 
+    // v45: Population vector encoding (Georgopoulos 1986)
+    // Each M1 L5 neuron has a random preferred direction angle θ ∈ [0, 2π)
+    // Each BG D1 neuron has a random preferred direction angle
+    // Action = population vector of fired L5 neurons, mapped to closest cardinal direction
+    std::vector<float> m1_preferred_dir_;   // M1 L5 preferred direction angles
+    std::vector<float> d1_preferred_dir_;   // BG D1 preferred direction angles
+
     // State
     int    agent_step_count_ = 0;
     Action last_action_      = Action::STAY;

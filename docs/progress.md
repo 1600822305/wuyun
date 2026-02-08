@@ -346,6 +346,17 @@ OFC: IT/Amygdala→OFC→dlPFC/NAcc 价值引导决策。vmPFC: OFC/Hippocampus�
 brain_steps 敏感参数按 10bs→20bs 缩放 (homeostatic ×2, eta ÷2, lgn_noise ÷3)。
 **进化 vs 手工: fitness +0.56, late_safety +0.21。** D1=57, elig=71.6。30/30 CTest。
 
+### Step 45: M1 群体向量编码 ✅ (2026-02-09)
+
+将 M1 动作解码从"4 组固定神经元 WTA 计数"改为"群体向量编码" (Georgopoulos 1986):
+- **M1 L5**: 每个神经元赋随机偏好方向 θ ∈ [0, 2π), 群体向量 = Σ fired × (cos θ, sin θ)
+- **BG D1**: 每个 D1 MSN 也赋偏好方向, D1 发放 → 群体向量 → cos 相似度偏置 M1
+- **探索**: attractor_group(离散 0-3) → attractor_angle(连续 [0, 2π)), cos 加权驱动
+- **解码**: atan2(vy, vx) → 最近基数方向 (仍输出离散 Action 用于 GridWorld)
+
+DA-STDP 学的不再是"加强某一组"，而是"塑造群体活动方向"。
+**D1 权重分化 0.0607→0.0900 (+48%)。** 30/30 CTest。
+
 ---
 
 ## 当前系统状态
@@ -353,6 +364,11 @@ brain_steps 敏感参数按 10bs→20bs 缩放 (homeostatic ×2, eta ÷2, lgn_no
 ```
 63区域 · ~228闭环神经元 · ~137投射 · 30/30 CTest
 默认环境: 10×10 grid, 5×5 vision (25px), 5 food, 3 danger
+
+编码架构:
+  M1: 群体向量编码 (Georgopoulos 1986), 每个 L5 神经元有随机偏好方向
+  BG→M1: D1 群体向量 → cos 相似度偏置, 不再是 4 组硬编码映射
+  解码: 群体向量角 → 最近基数方向 (UP/DOWN/LEFT/RIGHT)
 
 学习链路 17/17:
   ① V1→V2→V4→IT 视觉层级   ② L6 预测编码 + mismatch STDP
@@ -363,7 +379,7 @@ brain_steps 敏感参数按 10bs→20bs 缩放 (homeostatic ×2, eta ÷2, lgn_no
   ⑭ PAG 恐惧→NE觉醒 (CeA→PAG→LC)   ⑮ FPC 前额极规划 (单向→dlPFC)
   ⑯ OFC 价值预测 (DA增益门控)   ⑰ vmPFC 恐惧消退/安全信号
 
-关键指标 (v44 Baldwin 参数):
-  D1 发放: 57/50步, D2 发放: 61/50步
-  皮层→BG events: 426/10步
-  Max eligibility: 71.6, Weight range: 0.0607
+关键指标 (v45 群体向量):
+  D1 发放: 41/50步, D2 发放: 76/50步
+  皮层→BG events: 423/10步
+  Max eligibility: 72.0, Weight range: 0.0900 (+48% vs v44)

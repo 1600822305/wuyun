@@ -595,6 +595,29 @@ void ClosedLoopAgent::build_brain() {
 
     // --- Enable working memory on dlPFC ---
     dlpfc_->enable_working_memory();
+
+    // --- v45: Population vector encoding (Georgopoulos 1986) ---
+    // Each M1 L5 neuron and BG D1 neuron gets a random preferred direction.
+    // Direction selection emerges from population activity, not hardcoded groups.
+    // Deterministic seed for reproducibility across runs.
+    {
+        std::mt19937 pv_rng(42);
+        std::uniform_real_distribution<float> angle_dist(0.0f, 6.2831853f);
+
+        // M1 L5 preferred directions
+        size_t l5_sz = m1_->column().l5().size();
+        m1_preferred_dir_.resize(l5_sz);
+        for (size_t i = 0; i < l5_sz; ++i) {
+            m1_preferred_dir_[i] = angle_dist(pv_rng);
+        }
+
+        // BG D1 preferred directions
+        size_t d1_sz = bg_->d1().size();
+        d1_preferred_dir_.resize(d1_sz);
+        for (size_t i = 0; i < d1_sz; ++i) {
+            d1_preferred_dir_[i] = angle_dist(pv_rng);
+        }
+    }
 }
 
 // =============================================================================
@@ -886,10 +909,21 @@ StepResult ClosedLoopAgent::agent_step() {
 
     float effective_noise = config_.exploration_noise * noise_scale;
 
+    // v45: Population vector exploration — pick random direction angle
+    //   instead of random group. Derive group for backward compat (efference copy, replay).
+    //   Direction angles: UP=π/2, DOWN=-π/2, LEFT=π, RIGHT=0
+    constexpr float DIR_ANGLES[4] = {1.5708f, -1.5708f, 3.14159f, 0.0f};
+    float attractor_angle = 0.0f;
     int attractor_group = -1;
     if (effective_noise > 0.0f) {
-        std::uniform_int_distribution<int> group_pick(0, 3);
-        attractor_group = group_pick(motor_rng_);
+        std::uniform_real_distribution<float> angle_pick(0.0f, 6.2831853f);
+        attractor_angle = angle_pick(motor_rng_);
+        // Derive closest cardinal direction for efference copy compatibility
+        float best_cos = -2.0f;
+        for (int d = 0; d < 4; ++d) {
+            float c = std::cos(attractor_angle - DIR_ANGLES[d]);
+            if (c > best_cos) { best_cos = c; attractor_group = d; }
+        }
     }
     float attractor_drive = effective_noise * config_.attractor_drive_ratio;
     float attractor_jitter = effective_noise * (1.0f - config_.attractor_drive_ratio);
@@ -999,45 +1033,44 @@ StepResult ClosedLoopAgent::agent_step() {
         //   dlPFC→BG pathway naturally biases action selection
         // No direct BG injection needed — the cortical pathway handles it.
 
-        // (1) M1 L5 exploration: attractor direction + background activity
-        //     Attractor group: strong drive (cortical attractor settled on this direction)
-        //     Other groups: weak background (cortical spontaneous activity)
-        //     BG bias can override attractor as learning progresses
+        // (1) v45: M1 L5 population vector exploration (Georgopoulos 1986)
+        //     Each L5 neuron has a preferred direction θ_i.
+        //     Neurons aligned with attractor_angle get strong drive (cosine weighting).
+        //     BG population vector can override as learning progresses.
         auto& l5 = m1_->column().l5();
-        if (l5_size >= 4) {
-            size_t l5_group = l5_size / 4;
+        {
             std::uniform_real_distribution<float> jitter(-attractor_jitter, attractor_jitter);
-            for (int g = 0; g < 4; ++g) {
-                size_t m1_start = g * l5_group;
-                size_t m1_end = (g < 3) ? (g + 1) * l5_group : l5_size;
-                float drive = (g == attractor_group) ? attractor_drive : background_drive;
-                for (size_t j = m1_start; j < m1_end; ++j) {
-                    float current = drive + jitter(motor_rng_);
-                    if (current > 0.0f) l5.inject_basal(j, current);
-                }
+            for (size_t j = 0; j < l5_size; ++j) {
+                float cos_sim = std::cos(m1_preferred_dir_[j] - attractor_angle);
+                // Aligned neurons (cos>0): scale from background to attractor drive
+                // Opposite neurons (cos<0): background only
+                float drive = background_drive
+                    + std::max(0.0f, cos_sim) * (attractor_drive - background_drive);
+                drive += jitter(motor_rng_);
+                if (drive > 0.0f) l5.inject_basal(j, drive);
             }
         }
 
-        // (2) BG D1 → M1 L5 bias: simplified BG→MotorThal→M1 disinhibition
-        //     D1 subgroup fires → corresponding M1 L5 group gets extra drive
-        //     As DA-STDP changes D1 weights, specific M1 groups get stronger bias
-        //     → learned actions emerge from BG modulation of M1
-        if (d1_size >= 4 && l5_size >= 4) {
+        // (2) v45: BG D1 population vector → M1 directional bias
+        //     D1 fired neurons contribute their preferred direction to a population vector.
+        //     The BG vector biases M1 neurons via cosine similarity.
+        //     DA-STDP changes WHICH D1 neurons fire → shapes the population vector direction.
+        {
             const auto& d1_fired = bg_->d1().fired();
-            size_t l5_group = l5_size / 4;
-            for (int g = 0; g < 4; ++g) {
-                size_t d1_start = g * d1_group;
-                size_t d1_end = (g < 3) ? (g + 1) * d1_group : d1_size;
-                int d1_fires = 0;
-                for (size_t k = d1_start; k < d1_end; ++k) {
-                    if (d1_fired[k]) d1_fires++;
+            float bg_vx = 0.0f, bg_vy = 0.0f;
+            for (size_t k = 0; k < d1_size; ++k) {
+                if (d1_fired[k]) {
+                    bg_vx += std::cos(d1_preferred_dir_[k]);
+                    bg_vy += std::sin(d1_preferred_dir_[k]);
                 }
-                if (d1_fires > 0) {
-                    float bias = static_cast<float>(d1_fires) * bg_to_m1_gain;
-                    size_t m1_start = g * l5_group;
-                    size_t m1_end = (g < 3) ? (g + 1) * l5_group : l5_size;
-                    for (size_t j = m1_start; j < m1_end; ++j) {
-                        l5.inject_basal(j, bias);
+            }
+            float bg_mag = std::sqrt(bg_vx * bg_vx + bg_vy * bg_vy);
+            if (bg_mag > 0.1f) {
+                float bg_angle = std::atan2(bg_vy, bg_vx);
+                for (size_t j = 0; j < l5_size; ++j) {
+                    float cos_sim = std::cos(m1_preferred_dir_[j] - bg_angle);
+                    if (cos_sim > 0.0f) {
+                        l5.inject_basal(j, cos_sim * bg_mag * bg_to_m1_gain);
                     }
                 }
             }
@@ -1135,37 +1168,44 @@ void ClosedLoopAgent::inject_observation() {
     visual_encoder_.encode_and_inject(obs, lgn_);
 }
 // =============================================================================
-// Action decoding: M1 L5 fired → winner-take-all over 4 directions
+// Action decoding: M1 L5 population vector → direction (Georgopoulos 1986)
 // =============================================================================
 
 Action ClosedLoopAgent::decode_m1_action(const std::vector<int>& l5_accum) const {
-    // Biological: action decoded ONLY from M1 L5 (sole motor output)
-    // BG influence reaches M1 through MotorThal pathway (bias injection above)
-    // M1 L5 divided into 4 groups: UP / DOWN / LEFT / RIGHT
+    // v45: Population vector decoding — each L5 neuron has a preferred direction.
+    // The population vector = Σ (fire_count_i × preferred_direction_i).
+    // The angle of this vector determines movement direction.
+    // Biology: motor cortex neurons have broad directional tuning curves.
+    //   Population vector accurately predicts arm movement direction
+    //   even though individual neurons are noisy (Georgopoulos et al. 1986).
 
-    size_t l5_size = l5_accum.size();
-    if (l5_size < 4) return Action::STAY;
+    if (l5_accum.size() < 2 || m1_preferred_dir_.empty()) return Action::STAY;
 
-    float scores[4] = {0, 0, 0, 0};
-    size_t group_size = l5_size / 4;
-    for (size_t g = 0; g < 4; ++g) {
-        size_t start = g * group_size;
-        size_t end = (g < 3) ? (g + 1) * group_size : l5_size;
-        for (size_t i = start; i < end; ++i) {
-            scores[g] += static_cast<float>(l5_accum[i]);
+    float vx = 0.0f, vy = 0.0f;
+    for (size_t i = 0; i < l5_accum.size() && i < m1_preferred_dir_.size(); ++i) {
+        if (l5_accum[i] > 0) {
+            vx += static_cast<float>(l5_accum[i]) * std::cos(m1_preferred_dir_[i]);
+            vy += static_cast<float>(l5_accum[i]) * std::sin(m1_preferred_dir_[i]);
         }
     }
 
-    // Winner-take-all
-    float max_score = *std::max_element(scores, scores + 4);
-    if (max_score <= 0.0f) return Action::STAY;
+    float mag = std::sqrt(vx * vx + vy * vy);
+    if (mag < 0.01f) return Action::STAY;  // no coherent direction
 
-    for (int g = 0; g < 4; ++g) {
-        if (scores[g] >= max_score - 0.001f) {
-            return static_cast<Action>(g);
+    // Map population vector angle to closest cardinal direction
+    // UP=π/2, DOWN=-π/2, LEFT=π, RIGHT=0
+    float angle = std::atan2(vy, vx);
+    constexpr float DIR_ANGLES[4] = {1.5708f, -1.5708f, 3.14159f, 0.0f};
+    float best_cos = -2.0f;
+    int best_dir = 4;  // STAY
+    for (int d = 0; d < 4; ++d) {
+        float c = std::cos(angle - DIR_ANGLES[d]);
+        if (c > best_cos) {
+            best_cos = c;
+            best_dir = d;
         }
     }
-    return Action::STAY;
+    return static_cast<Action>(best_dir);
 }
 
 // =============================================================================
