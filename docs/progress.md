@@ -474,6 +474,15 @@ ClosedLoopAgent 与 GridWorld 解耦, 支持任意 2D 环境插拔:
 - 挑战: 导航门道 + 空间记忆 + 多房间探索
 - Test 5: ClosedLoopAgent + MultiRoomEnv 闭环 100 步无崩溃。**32/32 CTest。**
 
+### Step 59: 墙壁回避反射 + 探索饥饿重置 ✅ (2026-02-08)
+
+解决 MultiRoomEnv 中 agent 卡死问题 (2/5 seeds 不动):
+- **墙壁回避反射 (0c)**: 视觉 patch 检测 vis_wall → 计算墙壁质心 → M1 cos 反方向驱动
+  - 生物学: 视动反射 / 触须回避 (Goodale 2011), 硬连线不需学习
+- **探索饥饿重置**: `steps_since_reward_` > 30 → noise × 2.0
+  - 生物学: LC NE burst mode (Aston-Jones 2005), 长时间无奖赏加大搜索
+- **Benchmark**: 卡死 2/5→0/5, food +40%, agents 成功穿越门道到达其他房间。**32/32 CTest。**
+
 ---
 
 ## 当前系统状态
