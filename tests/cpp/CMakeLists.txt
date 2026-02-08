@@ -261,5 +261,13 @@ if(MSVC)
 endif()
 add_test(NAME dev_genome_tests COMMAND test_dev_genome)
 
+# Step 58: MultiRoomEnv 多房间迷宫环境
+add_executable(test_multi_room test_multi_room.cpp)
+target_link_libraries(test_multi_room PRIVATE wuyun_core)
+if(MSVC)
+    target_compile_options(test_multi_room PRIVATE /utf-8)
+endif()
+add_test(NAME multi_room_tests COMMAND test_multi_room)
+
 # Register as CTest
 add_test(NAME neuron_tests COMMAND test_neuron)

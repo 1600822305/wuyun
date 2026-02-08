@@ -42,6 +42,7 @@ set(WUYUN_CORE_SOURCES
     engine/sleep_cycle.cpp
     engine/grid_world.cpp
     engine/grid_world_env.cpp
+    engine/multi_room_env.cpp
     engine/closed_loop_agent.cpp
     genome/genome.cpp
     genome/evolution.cpp
