@@ -3006,3 +3006,157 @@ SWR回放、LHb、睡眠巩固、预测编码全部从中性/有害变为关键�
 待解决: 长期灾难性遗忘 (2000步)
 速度: 2.5秒/6测试
 ```
+
+---
+
+## Step 35: ACC 前扣带回皮层 — 冲突监测与动态探索
+
+**日期**: 2025-02-08
+**目标**: 替代硬编码 `ne_floor` 和手工 `arousal` 计算，用神经动力学驱动探索/利用平衡
+
+### 问题诊断
+
+当前系统的探索/利用平衡完全依赖硬编码参数：
+
+```
+// 旧机制 (closed_loop_agent.cpp)
+float arousal = std::max(0.0f, 0.05f - fr * 0.1f);  // 手工food_rate计算
+lc_->inject_arousal(arousal);
+// fallback: noise_scale = max(ne_floor=0.67, 1.0 - fr * ne_food_scale)
+```
+
+问题：
+1. `ne_floor=0.67` 是进化出的魔法数字，没有生物学基础
+2. `arousal` 只看 `food_rate`，忽略了动作冲突、环境变化、策略失效等关键信号
+3. 没有冲突监测 — 系统不知道自己在"犹豫"
+4. 没有惊讶检测 — 意外结果不会改变行为
+5. 没有波动性追踪 — 环境变化时学习率不调整
+
+### 文献基础
+
+整合 5 个经典 ACC 计算模型：
+
+| 模型 | 来源 | 功能 |
+|------|------|------|
+| **冲突监测** | Botvinick et al. 2001 | D1子群竞争 → 探索需求 |
+| **PRO预测误差** | Alexander & Brown 2011 | \|actual-predicted\| → 惊讶（不分正负效价） |
+| **波动性检测** | Behrens et al. 2007 | fast/slow奖励率差 → 学习率调制 |
+| **觅食决策** | Kolling et al. 2012 | local vs global奖励率 → 策略切换 |
+| **努力/控制** | Shenhav et al. 2013 EVC | 综合信号 → LC-NE唤醒驱动 |
+
+解剖学连接 (StatPearls, Neuroanatomy Cingulate Cortex)：
+- 输入: dlPFC(上下文), BG D1(动作竞争), VTA-DA(RPE), Amygdala-CeA(威胁)
+- 输出: LC(唤醒/探索), dlPFC(控制/注意), VTA(惊讶调制)
+
+### 实现
+
+#### 神经元群体
+
+| 群体 | 数量 | 类型 | 功能 |
+|------|------|------|------|
+| **dACC** | 12×s | L2/3 Pyramidal | 冲突监测 + 觅食 + 认知控制 |
+| **vACC** | 8×s | L2/3 Pyramidal | 情绪评价 + 惊讶 + 动机 |
+| **PV Inh** | 6×s | PV Basket | E/I 平衡 |
+
+内部突触: dACC↔vACC (AMPA), Exc→Inh (AMPA→SOMA), Inh→Exc (GABA_A→SOMA)
+
+#### 计算模块
+
+**1. 冲突监测 (Botvinick 2001)**
+```
+conflict = Σ_{i≠j} rate_i × rate_j / total²  // Hopfield能量
+// 4组D1同等活跃 = 高冲突 (0.375)
+// 1组主导 = 低冲突 (≈0)
+conflict_level = EMA(conflict × gain, decay=0.85)
+```
+
+**2. PRO惊讶 (Alexander & Brown 2011)**
+```
+predicted_reward = EMA(outcome, τ=0.97)  // 慢速跟踪
+surprise = |actual - predicted|  // 不分正负效价!
+// "ACC doesn't care about good or bad, only if it was expected"
+```
+
+**3. 波动性 (Behrens 2007)**
+```
+reward_rate_fast = EMA(|outcome|, τ=0.90)  // 快速追踪
+reward_rate_slow = EMA(|outcome|, τ=0.99)  // 慢速基线
+volatility = |fast - slow| × gain  // 变化速度
+→ learning_rate_modulation ∈ [0.5, 2.0]
+```
+
+**4. 觅食决策 (Kolling 2012)**
+```
+foraging_signal = max(0, global_rate - local_rate) × 5
+// 当前策略不如长期平均 → 应该切换
+```
+
+**5. 综合输出 (Shenhav 2013 EVC)**
+```
+arousal_drive = conflict×0.4 + surprise×0.3 + foraging×0.2 + threat×0.1
+→ ACC→LC: inject_arousal(arousal_drive × 0.15)  // 替代硬编码ne_floor!
+attention_signal = conflict×0.5 + surprise×0.3 + volatility×0.2
+→ ACC→dlPFC: 认知控制增强
+```
+
+### 接入 ClosedLoopAgent
+
+#### build_brain() 新增
+```
+ACC (12+8+6=26 neurons × scale)
+SpikeBus: dlPFC → ACC (delay=3), ACC → dlPFC (delay=3)
+```
+
+#### agent_step() 改变
+
+**输入注入**:
+- `acc_->inject_d1_rates()`: 读取 BG D1 4个方向子群发放率 → 冲突检测
+- `acc_->inject_outcome()`: 注入 `last_reward_` → PRO惊讶计算
+- `acc_->inject_threat()`: 注入 `amyg_->cea_vta_drive()` → 情绪唤醒
+
+**输出使用**:
+```cpp
+// 旧: arousal = max(0, 0.05 - food_rate * 0.1)  // 硬编码
+// 新: arousal = acc_->arousal_drive() * 0.15      // 神经动力学涌现
+lc_->inject_arousal(arousal);
+```
+
+### 测试修复（非ACC引起的已有问题）
+
+| 测试 | 根因 | 修复 |
+|------|------|------|
+| `bg_learning` 反转学习 | Step 33 新增 `synaptic_consolidation=true` 但测试未更新 → 巩固后突触抗拒反转 | 测试中关闭巩固 |
+| `cortical_stdp` 训练增强 | LTD(0.022) > LTP(0.02) → 训练反而削弱权重；时间戳重叠 | LTP>LTD, 修正时间戳 |
+
+### 结果
+
+```
+30/30 CTest 全部通过，零回归
+```
+
+### 新增文件
+
+| 文件 | 说明 |
+|------|------|
+| `src/region/anterior_cingulate.h` | ACCConfig + AnteriorCingulate 类定义 |
+| `src/region/anterior_cingulate.cpp` | 完整实现 (5个计算模块, 6组内部突触) |
+
+### 修改文件
+
+| 文件 | 改动 |
+|------|------|
+| `src/engine/closed_loop_agent.h` | +include, +enable_acc=true, +acc_ pointer, +acc() accessor |
+| `src/engine/closed_loop_agent.cpp` | build_brain() 实例化ACC+投射; agent_step() ACC驱动LC arousal |
+| `src/CMakeLists.txt` | +anterior_cingulate.cpp |
+| `tests/cpp/test_bg_learning.cpp` | 反转学习测试关闭synaptic_consolidation |
+| `tests/cpp/test_cortical_stdp.cpp` | 训练增强测试修正LTP/LTD比例+时间戳 |
+
+### 系统状态
+
+```
+54区域 · ~146闭环神经元(+26 ACC) · ~112投射(+2 dlPFC↔ACC)
+所有模块启用，无有害模块
+新增机制: ACC冲突监测 + PRO惊讶 + 波动性学习率调制 + 觅食决策
+改进: 探索/利用由神经动力学涌现驱动，替代硬编码ne_floor
+30/30 CTest 通过
+```

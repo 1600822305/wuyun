@@ -263,6 +263,23 @@ void ClosedLoopAgent::build_brain() {
         engine_.add_projection("Cerebellum", "BG", 1);
     }
 
+    // --- v35: ACC 前扣带回 (Botvinick 2001 冲突监测 + Alexander & Brown 2011 PRO) ---
+    // 输入: BG D1发放率(冲突), VTA DA(惊讶), Amygdala CeA(威胁)
+    // 输出: ACC→LC(唤醒/探索), ACC→dlPFC(注意力), 波动性→学习率调制
+    // 替代硬编码 ne_floor, 用神经动力学驱动探索/利用平衡
+    if (config_.enable_acc) {
+        ACCConfig acc_cfg;
+        acc_cfg.n_dacc = 12 * s;
+        acc_cfg.n_vacc = 8 * s;
+        acc_cfg.n_inh  = 6 * s;
+        engine_.add_region(std::make_unique<AnteriorCingulate>(acc_cfg));
+        // ACC SpikeBus projections:
+        //   dlPFC → ACC (current context/state for prediction)
+        //   ACC → dlPFC (cognitive control signal)
+        engine_.add_projection("dlPFC", "ACC", 3);
+        engine_.add_projection("ACC", "dlPFC", 3);
+    }
+
     // --- v34: 神经调质系统 (LC-NE, NBM-ACh, DRN-5HT) ---
     // Volume transmission: 不走SpikeBus，通过inject_arousal/surprise/wellbeing驱动
     // SimulationEngine每步自动收集输出并广播到所有区域
@@ -314,6 +331,7 @@ void ClosedLoopAgent::build_brain() {
     lc_    = dynamic_cast<LC_NE*>(engine_.find_region("LC"));
     nbm_   = dynamic_cast<NBM_ACh*>(engine_.find_region("NBM"));
     drn_   = dynamic_cast<DRN_5HT*>(engine_.find_region("DRN"));
+    acc_   = dynamic_cast<AnteriorCingulate*>(engine_.find_region("ACC"));
 
     // --- Topographic mappings through visual hierarchy ---
     // V1→V2: retinotopic (preserve spatial layout)
@@ -549,15 +567,49 @@ StepResult ClosedLoopAgent::agent_step() {
     size_t d1_group = (d1_size >= 4) ? d1_size / 4 : d1_size;
     float bg_to_m1_gain = config_.bg_to_m1_gain;
 
-    // v34: LC-NE 驱动探索噪声 (替换手工 food_rate 计算)
-    // Biology: LC-NE arousal → NE↑ → 探索↑; 持续成功 → arousal↓ → NE↓ → 利用
-    // 输入: (1-food_rate)=饥饿/不确定 + amygdala fear = 威胁
-    // 输出: ne_output() 驱动 noise_scale
+    // v35: ACC 冲突/惊讶/波动性计算 → 驱动 LC-NE 探索
+    // Biology: dACC检测BG D1子群冲突 → ACC→LC phasic burst → NE↑ → 探索
+    //          PRO模型惊讶信号 → 额外唤醒
+    //          替代硬编码 ne_floor 和手工 food_rate arousal 计算
+    if (acc_ && bg_) {
+        // 读取 BG D1 子群发放率 (4个方向组)
+        std::array<float, 4> d1_rates = {0.0f, 0.0f, 0.0f, 0.0f};
+        size_t d1_sz = bg_->d1().size();
+        size_t d1_grp = (d1_sz >= 4) ? d1_sz / 4 : d1_sz;
+        const auto& d1_f = bg_->d1().fired();
+        for (int g = 0; g < 4; ++g) {
+            size_t start = g * d1_grp;
+            size_t end = (g < 3) ? (g + 1) * d1_grp : d1_sz;
+            int fires = 0;
+            for (size_t k = start; k < end; ++k) {
+                if (d1_f[k]) fires++;
+            }
+            d1_rates[g] = static_cast<float>(fires) / static_cast<float>(std::max<size_t>(end - start, 1));
+        }
+        acc_->inject_d1_rates(d1_rates);
+
+        // 注入上一步的奖励结果 (PRO模型: 预测vs实际)
+        acc_->inject_outcome(last_reward_);
+
+        // 注入威胁信号 (Amygdala CeA → vACC)
+        if (amyg_) {
+            acc_->inject_threat(amyg_->cea_vta_drive());
+        }
+    }
+
+    // v35: ACC→LC arousal 驱动 (替代手工 food_rate 计算)
+    // Biology: dACC冲突+惊讶→LC phasic NE burst→探索噪声↑
+    //          ACC arousal_drive 是冲突+惊讶+觅食+威胁的加权组合
     if (lc_) {
-        float fr = food_rate(200);
-        // 极温和arousal: LC自有tonic drive=8.0已足够维持NE baseline
-        // arousal只做微调: 找到food→NE微降(安静利用), 未找到→NE微升(探索)
-        float arousal = std::max(0.0f, 0.05f - fr * 0.1f);
+        float arousal = 0.0f;
+        if (acc_) {
+            // ACC驱动: 冲突高→探索多, 惊讶高→更警觉, 觅食信号→切换策略
+            arousal = acc_->arousal_drive() * 0.15f;
+        } else {
+            // fallback: 旧的温和arousal
+            float fr = food_rate(200);
+            arousal = std::max(0.0f, 0.05f - fr * 0.1f);
+        }
         lc_->inject_arousal(arousal);
     }
     // v34: DRN-5HT wellbeing 注入 (持续获得食物→5-HT↑→更耐心)

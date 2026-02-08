@@ -283,6 +283,7 @@ void test_reversal_learning() {
     cfg.da_stdp_lr = 0.03f;  // Faster learning for clear reversal
     cfg.msn_up_state_drive = 0.0f;  // Disable for standalone test (direct spike injection)
     cfg.da_stdp_w_decay = 0.0f;     // Disable weight decay for reversal test (decay fights reversal)
+    cfg.synaptic_consolidation = false;  // v33 added consolidation (default=true), but it blocks reversal
     BasalGanglia bg(cfg);
 
     // Action A and B spike events

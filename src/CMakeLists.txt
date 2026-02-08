@@ -26,6 +26,7 @@ set(WUYUN_CORE_SOURCES
     region/limbic/mammillary_body.cpp
     region/limbic/hypothalamus.cpp
     region/limbic/lateral_habenula.cpp
+    region/anterior_cingulate.cpp
     region/neuromod/vta_da.cpp
     region/neuromod/lc_ne.cpp
     region/neuromod/drn_5ht.cpp

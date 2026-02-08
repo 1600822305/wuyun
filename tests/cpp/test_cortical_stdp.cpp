@@ -116,26 +116,26 @@ void test_training_enhancement() {
 
     ColumnConfig cfg;
     cfg.stdp_enabled = true;
-    cfg.stdp_a_plus = 0.02f;   // Slightly stronger for clear effect
-    cfg.stdp_a_minus = -0.022f;
+    cfg.stdp_a_plus = 0.025f;   // LTP > LTD: training should enhance, not suppress
+    cfg.stdp_a_minus = -0.020f;
     cfg.stdp_w_max = 2.0f;
     CorticalColumn col(cfg);
 
     // Pattern A (will be trained)
     auto pattern_a = make_l4_pattern(cfg.n_l4_stellate, 0, 50, 25.0f);
 
-    // --- Phase 1: Training on pattern A (200 steps) ---
-    for (int t = 0; t < 200; ++t) {
-        if (t < 150) col.inject_feedforward(pattern_a);
+    // --- Phase 1: Training on pattern A (300 steps, longer for clear effect) ---
+    for (int t = 0; t < 300; ++t) {
+        if (t < 250) col.inject_feedforward(pattern_a);
         col.step(t);
     }
 
     // --- Phase 2: Test trained pattern A response ---
     size_t response_trained = 0;
-    for (int t = 200; t < 300; ++t) {
-        if (t < 250) col.inject_feedforward(pattern_a);
+    for (int t = 300; t < 400; ++t) {
+        if (t < 350) col.inject_feedforward(pattern_a);
         col.step(t);
-        if (t >= 220 && t < 250) {
+        if (t >= 320 && t < 350) {
             response_trained += count_l23_spikes(col);
         }
     }
@@ -143,10 +143,10 @@ void test_training_enhancement() {
     // --- Phase 3: Test novel pattern B response (untrained) ---
     auto pattern_b = make_l4_pattern(cfg.n_l4_stellate, 50, 50, 25.0f);
     size_t response_novel = 0;
-    for (int t = 300; t < 400; ++t) {
-        if (t < 350) col.inject_feedforward(pattern_b);
+    for (int t = 400; t < 500; ++t) {
+        if (t < 450) col.inject_feedforward(pattern_b);
         col.step(t);
-        if (t >= 320 && t < 350) {
+        if (t >= 420 && t < 450) {
             response_novel += count_l23_spikes(col);
         }
     }

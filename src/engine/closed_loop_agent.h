@@ -35,6 +35,7 @@
 #include "region/limbic/hippocampus.h"
 #include "region/limbic/amygdala.h"
 #include "region/subcortical/cerebellum.h"
+#include "region/anterior_cingulate.h"
 #include "engine/sleep_cycle.h"
 #include "plasticity/homeostatic.h"
 #include <memory>
@@ -150,6 +151,13 @@ struct AgentConfig {
     // Prediction error → climbing fiber → PF-PC LTD → fast correction
     bool  enable_cerebellum = false; // ablation: +0.18 有害 (CF-LTD过度抑制)
 
+    // v35: ACC 前扣带回 (冲突监测 + 惊讶检测 + 波动性 + 觅食决策)
+    // 替代硬编码 ne_floor, 让探索/利用平衡由神经动力学驱动
+    // Biology: dACC冲突→LC-NE↑探索, PRO模型惊讶→注意力↑
+    //          波动性→学习率调制, 觅食→策略切换
+    // Refs: Botvinick 2001, Alexander & Brown 2011, Behrens 2007, Shenhav 2013
+    bool  enable_acc = true;
+
     // v27: Developmental period (critical period for visual feature learning)
     // Biology: infant visual cortex spends ~6 months self-organizing via Hebbian STDP
     // before goal-directed behavior begins. Agent random-walks during dev period,
@@ -225,6 +233,7 @@ public:
     LateralHabenula* lhb()  const { return lhb_; }
     Amygdala*       amyg()  const { return amyg_; }
     Cerebellum*     cb()    const { return cb_; }
+    AnteriorCingulate* acc() const { return acc_; }
 
 private:
     AgentConfig config_;
@@ -250,6 +259,7 @@ private:
     LC_NE*          lc_     = nullptr;   // v34: NE exploration
     NBM_ACh*        nbm_    = nullptr;   // v34: ACh attention
     DRN_5HT*        drn_    = nullptr;   // v34: 5-HT patience
+    AnteriorCingulate* acc_  = nullptr;   // v35: ACC conflict/surprise/volatility
 
     // State
     int    agent_step_count_ = 0;
