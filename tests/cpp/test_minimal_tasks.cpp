@@ -15,6 +15,7 @@
 
 #include "region/subcortical/basal_ganglia.h"
 #include "engine/closed_loop_agent.h"
+#include "engine/grid_world_env.h"
 #include <cstdio>
 #include <cmath>
 #include <vector>
@@ -310,12 +311,11 @@ static void test_tmaze() {
     printf("\n--- Task 3: T-Maze (极简闭环 1x3) ---\n");
 
     AgentConfig cfg;
-    cfg.world_config.width = 3;
-    cfg.world_config.height = 1;
-    cfg.world_config.n_food = 1;
-    cfg.world_config.n_danger = 0;
-    cfg.world_config.vision_radius = 1;  // 3×3, but grid is 1-tall so effective 3×1
-    cfg.world_config.seed = 42;
+    GridWorldConfig wcfg;
+    wcfg.width = 3; wcfg.height = 1;
+    wcfg.n_food = 1; wcfg.n_danger = 0;
+    wcfg.vision_radius = 1;  // 3×3, but grid is 1-tall so effective 3×1
+    wcfg.seed = 42;
 
     cfg.enable_da_stdp = true;
     cfg.enable_lhb = false;         // 极简: 无 LHb
@@ -328,12 +328,11 @@ static void test_tmaze() {
     cfg.fast_eval = true;           // 无海马
     cfg.brain_steps_per_action = 20;
 
-    ClosedLoopAgent agent(cfg);
+    ClosedLoopAgent agent(std::make_unique<GridWorldEnv>(wcfg), cfg);
 
     printf("  Environment: %zux%zu, food=%zu, vision=%zux%zu\n",
-           cfg.world_config.width, cfg.world_config.height,
-           cfg.world_config.n_food,
-           cfg.world_config.vision_side(), cfg.world_config.vision_side());
+           wcfg.width, wcfg.height, wcfg.n_food,
+           wcfg.vision_side(), wcfg.vision_side());
     printf("  Brain: V1=%zu, dlPFC=%zu, BG D1=%zu neurons\n",
            agent.v1()->n_neurons(), agent.dlpfc()->n_neurons(),
            agent.bg()->d1().size());
@@ -343,7 +342,7 @@ static void test_tmaze() {
 
     for (int step = 0; step < 500; ++step) {
         auto result = agent.agent_step();
-        if (result.got_food) {
+        if (result.positive_event) {
             food_count++;
             block_food[step / 100]++;
         }
@@ -387,12 +386,11 @@ static void test_it_representation() {
     printf("\n--- Task 4: IT 表征质量诊断 ---\n");
 
     AgentConfig cfg;
-    cfg.world_config.width = 5;
-    cfg.world_config.height = 5;
-    cfg.world_config.n_food = 0;
-    cfg.world_config.n_danger = 0;
-    cfg.world_config.vision_radius = 2;  // 5×5 vision
-    cfg.world_config.seed = 42;
+    GridWorldConfig wcfg;
+    wcfg.width = 5; wcfg.height = 5;
+    wcfg.n_food = 0; wcfg.n_danger = 0;
+    wcfg.vision_radius = 2;  // 5×5 vision
+    wcfg.seed = 42;
     cfg.enable_da_stdp = false;
     cfg.enable_lhb = false;
     cfg.enable_amygdala = false;
@@ -403,7 +401,7 @@ static void test_it_representation() {
     cfg.enable_homeostatic = false;
     cfg.fast_eval = true;
 
-    ClosedLoopAgent agent(cfg);
+    ClosedLoopAgent agent(std::make_unique<GridWorldEnv>(wcfg), cfg);
 
     printf("  Brain: V1=%zu, V2=%zu, V4=%zu, IT=%zu, dlPFC=%zu\n",
            agent.v1()->n_neurons(),
@@ -561,15 +559,15 @@ static void test_ablation() {
         for (int si = 0; si < n_seeds; ++si) {
             AgentConfig cfg;
             cfg.enable_da_stdp = true;
-            cfg.world_config.seed = seeds[si];
             configs[i].modify(cfg);
+            GridWorldConfig wcfg; wcfg.seed = seeds[si];
 
-            ClosedLoopAgent agent(cfg);
+            ClosedLoopAgent agent(std::make_unique<GridWorldEnv>(wcfg), cfg);
             for (int s = 0; s < 500; ++s) agent.agent_step();
             for (int s = 0; s < 500; ++s) {
                 auto r = agent.agent_step();
-                if (r.got_food) food_total++;
-                if (r.hit_danger) danger_total++;
+                if (r.positive_event) food_total++;
+                if (r.negative_event) danger_total++;
             }
         }
         float safety = (food_total + danger_total > 0)
@@ -601,66 +599,70 @@ void test_maze() {
     {
         printf("\n  6A: Corridor (10x3, go right to food)\n");
         AgentConfig cfg;
-        cfg.world_config.maze_type = MazeType::CORRIDOR;
-        cfg.world_config.seed = 42;
+        GridWorldConfig wcfg;
+        wcfg.maze_type = MazeType::CORRIDOR;
+        wcfg.seed = 42;
         cfg.dev_period_steps = 0;  // No dev period in maze (start learning immediately)
 
-        ClosedLoopAgent agent(cfg);
-        printf("  Layout:\n%s\n", agent.world().to_string().c_str());
+        auto env_ptr = std::make_unique<GridWorldEnv>(wcfg);
+        auto& gw = env_ptr->grid_world();
+        ClosedLoopAgent agent(std::move(env_ptr), cfg);
+        printf("  Layout:\n%s\n", gw.to_string().c_str());
 
         int food_count = 0;
-        int wall_hits = 0;
         for (int i = 0; i < 1000; ++i) {
             auto result = agent.agent_step();
-            if (result.got_food) food_count++;
-            if (result.hit_wall) wall_hits++;
+            if (result.positive_event) food_count++;
             if (i % 200 == 199) {
-                printf("    Step %4d: pos=(%d,%d) food=%d walls=%d\n",
-                       i + 1, agent.world().agent_x(), agent.world().agent_y(),
-                       food_count, wall_hits);
+                printf("    Step %4d: pos=(%.0f,%.0f) food=%d\n",
+                       i + 1, agent.env().pos_x(), agent.env().pos_y(),
+                       food_count);
             }
         }
-        printf("  Corridor result: food=%d, wall_hits=%d\n", food_count, wall_hits);
+        printf("  Corridor result: food=%d\n", food_count);
     }
 
     // --- 6B: T-maze (choice point: left=food, right=empty) ---
     {
         printf("\n  6B: T-maze (5x5, left=food)\n");
         AgentConfig cfg;
-        cfg.world_config.maze_type = MazeType::T_MAZE;
-        cfg.world_config.seed = 42;
+        GridWorldConfig wcfg;
+        wcfg.maze_type = MazeType::T_MAZE;
+        wcfg.seed = 42;
         cfg.dev_period_steps = 0;
 
-        ClosedLoopAgent agent(cfg);
-        printf("  Layout:\n%s\n", agent.world().to_string().c_str());
+        auto env_ptr = std::make_unique<GridWorldEnv>(wcfg);
+        auto& gw = env_ptr->grid_world();
+        ClosedLoopAgent agent(std::move(env_ptr), cfg);
+        printf("  Layout:\n%s\n", gw.to_string().c_str());
 
         // Track visits per cell (5x5)
         int visit_count[25] = {};
-        int w = static_cast<int>(agent.world().width());
+        int w = static_cast<int>(agent.env().world_width());
+        int h = static_cast<int>(agent.env().world_height());
 
         int food_count = 0;
-        int wall_hits = 0;
         for (int i = 0; i < 2000; ++i) {
             auto result = agent.agent_step();
-            if (result.got_food) {
+            if (result.positive_event) {
                 food_count++;
-                printf("    *** FOOD at step %d pos=(%d,%d) ***\n", i, result.agent_x, result.agent_y);
+                printf("    *** FOOD at step %d pos=(%.0f,%.0f) ***\n",
+                       i, result.pos_x, result.pos_y);
             }
-            if (result.hit_wall) wall_hits++;
-            int px = agent.world().agent_x();
-            int py = agent.world().agent_y();
-            if (px >= 0 && px < w && py >= 0 && py < (int)agent.world().height()) {
+            int px = static_cast<int>(agent.env().pos_x());
+            int py = static_cast<int>(agent.env().pos_y());
+            if (px >= 0 && px < w && py >= 0 && py < h) {
                 visit_count[py * w + px]++;
             }
             if (i % 500 == 499) {
-                printf("    Step %4d: pos=(%d,%d) food=%d walls=%d action=%d\n",
-                       i + 1, px, py, food_count, wall_hits,
+                printf("    Step %4d: pos=(%d,%d) food=%d action=%d\n",
+                       i + 1, px, py, food_count,
                        static_cast<int>(agent.last_action()));
             }
         }
-        printf("  T-maze result: food=%d, wall_hits=%d\n", food_count, wall_hits);
+        printf("  T-maze result: food=%d\n", food_count);
         printf("  Visit counts per cell:\n");
-        for (int y = 0; y < (int)agent.world().height(); ++y) {
+        for (int y = 0; y < h; ++y) {
             printf("    ");
             for (int x = 0; x < w; ++x) {
                 printf("%4d ", visit_count[y * w + x]);

@@ -13,6 +13,7 @@
 
 #include "engine/grid_world.h"
 #include "engine/closed_loop_agent.h"
+#include "engine/grid_world_env.h"
 
 #include <cstdio>
 #include <cmath>
@@ -114,7 +115,7 @@ static void test_agent_construction() {
     cfg.enable_da_stdp = true;
     cfg.enable_homeostatic = true;
 
-    ClosedLoopAgent agent(cfg);
+    ClosedLoopAgent agent(std::make_unique<GridWorldEnv>(GridWorldConfig{}), cfg);
 
     TEST_ASSERT(agent.v1() != nullptr, "V1 exists");
     TEST_ASSERT(agent.dlpfc() != nullptr, "dlPFC exists");
@@ -143,7 +144,7 @@ static void test_closed_loop_run() {
     AgentConfig cfg;
     cfg.brain_steps_per_action = 5;  // Fewer brain steps for speed
 
-    ClosedLoopAgent agent(cfg);
+    ClosedLoopAgent agent(std::make_unique<GridWorldEnv>(GridWorldConfig{}), cfg);
 
     int food_count = 0;
     int danger_count = 0;
@@ -152,8 +153,8 @@ static void test_closed_loop_run() {
     for (int i = 0; i < 100; ++i) {
         auto result = agent.agent_step();
         action_counts[agent.last_action()]++;
-        if (result.got_food) food_count++;
-        if (result.hit_danger) danger_count++;
+        if (result.positive_event) food_count++;
+        if (result.negative_event) danger_count++;
     }
 
     printf("  100 steps completed\n");
@@ -178,7 +179,7 @@ static void test_action_diversity() {
     AgentConfig cfg;
     cfg.brain_steps_per_action = 10;
 
-    ClosedLoopAgent agent(cfg);
+    ClosedLoopAgent agent(std::make_unique<GridWorldEnv>(GridWorldConfig{}), cfg);
 
     std::map<Action, int> action_counts;
     for (int i = 0; i < 200; ++i) {
@@ -219,7 +220,7 @@ static void test_da_reward() {
     cfg.brain_steps_per_action = 5;
     cfg.reward_scale = 2.0f;  // Amplify reward
 
-    ClosedLoopAgent agent(cfg);
+    ClosedLoopAgent agent(std::make_unique<GridWorldEnv>(GridWorldConfig{}), cfg);
 
     // Run a few steps to establish baseline
     for (int i = 0; i < 10; ++i) agent.brain().step();
@@ -265,7 +266,7 @@ static void test_long_run_stability() {
     cfg.enable_da_stdp = true;
     cfg.da_stdp_lr = 0.03f;
 
-    ClosedLoopAgent agent(cfg);
+    ClosedLoopAgent agent(std::make_unique<GridWorldEnv>(GridWorldConfig{}), cfg);
 
     // Run 500 environment steps
     for (int i = 0; i < 500; ++i) {
@@ -273,8 +274,8 @@ static void test_long_run_stability() {
     }
 
     printf("  500 steps completed\n");
-    printf("  Total food: %d\n", agent.world().total_food_collected());
-    printf("  Total danger: %d\n", agent.world().total_danger_hits());
+    printf("  Total food: %d\n", agent.env().positive_count());
+    printf("  Total danger: %d\n", agent.env().negative_count());
     printf("  Avg reward (last 100): %.4f\n", agent.avg_reward(100));
     printf("  Food rate (last 100): %.4f\n", agent.food_rate(100));
     printf("  V1 L2/3 rate: %.2f\n", agent.v1()->l23_mean_rate());
@@ -328,19 +329,19 @@ static void test_continuous_movement() {
     cfg.brain_steps_per_action = 6;
     cfg.enable_sleep_consolidation = false;
     cfg.enable_replay = false;
-    ClosedLoopAgent agent(cfg);
+    ClosedLoopAgent agent(std::make_unique<GridWorldEnv>(GridWorldConfig{}), cfg);
 
     // Run 200 steps — should not crash, should collect some food
     for (int i = 0; i < 200; ++i) {
         agent.agent_step();
     }
-    uint32_t food = agent.world().total_food_collected();
-    uint32_t steps = agent.world().total_steps();
-    printf("  Continuous agent: %u food / %u steps\n", food, steps);
-    TEST_ASSERT(steps == 200, "ran 200 steps");
+    uint32_t food = agent.env().positive_count();
+    uint32_t agsteps = agent.env().step_count();
+    printf("  Continuous agent: %u food / %u steps\n", food, agsteps);
+    TEST_ASSERT(agsteps == 200, "ran 200 steps");
     // Agent should have moved (not stuck at origin)
-    float final_fx = agent.world().agent_fx();
-    float final_fy = agent.world().agent_fy();
+    float final_fx = agent.env().pos_x();
+    float final_fy = agent.env().pos_y();
     printf("  Final pos: (%.2f, %.2f)\n", final_fx, final_fy);
 
     printf("  [PASS]\n"); g_pass++;

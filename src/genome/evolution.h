@@ -12,6 +12,7 @@
 
 #include "genome/genome.h"
 #include "engine/closed_loop_agent.h"
+#include "engine/grid_world.h"
 #include <vector>
 #include <functional>
 #include <string>

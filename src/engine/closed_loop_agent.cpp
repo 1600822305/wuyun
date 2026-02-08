@@ -715,7 +715,7 @@ void ClosedLoopAgent::reset_world_with_seed(uint32_t seed) {
     pending_reward_ = 0.0f;
 }
 
-StepResult ClosedLoopAgent::agent_step() {
+Environment::Result ClosedLoopAgent::agent_step() {
     // =====================================================================
     // Temporal credit assignment: reward → DA → BG eligibility traces
     //
@@ -1036,8 +1036,8 @@ StepResult ClosedLoopAgent::agent_step() {
         // EC grid cells need ~5+ steps of sustained current to charge and fire.
         if (hipp_) {
             hipp_->inject_spatial_context(
-                world_.agent_x(), world_.agent_y(),
-                static_cast<int>(world_.width()), static_cast<int>(world_.height()));
+                static_cast<int>(env_->pos_x()), static_cast<int>(env_->pos_y()),
+                spatial_map_w_, spatial_map_h_);
         }
 
         // v36: CLS — spatial value gradient → BG sensory context
@@ -1047,9 +1047,8 @@ StepResult ClosedLoopAgent::agent_step() {
         //   Equivalent to EC successor representation (Stachenfeld 2017).
         // This replaces get_retrieval_bias (which had wrong direction mapping).
         if (bg_ && !spatial_value_map_.empty()) {
-            int ax = world_.agent_x(), ay = world_.agent_y();
-            int w = static_cast<int>(world_.width());
-            int h = static_cast<int>(world_.height());
+            int ax = static_cast<int>(env_->pos_x()), ay = static_cast<int>(env_->pos_y());
+            int w = spatial_map_w_, h = spatial_map_h_;
             // Look up value of adjacent cells: UP(y-1), DOWN(y+1), LEFT(x-1), RIGHT(x+1)
             float adj[4] = {0, 0, 0, 0};
             if (ay > 0)     adj[0] = spatial_value_map_[(ay - 1) * w + ax];  // UP
@@ -1137,7 +1136,7 @@ StepResult ClosedLoopAgent::agent_step() {
         auto& l5 = m1_->column().l5();
         if (sc_ && config_.sc_approach_gain > 0.01f) {
             // 注入视觉 patch → SC 计算显著性方向
-            auto obs = world_.observe();
+            auto obs = env_->observe();
             sc_->inject_visual_patch(obs, static_cast<int>(config_.vision_width),
                                      static_cast<int>(config_.vision_height),
                                      config_.sc_approach_gain);
@@ -1252,8 +1251,8 @@ StepResult ClosedLoopAgent::agent_step() {
     auto [dx, dy] = decode_m1_continuous(l5_accum);
     Action action = decode_m1_action(l5_accum);  // nearest cardinal for efference copy/replay
 
-    // --- Phase C: Act in world ---
-    StepResult result = world_.act_continuous(dx, dy);
+    // --- Phase C: Act in environment ---
+    Environment::Result result = env_->step(dx, dy);
 
     // Store reward as pending (will be processed at START of next agent_step)
     // Only trigger Phase A for significant rewards (food/danger), not step penalties
@@ -1316,12 +1315,13 @@ StepResult ClosedLoopAgent::agent_step() {
     // Record history
     size_t hi = history_idx_ % reward_history_.size();
     reward_history_[hi] = result.reward;
-    food_history_[hi] = result.got_food ? 1 : 0;
+    food_history_[hi] = result.positive_event ? 1 : 0;
     history_idx_++;
 
     // Callback
     if (callback_) {
-        callback_(agent_step_count_, action, result.reward, result.agent_x, result.agent_y);
+        callback_(agent_step_count_, action, result.reward,
+                  static_cast<int>(result.pos_x), static_cast<int>(result.pos_y));
     }
 
     return result;
@@ -1338,7 +1338,7 @@ void ClosedLoopAgent::run(int n_steps) {
 // =============================================================================
 
 void ClosedLoopAgent::inject_observation() {
-    auto obs = world_.observe();  // NxN patch (N = 2*vision_radius+1)
+    auto obs = env_->observe();  // NxN patch from environment
     visual_encoder_.encode_and_inject(obs, lgn_);
 }
 // =============================================================================
@@ -1729,8 +1729,8 @@ void ClosedLoopAgent::run_sleep_consolidation() {
         if (hipp_ && hipp_->is_swr() && !spatial_value_map_.empty()) {
             // Pick a random position with nonzero value to "replay"
             // Biology: SWR replays trajectories through valued locations
-            int w = static_cast<int>(world_.width());
-            int h = static_cast<int>(world_.height());
+            int w = spatial_map_w_;
+            int h = spatial_map_h_;
             float best_val = 0.0f;
             int best_x = -1, best_y = -1;
             for (int y = 0; y < h; ++y) {
@@ -1771,9 +1771,9 @@ void ClosedLoopAgent::update_spatial_value_map(float reward) {
     //   Slow decay ensures long-term spatial memory.
 
     if (spatial_value_map_.empty()) return;
-    int w = static_cast<int>(world_.width());
-    int h = static_cast<int>(world_.height());
-    int ax = world_.agent_x(), ay = world_.agent_y();
+    int w = spatial_map_w_;
+    int h = spatial_map_h_;
+    int ax = static_cast<int>(env_->pos_x()), ay = static_cast<int>(env_->pos_y());
 
     // 1. Asymmetric decay: food memories persist, danger memories extinguish
     // Biology: fear extinction (Milad & Quirk 2002) is faster than reward memory

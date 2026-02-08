@@ -1,6 +1,7 @@
 #include "genome/dev_evolution.h"
 #include "development/developer.h"
 #include "engine/closed_loop_agent.h"
+#include "engine/grid_world_env.h"
 #include <algorithm>
 #include <chrono>
 #include <thread>
@@ -82,13 +83,13 @@ float DevEvolutionEngine::run_and_score(ClosedLoopAgent& agent, size_t steps,
     // v56 fix: 稀疏环境 (1 food, 0 danger) 中旧检查用 food/danger 事件判断运动,
     //   但 100 格只有 1 食物 → 60% 概率 50 步内没碰到 → 误判为"不动" → -1.0
     size_t warmup = std::min<size_t>(50, steps / 4);
-    float start_x = agent.world().agent_fx();
-    float start_y = agent.world().agent_fy();
+    float start_x = agent.env().pos_x();
+    float start_y = agent.env().pos_y();
     for (size_t i = 0; i < warmup; ++i) {
         agent.agent_step();
     }
-    float dx = agent.world().agent_fx() - start_x;
-    float dy = agent.world().agent_fy() - start_y;
+    float dx = agent.env().pos_x() - start_x;
+    float dy = agent.env().pos_y() - start_y;
     float displacement = dx * dx + dy * dy;
     if (displacement < 1.0f) {
         out_food = 0; out_danger = 0;
@@ -102,15 +103,15 @@ float DevEvolutionEngine::run_and_score(ClosedLoopAgent& agent, size_t steps,
     int e_food = 0, e_danger = 0;
     for (size_t i = 0; i < early_steps; ++i) {
         auto r = agent.agent_step();
-        if (r.got_food) e_food++;
-        if (r.hit_danger) e_danger++;
+        if (r.positive_event) e_food++;
+        if (r.negative_event) e_danger++;
     }
 
     int l_food = 0, l_danger = 0;
     for (size_t i = 0; i < late_steps; ++i) {
         auto r = agent.agent_step();
-        if (r.got_food) l_food++;
-        if (r.hit_danger) l_danger++;
+        if (r.positive_event) l_food++;
+        if (r.negative_event) l_danger++;
     }
 
     float early_safety = static_cast<float>(e_food) /
@@ -119,8 +120,8 @@ float DevEvolutionEngine::run_and_score(ClosedLoopAgent& agent, size_t steps,
                         std::max(1.0f, static_cast<float>(l_food + l_danger));
     float improvement = late_safety - early_safety;
 
-    out_food = agent.world().total_food_collected();
-    out_danger = agent.world().total_danger_hits();
+    out_food = agent.env().positive_count();
+    out_danger = agent.env().negative_count();
 
     return early_safety * 1.0f + improvement * 2.0f + late_safety * 2.0f;
 }
@@ -130,14 +131,13 @@ float DevEvolutionEngine::eval_open_field(const AgentConfig& base_cfg,
                                            uint32_t seed, size_t steps) const {
     AgentConfig cfg = base_cfg;
     cfg.fast_eval = true;
-    cfg.world_config.width = 10;
-    cfg.world_config.height = 10;
-    cfg.world_config.n_food = 5;
-    cfg.world_config.n_danger = 3;
-    cfg.world_config.maze_type = MazeType::OPEN_FIELD;
-    cfg.world_config.seed = seed;
+    GridWorldConfig wcfg;
+    wcfg.width = 10; wcfg.height = 10;
+    wcfg.n_food = 5; wcfg.n_danger = 3;
+    wcfg.maze_type = MazeType::OPEN_FIELD;
+    wcfg.seed = seed;
 
-    ClosedLoopAgent agent(cfg);
+    ClosedLoopAgent agent(std::make_unique<GridWorldEnv>(wcfg), cfg);
     int food = 0, danger = 0;
     return run_and_score(agent, steps, food, danger);
 }
@@ -148,14 +148,13 @@ float DevEvolutionEngine::eval_sparse(const AgentConfig& base_cfg,
                                        uint32_t seed, size_t steps) const {
     AgentConfig cfg = base_cfg;
     cfg.fast_eval = true;
-    cfg.world_config.width = 10;
-    cfg.world_config.height = 10;
-    cfg.world_config.n_food = 1;
-    cfg.world_config.n_danger = 0;
-    cfg.world_config.maze_type = MazeType::OPEN_FIELD;
-    cfg.world_config.seed = seed;
+    GridWorldConfig wcfg;
+    wcfg.width = 10; wcfg.height = 10;
+    wcfg.n_food = 1; wcfg.n_danger = 0;
+    wcfg.maze_type = MazeType::OPEN_FIELD;
+    wcfg.seed = seed;
 
-    ClosedLoopAgent agent(cfg);
+    ClosedLoopAgent agent(std::make_unique<GridWorldEnv>(wcfg), cfg);
     int food = 0, danger = 0;
     float score = run_and_score(agent, steps, food, danger);
     // 稀疏奖赏: 找到食物就给额外奖励 (因为只有 1 个, 很难找)
@@ -170,14 +169,13 @@ float DevEvolutionEngine::eval_reversal(const AgentConfig& base_cfg,
                                          size_t steps) const {
     AgentConfig cfg = base_cfg;
     cfg.fast_eval = true;
-    cfg.world_config.width = 10;
-    cfg.world_config.height = 10;
-    cfg.world_config.n_food = 5;
-    cfg.world_config.n_danger = 3;
-    cfg.world_config.maze_type = MazeType::OPEN_FIELD;
-    cfg.world_config.seed = seed_a;
+    GridWorldConfig wcfg;
+    wcfg.width = 10; wcfg.height = 10;
+    wcfg.n_food = 5; wcfg.n_danger = 3;
+    wcfg.maze_type = MazeType::OPEN_FIELD;
+    wcfg.seed = seed_a;
 
-    ClosedLoopAgent agent(cfg);
+    ClosedLoopAgent agent(std::make_unique<GridWorldEnv>(wcfg), cfg);
     size_t half = steps / 2;
 
     // Phase 1: 正常学习 (seed_a)

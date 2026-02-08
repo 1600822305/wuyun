@@ -14,6 +14,7 @@
  */
 
 #include "engine/closed_loop_agent.h"
+#include "engine/grid_world_env.h"
 
 #include <cstdio>
 #include <cmath>
@@ -55,8 +56,8 @@ static EpochStats run_epoch(ClosedLoopAgent& agent, int n_steps) {
     stats.steps = n_steps;
     for (int i = 0; i < n_steps; ++i) {
         auto result = agent.agent_step();
-        if (result.got_food) stats.food++;
-        if (result.hit_danger) stats.danger++;
+        if (result.positive_event) stats.food++;
+        if (result.negative_event) stats.danger++;
         stats.avg_reward += result.reward;
     }
     stats.avg_reward /= n_steps;
@@ -72,11 +73,12 @@ static TestResult test_learning_curve() {
 
     AgentConfig cfg;
     cfg.enable_da_stdp = true;
-    ClosedLoopAgent agent(cfg);
+    GridWorldConfig wcfg;
+    ClosedLoopAgent agent(std::make_unique<GridWorldEnv>(wcfg), cfg);
 
-    out << "  Environment: " << cfg.world_config.width << "x" << cfg.world_config.height
-        << " grid, " << cfg.world_config.vision_side() << "x" << cfg.world_config.vision_side()
-        << " vision, " << cfg.world_config.n_food << " food, " << cfg.world_config.n_danger << " danger\n";
+    out << "  Environment: " << wcfg.width << "x" << wcfg.height
+        << " grid, " << wcfg.vision_side() << "x" << wcfg.vision_side()
+        << " vision, " << wcfg.n_food << " food, " << wcfg.n_danger << " danger\n";
     out << "  Brain: V1=" << agent.v1()->n_neurons()
         << ", V2=" << (agent.v2() ? agent.v2()->n_neurons() : 0)
         << ", V4=" << (agent.v4() ? agent.v4()->n_neurons() : 0)
@@ -118,11 +120,11 @@ static TestResult test_learning_curve() {
            (int)late_food, (int)late_danger, late_safety);
     out << buf;
     snprintf(buf, sizeof(buf), "  Total food: %d, Total steps: %d\n",
-           agent.world().total_food_collected(), agent.world().total_steps());
+           agent.env().positive_count(), agent.env().step_count());
     out << buf;
 
     TestResult r;
-    r.passed = (agent.world().total_food_collected() > 0);
+    r.passed = (agent.env().positive_count() > 0);
     out << (r.passed ? "  [PASS]\n" : "  [FAIL] No food collected\n");
     r.output = out.str();
     return r;
@@ -139,16 +141,16 @@ static TestResult test_learning_vs_control() {
     {
         AgentConfig cfg;
         cfg.enable_da_stdp = true;
-        cfg.world_config.seed = 42;
-        ClosedLoopAgent learner(cfg);
+        GridWorldConfig wcfg; wcfg.seed = 42;
+        ClosedLoopAgent learner(std::make_unique<GridWorldEnv>(wcfg), cfg);
         for (int i = 0; i < 500; ++i) learner.agent_step();
         learn_stats = run_epoch(learner, 1000);
     }
     {
         AgentConfig cfg;
         cfg.enable_da_stdp = false;
-        cfg.world_config.seed = 42;
-        ClosedLoopAgent control(cfg);
+        GridWorldConfig wcfg; wcfg.seed = 42;
+        ClosedLoopAgent control(std::make_unique<GridWorldEnv>(wcfg), cfg);
         for (int i = 0; i < 500; ++i) control.agent_step();
         ctrl_stats = run_epoch(control, 1000);
     }
@@ -185,7 +187,7 @@ static TestResult test_bg_diagnostics() {
 
     AgentConfig cfg;
     cfg.enable_da_stdp = true;
-    ClosedLoopAgent agent(cfg);
+    ClosedLoopAgent agent(std::make_unique<GridWorldEnv>(GridWorldConfig{}), cfg);
 
     out << "  Step-by-step diagnostics:\n";
     int d1_fire_total = 0, d2_fire_total = 0;
@@ -207,7 +209,7 @@ static TestResult test_bg_diagnostics() {
         if (da > max_da) max_da = da;
         if (elig > max_elig) max_elig = elig;
 
-        if (step < 10 || result.got_food || result.hit_danger) {
+        if (step < 10 || result.positive_event || result.negative_event) {
             snprintf(buf, sizeof(buf),
                 "    step=%d act=%d r=%.2f | DA=%.3f | D1=%d D2=%d | elig=%.1f | ctx=%zu\n",
                 step, (int)agent.last_action(), result.reward,
@@ -251,7 +253,7 @@ static TestResult test_long_training() {
 
     AgentConfig cfg;
     cfg.enable_da_stdp = true;
-    ClosedLoopAgent agent(cfg);
+    ClosedLoopAgent agent(std::make_unique<GridWorldEnv>(GridWorldConfig{}), cfg);
 
     out << "  Brain: ~" << agent.v1()->n_neurons() + agent.dlpfc()->n_neurons() << " neurons\n";
 
@@ -273,11 +275,11 @@ static TestResult test_long_training() {
            early_avg, late_avg, late_avg - early_avg);
     out << buf;
     snprintf(buf, sizeof(buf), "  Total food: %d, Total danger: %d\n",
-           agent.world().total_food_collected(), agent.world().total_danger_hits());
+           agent.env().positive_count(), agent.env().negative_count());
     out << buf;
 
     TestResult r;
-    r.passed = (agent.world().total_food_collected() > 0 && agent.agent_step_count() == 2000);
+    r.passed = (agent.env().positive_count() > 0 && agent.agent_step_count() == 2000);
     out << (r.passed ? "  [PASS]\n" : "  [FAIL]\n");
     r.output = out.str();
     return r;
@@ -294,13 +296,11 @@ static TestResult test_large_env() {
     cfg.enable_da_stdp = true;
     cfg.enable_predictive_coding = true;
     cfg.enable_sleep_consolidation = true;
-    cfg.world_config.width = 15;
-    cfg.world_config.height = 15;
-    cfg.world_config.n_food = 8;
-    cfg.world_config.n_danger = 6;
-    cfg.world_config.vision_radius = 3;
-    cfg.world_config.seed = 77;
-    ClosedLoopAgent agent(cfg);
+    GridWorldConfig wcfg;
+    wcfg.width = 15; wcfg.height = 15;
+    wcfg.n_food = 8; wcfg.n_danger = 6;
+    wcfg.vision_radius = 3; wcfg.seed = 77;
+    ClosedLoopAgent agent(std::make_unique<GridWorldEnv>(wcfg), cfg);
 
     out << "  Brain: V1=" << agent.v1()->n_neurons()
         << ", dlPFC=" << agent.dlpfc()->n_neurons()
@@ -324,7 +324,7 @@ static TestResult test_large_env() {
     out << buf;
 
     TestResult r;
-    r.passed = (agent.world().total_steps() == 1500);
+    r.passed = (agent.env().step_count() == 1500);
     out << (r.passed ? "  [PASS]\n" : "  [FAIL]\n");
     r.output = out.str();
     return r;
@@ -344,16 +344,16 @@ static TestResult test_generalization() {
         {
             AgentConfig cfg;
             cfg.enable_da_stdp = true;
-            cfg.world_config.seed = 42;
-            ClosedLoopAgent ag(cfg);
+            GridWorldConfig wcfg; wcfg.seed = 42;
+            ClosedLoopAgent ag(std::make_unique<GridWorldEnv>(wcfg), cfg);
             run_epoch(ag, 1000);
             t_results[i] = run_epoch(ag, 500);
         }
         {
             AgentConfig cfg;
             cfg.enable_da_stdp = true;
-            cfg.world_config.seed = static_cast<uint32_t>(seeds[i]);
-            ClosedLoopAgent ag(cfg);
+            GridWorldConfig wcfg; wcfg.seed = static_cast<uint32_t>(seeds[i]);
+            ClosedLoopAgent ag(std::make_unique<GridWorldEnv>(wcfg), cfg);
             f_results[i] = run_epoch(ag, 500);
         }
     }

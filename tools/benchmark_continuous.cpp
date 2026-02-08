@@ -12,6 +12,7 @@
  */
 
 #include "engine/closed_loop_agent.h"
+#include "engine/grid_world_env.h"
 #include <cstdio>
 #include <cstdlib>
 #include <chrono>
@@ -36,14 +37,13 @@ struct BenchResult {
 BenchResult run_one(bool /*continuous — now always true*/, uint32_t seed, size_t steps) {
     AgentConfig cfg;
     cfg.continuous_step_size = 0.8f;
-    cfg.world_config.width = 10;
-    cfg.world_config.height = 10;
-    cfg.world_config.n_food = 5;
-    cfg.world_config.n_danger = 3;
-    cfg.world_config.seed = seed;
+    GridWorldConfig wcfg;
+    wcfg.width = 10; wcfg.height = 10;
+    wcfg.n_food = 5; wcfg.n_danger = 3;
+    wcfg.seed = seed;
 
     auto t0 = std::chrono::steady_clock::now();
-    ClosedLoopAgent agent(cfg);
+    ClosedLoopAgent agent(std::make_unique<GridWorldEnv>(wcfg), cfg);
 
     size_t early_steps = steps / 5;
     size_t late_steps = steps - early_steps;
@@ -51,15 +51,15 @@ BenchResult run_one(bool /*continuous — now always true*/, uint32_t seed, size
     int e_food = 0, e_danger = 0;
     for (size_t i = 0; i < early_steps; ++i) {
         auto r = agent.agent_step();
-        if (r.got_food) e_food++;
-        if (r.hit_danger) e_danger++;
+        if (r.positive_event) e_food++;
+        if (r.negative_event) e_danger++;
     }
 
     int l_food = 0, l_danger = 0;
     for (size_t i = 0; i < late_steps; ++i) {
         auto r = agent.agent_step();
-        if (r.got_food) l_food++;
-        if (r.hit_danger) l_danger++;
+        if (r.positive_event) l_food++;
+        if (r.negative_event) l_danger++;
     }
 
     auto t1 = std::chrono::steady_clock::now();
@@ -70,8 +70,8 @@ BenchResult run_one(bool /*continuous — now always true*/, uint32_t seed, size
     res.late_safety = static_cast<float>(l_food) /
                       std::max(1.0f, static_cast<float>(l_food + l_danger));
     res.improvement = res.late_safety - res.early_safety;
-    res.food = agent.world().total_food_collected();
-    res.danger = agent.world().total_danger_hits();
+    res.food = agent.env().positive_count();
+    res.danger = agent.env().negative_count();
     res.elapsed_sec = std::chrono::duration<float>(t1 - t0).count();
     return res;
 }

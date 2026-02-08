@@ -27,6 +27,7 @@
 #include "engine/sensory_input.h"
 #include "engine/sleep_cycle.h"
 #include "engine/grid_world.h"
+#include "engine/grid_world_env.h"
 #include "engine/closed_loop_agent.h"
 #include "plasticity/homeostatic.h"
 #include "region/subcortical/cerebellum.h"
@@ -989,18 +990,28 @@ PYBIND11_MODULE(pywuyun, m) {
         .def_readwrite("reward_scale",           &AgentConfig::reward_scale)
         .def_readwrite("enable_da_stdp",         &AgentConfig::enable_da_stdp)
         .def_readwrite("da_stdp_lr",             &AgentConfig::da_stdp_lr)
-        .def_readwrite("enable_homeostatic",     &AgentConfig::enable_homeostatic)
-        .def_readwrite("world_config",           &AgentConfig::world_config);
+        .def_readwrite("enable_homeostatic",     &AgentConfig::enable_homeostatic);
+
+    py::class_<Environment::Result>(m, "EnvResult",
+        "Result of an environment step")
+        .def_readonly("reward",         &Environment::Result::reward)
+        .def_readonly("positive_event", &Environment::Result::positive_event)
+        .def_readonly("negative_event", &Environment::Result::negative_event)
+        .def_readonly("pos_x",          &Environment::Result::pos_x)
+        .def_readonly("pos_y",          &Environment::Result::pos_y);
 
     py::class_<ClosedLoopAgent, std::unique_ptr<ClosedLoopAgent>>(m, "ClosedLoopAgent",
-        "Closed-loop agent: GridWorld \u2194 WuYun brain")
-        .def(py::init([](const AgentConfig& cfg) {
-            return std::make_unique<ClosedLoopAgent>(cfg);
-        }), py::arg("config") = AgentConfig{})
+        "Closed-loop agent: Environment \u2194 WuYun brain")
+        .def(py::init([](const GridWorldConfig& wcfg, const AgentConfig& cfg) {
+            return std::make_unique<ClosedLoopAgent>(
+                std::make_unique<GridWorldEnv>(wcfg), cfg);
+        }), py::arg("world_config") = GridWorldConfig{},
+            py::arg("config") = AgentConfig{})
         .def("reset_world",  &ClosedLoopAgent::reset_world)
         .def("agent_step",   &ClosedLoopAgent::agent_step)
         .def("run",          &ClosedLoopAgent::run, py::arg("n_steps"))
-        .def("world",        &ClosedLoopAgent::world, py::return_value_policy::reference)
+        .def("env",          static_cast<Environment& (ClosedLoopAgent::*)()>(&ClosedLoopAgent::env),
+             py::return_value_policy::reference)
         .def("brain",        &ClosedLoopAgent::brain, py::return_value_policy::reference)
         .def("agent_step_count", &ClosedLoopAgent::agent_step_count)
         .def("last_action",  &ClosedLoopAgent::last_action)

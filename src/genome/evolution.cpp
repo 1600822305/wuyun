@@ -1,4 +1,5 @@
 #include "genome/evolution.h"
+#include "engine/grid_world_env.h"
 #include <algorithm>
 #include <numeric>
 #include <cstdio>
@@ -87,10 +88,11 @@ std::vector<Genome> EvolutionEngine::next_generation(std::vector<Genome>& curren
 
 FitnessResult EvolutionEngine::evaluate_single(const Genome& genome, uint32_t seed) const {
     AgentConfig cfg = genome.to_agent_config();
-    cfg.world_config = config_.world_config;
-    cfg.world_config.seed = seed;
+    GridWorldConfig wcfg = config_.world_config;
+    wcfg.seed = seed;
+    auto env = std::make_unique<GridWorldEnv>(wcfg);
 
-    ClosedLoopAgent agent(cfg);
+    ClosedLoopAgent agent(std::move(env), cfg);
 
     // v29: Baldwin effect evaluation — measure LEARNING IMPROVEMENT
     // Phase 1: Early (first 200 steps) — innate ability, no learning accumulated
@@ -100,8 +102,8 @@ FitnessResult EvolutionEngine::evaluate_single(const Genome& genome, uint32_t se
     int early_food = 0, early_danger = 0;
     for (size_t i = 0; i < early_steps; ++i) {
         auto result = agent.agent_step();
-        if (result.got_food) early_food++;
-        if (result.hit_danger) early_danger++;
+        if (result.positive_event) early_food++;
+        if (result.negative_event) early_danger++;
     }
 
     // Early termination: agent not moving (0 food AND 0 danger = frozen)
@@ -115,8 +117,8 @@ FitnessResult EvolutionEngine::evaluate_single(const Genome& genome, uint32_t se
     int late_food = 0, late_danger = 0;
     for (size_t i = 0; i < late_steps; ++i) {
         auto result = agent.agent_step();
-        if (result.got_food) late_food++;
-        if (result.hit_danger) late_danger++;
+        if (result.positive_event) late_food++;
+        if (result.negative_event) late_danger++;
     }
 
     FitnessResult res;
@@ -125,8 +127,8 @@ FitnessResult EvolutionEngine::evaluate_single(const Genome& genome, uint32_t se
     res.late_safety = static_cast<float>(late_food) /
                       std::max(1.0f, static_cast<float>(late_food + late_danger));
     res.improvement = res.late_safety - res.early_safety;
-    res.total_food = agent.world().total_food_collected();
-    res.total_danger = agent.world().total_danger_hits();
+    res.total_food = agent.env().positive_count();
+    res.total_danger = agent.env().negative_count();
 
     // v29: Baldwin fitness — heavily reward LEARNING ABILITY (improvement)
     // improvement×3: "能学会的大脑" >> "天生就会的大脑"

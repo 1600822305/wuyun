@@ -18,6 +18,7 @@
 #include "genome/dev_genome.h"
 #include "development/developer.h"
 #include "engine/closed_loop_agent.h"
+#include "engine/grid_world_env.h"
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -52,7 +53,7 @@ int main(int argc, char* argv[]) {
     wuyun::DevGenome genome;  // 默认基因值
     wuyun::AgentConfig cfg = wuyun::Developer::to_agent_config(genome);
 
-    wuyun::ClosedLoopAgent agent(cfg);
+    wuyun::ClosedLoopAgent agent(std::make_unique<wuyun::GridWorldEnv>(wuyun::GridWorldConfig{}), cfg);
     printf("Brain built successfully.\n\n");
 
     // 文本摘要

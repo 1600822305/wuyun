@@ -4,6 +4,7 @@
 #include "genome/dev_genome.h"
 #include "development/developer.h"
 #include "engine/closed_loop_agent.h"
+#include "engine/grid_world_env.h"
 #include <cstdio>
 #include <cmath>
 #ifdef _WIN32
@@ -64,7 +65,7 @@ void test_agent_run() {
     DevGenome g;
     AgentConfig cfg = Developer::to_agent_config(g);
     printf("  发育报告:\n%s\n", Developer::development_report(g).c_str());
-    ClosedLoopAgent agent(cfg);
+    ClosedLoopAgent agent(std::make_unique<GridWorldEnv>(GridWorldConfig{}), cfg);
     printf("  ClosedLoopAgent 创建成功\n");
     for (int i = 0; i < 50; ++i) agent.agent_step();
     printf("  50 步运行完成\n");
@@ -80,7 +81,7 @@ void test_random_robustness() {
         g.randomize(rng);
         AgentConfig cfg = Developer::to_agent_config(g);
         try {
-            ClosedLoopAgent agent(cfg);
+            ClosedLoopAgent agent(std::make_unique<GridWorldEnv>(GridWorldConfig{}), cfg);
             for (int s = 0; s < 20; ++s) agent.agent_step();
             ok++;
         } catch (...) {

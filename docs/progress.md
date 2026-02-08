@@ -454,6 +454,17 @@ V1 L6 → LGN 皮层丘脑反馈闭环 (Sherman & Guillery 2006):
 - **build_brain**: V1→LGN SpikeBus (delay=3) + V1 注册为 LGN 反馈源
 - **NMDA Mg²⁺ 电压门控**: 已完整实现 (B(V)查找表, mg_conc=1.0)。**31/31 CTest。**
 
+### Step 57: Environment 抽象接口 ✅ (2026-02-08)
+> 详细文档: [steps/step57_environment_interface.md](steps/step57_environment_interface.md)
+
+ClosedLoopAgent 与 GridWorld 解耦, 支持任意 2D 环境插拔:
+- **Environment** 抽象类: observe/step/reset + 空间信息 + 统计 (纯虚接口)
+- **GridWorldEnv** 适配器: 包装 GridWorld 实现 Environment (~30 行代理)
+- **ClosedLoopAgent**: `unique_ptr<Environment>` 替代 `GridWorld` 直接成员
+- **AgentConfig**: 移除 `world_config` (环境参数不属于大脑参数)
+- **GridWorld 零修改**, 所有脑区/学习代码零修改
+- 新增 3 文件, 改动 13 文件 (机械替换)。**29/29 CTest (排除慢测试)。**
+
 ---
 
 ## 当前系统状态
@@ -467,14 +478,15 @@ V1 L6 → LGN 皮层丘脑反馈闭环 (Sherman & Guillery 2006):
   评估: 多任务天才评估 (开放觅食 + 稀疏奖赏 + 反转学习)
 
 手工模式 (保留): 64区域 · ~252神经元 · ~140投射 (build_brain)
-环境: 10×10 连续空间 + T-迷宫 / 走廊 / 简单迷宫
+环境: Environment 抽象接口 → GridWorldEnv (10×10 连续空间 + 迷宫)
 
-架构 (v45-53):
+架构 (v45-57):
   M1: 群体向量编码 → 连续浮点位移 (Georgopoulos 1986)
   VTA: 内部 RPE (Schultz 1997)
   基因层: 骨架固定 + 皮层涌现 (Barabasi 2019)
   反射弧: SC 趋近 + PAG 冻结 (先天) + 新奇性回放 (一次学习)
   进化: 多任务天才评估 (open + sparse + reversal×1.5)
+  环境: Environment 抽象接口 (v57, 支持任意 2D 环境插拔)
 
 学习链路 18/18 + 反射弧 2/2:
   ① V1→V2→V4→IT 视觉层级   ② L6 预测编码 + mismatch STDP
