@@ -466,6 +466,7 @@ ClosedLoopAgent 与 GridWorld 解耦, 支持任意 2D 环境插拔:
 - 新增 3 文件, 改动 13 文件 (机械替换)。**29/29 CTest (排除慢测试)。**
 
 ### Step 58: MultiRoomEnv 多房间迷宫 ✅ (2026-02-08)
+> 详细文档: [steps/step58_multi_room_env.md](steps/step58_multi_room_env.md)
 
 验证 Environment 抽象接口: 完全独立于 GridWorld 的新环境实现。
 - **MultiRoomEnv**: n_rooms_x × n_rooms_y 房间, 墙壁分隔, 门道连接
