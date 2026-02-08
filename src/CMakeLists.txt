@@ -21,6 +21,7 @@ set(WUYUN_CORE_SOURCES
     region/subcortical/basal_ganglia.cpp
     region/subcortical/nucleus_accumbens.cpp
     region/subcortical/superior_colliculus.cpp
+    region/subcortical/periaqueductal_gray.cpp
     region/subcortical/cerebellum.cpp
     region/limbic/hippocampus.cpp
     region/limbic/amygdala.cpp

@@ -38,6 +38,7 @@
 #include "region/subcortical/nucleus_accumbens.h"
 #include "region/neuromod/snc_da.h"
 #include "region/subcortical/superior_colliculus.h"
+#include "region/subcortical/periaqueductal_gray.h"
 #include "region/anterior_cingulate.h"
 #include "engine/sleep_cycle.h"
 #include "plasticity/homeostatic.h"
@@ -185,6 +186,18 @@ struct AgentConfig {
     //   危险物体快速反应, 不等皮层处理完
     bool  enable_sc = true;
 
+    // v41: PAG 导水管周围灰质 — CeA→PAG 应急反射
+    // Biology: CeA→PAG→脑干, 不经 BG 的硬连线防御 (LeDoux 1996)
+    //   dlPAG: 主动防御 (flight) | vlPAG: 被动防御 (freeze)
+    //   第一次遇到 danger 的即时反应 (BG 还没学会回避)
+    bool  enable_pag = true;
+
+    // v41: FPC 前额极皮层 (BA10) — 元认知/多步规划
+    // Biology: 人脑层级最高的前额叶区域 (Koechlin 2003)
+    //   维持长期目标, 多任务协调, 前瞻推理
+    //   FPC → dlPFC top-down 调制 (目标→计划→动作)
+    bool  enable_fpc = true;
+
     // v27: Developmental period (critical period for visual feature learning)
     // Biology: infant visual cortex spends ~6 months self-organizing via Hebbian STDP
     // before goal-directed behavior begins. Agent random-walks during dev period,
@@ -264,6 +277,8 @@ public:
     NucleusAccumbens* nacc() const { return nacc_; }
     SNc_DA*           snc()  const { return snc_; }
     SuperiorColliculus* sc()   const { return sc_; }
+    PeriaqueductalGray*  pag()  const { return pag_; }
+    CorticalRegion*     fpc()  const { return fpc_; }
 
 private:
     AgentConfig config_;
@@ -293,6 +308,8 @@ private:
     NucleusAccumbens*  nacc_  = nullptr;   // v40: NAcc motivation/reward
     SNc_DA*            snc_   = nullptr;   // v40: SNc habit DA
     SuperiorColliculus* sc_    = nullptr;   // v40: SC saliency
+    PeriaqueductalGray*  pag_   = nullptr;   // v41: PAG defense
+    CorticalRegion*     fpc_   = nullptr;   // v41: FPC planning
 
     // State
     int    agent_step_count_ = 0;

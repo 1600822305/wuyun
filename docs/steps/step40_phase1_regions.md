@@ -104,10 +104,22 @@ SC 深层 → BG (delay=1, 显著性驱动, 补充丘脑纹状体通路)
 
 从 Step 37 起的累计提升: weight range 0.0045 → 0.1080 = **24×**
 
+## 反作弊修复 (00_design_principles.md §6 检查项 #7)
+
+三处违反"信号传递走 SpikeBus"原则的直接函数调用被修复:
+
+| 违规代码 | 问题 | 修复方式 |
+|---------|------|---------|
+| `snc_->inject_reward_history(avg_reward(200))` | Agent 全知视角直接注入奖励历史 | SNc 从 BG→SNc SpikeBus 接收 D1 脉冲，自行跟踪 spike rate 适应 tonic |
+| `snc_->inject_d1_activity(d1_rate)` | 手动计算 D1 发放率，绕过 SpikeBus | BG→SNc 投射 (delay=2)，D1 反馈通过脉冲到达 |
+| `nacc_->motivation_output()` → noise_scale | 标量直接调制探索噪声 | NAcc→M1 投射 (delay=2)，VP 脉冲通过 SpikeBus 调制 M1 活动 |
+
+新增 2 条投射: BG→SNc (d=2), NAcc→M1 (d=2)。`set_da_level()` 保留 (ModulationBus 体积传递，非 SpikeBus 违规)。
+
 ## 系统状态
 
 ```
-57区域 · ~188闭环神经元 · ~121投射
+57区域 · ~188闭环神经元 · ~123投射
 学习链路 13/13 (新增: NAcc/SNc/SC)
 D1 58/50步, Max elig 114.2, Weight range 0.1080
 30/30 CTest 通过

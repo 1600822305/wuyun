@@ -310,24 +310,31 @@ DA 恒定 0.300→动态, D1 0→2 fires, 权重范围 5.6×。30/30 CTest。
 NAcc 分离动机(ventral)与运动选择(dorsal), SNc tonic DA 稳定已学权重 (70%VTA+30%SNc), SC 皮层下快通道 LGN→SC→BG。
 **D1 47→58 (+23%), elig 63.5→114.2 (1.8×), weight range 0.0464→0.1080 (2.3×)。** 30/30 CTest。
 
+### Step 41: Phase 2 防御+规划扩展 ✅ (2026-02-09)
+> 详细文档: [steps/step41_phase2_regions.md](steps/step41_phase2_regions.md)
+
+两新区域: PAG 导水管周围灰质 (8n, CeA→PAG 不经 BG 的应急反射) + FPC 前额极皮层 (BA10, 元认知/多步规划)。
+PAG: dlPAG 主动逃跑 + vlPAG 被动冻结, Amygdala→PAG→LC 恐惧警觉。FPC: 层级最高前额叶, IT/dlPFC/Hippocampus→FPC→dlPFC top-down 目标调制。
+**30/30 CTest, 皮层 events 616→655。**
+
 ---
 
 ## 当前系统状态
 
 ```
-57区域 · ~188闭环神经元 · ~121投射 · 30/30 CTest
+60区域 · ~208闭环神经元 · ~130投射 · 30/30 CTest
 默认环境: 10×10 grid, 5×5 vision (25px), 5 food, 3 danger
 
-学习链路 13/13:
+学习链路 15/15:
   ① V1→V2→V4→IT 视觉层级   ② L6 预测编码 + mismatch STDP
   ③ dlPFC→BG DA-STDP (乘法增益+侧向抑制)   ④ VTA DA burst/pause
   ⑤ ACh STDP 门控 (巩固+反转)   ⑥ 杏仁核 one-shot 恐惧   ⑦ 海马 CA3 + SWR 重放
   ⑧ Baldwin 进化   ⑨ 小脑 CF-LTD + DCN→BG   ⑩ 丘脑 NE/ACh TRN 门控 + 丘脑纹状体通路
   ⑪ NAcc 动机/奖赏整合   ⑫ SNc 习惯维持 (tonic DA)   ⑬ SC 皮层下快速显著性
+  ⑭ PAG 应急防御 (CeA→PAG 硬连线)   ⑮ FPC 前额极规划 (BA10→dlPFC top-down)
 
 关键指标:
-  D1 发放: 58/50步 (从 0→2→36→47→58)
-  皮层→BG events: 616/10步
-  Max eligibility: 114.2, Weight range: 0.1080
+  D1 发放: 50/50步 (从 0→2→36→47→58→50)
+  皮层→BG events: 655/10步
+  Max eligibility: 107.3, Weight range: 0.0725
   learner advantage: +0.036
-```

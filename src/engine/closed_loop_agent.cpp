@@ -105,6 +105,12 @@ void ClosedLoopAgent::build_brain() {
 
     // --- Decision + motor ---
     add_ctx("dlPFC", n_act * 3,  false);   // 12: 4 directions × 3 (approach/avoid/neutral)
+    // v41: FPC 前额极皮层 (BA10) — 层级最高的前额叶 (Koechlin 2003)
+    // Strong recurrent connections for sustained goal maintenance
+    // FPC → dlPFC top-down: long-term goals modulate immediate decisions
+    if (config_.enable_fpc) {
+        add_ctx("FPC", n_act * 3, false);  // 12: same size as dlPFC
+    }
     add_ctx("M1",    n_act * 5,  false);   // 20: need ≥4 L5 neurons for winner-take-all
 
     // --- Basal Ganglia: 4 Go + 4 NoGo = minimal action selection ---
@@ -225,6 +231,20 @@ void ClosedLoopAgent::build_brain() {
     // Feedback: M1 → dlPFC (efference copy)
     engine_.add_projection("M1", "dlPFC", 3);
 
+    // v41: FPC (BA10) — highest prefrontal hierarchy (Koechlin 2003)
+    // FPC maintains long-term goals and modulates dlPFC decisions top-down
+    if (config_.enable_fpc) {
+        // IT → FPC (object identity → goal planning: "food exists → seek it")
+        engine_.add_projection("IT", "FPC", 3);
+        // dlPFC ↔ FPC (bidirectional: goals ↔ decisions)
+        engine_.add_projection("dlPFC", "FPC", 3);
+        engine_.add_projection("FPC", "dlPFC", 3);
+        // Hippocampus → FPC (memory-guided planning: "I remember food at X")
+        if (!config_.fast_eval) {
+            engine_.add_projection("Hippocampus", "FPC", 3);
+        }
+    }
+
     // Predictive coding: dlPFC → IT (top-down attentional feedback)
     // With visual hierarchy, dlPFC feeds back to IT (not V1 directly)
     // IT propagates predictions down through V4→V2→V1 via existing feedback projections
@@ -324,6 +344,27 @@ void ClosedLoopAgent::build_brain() {
         }
         // IT → NAcc (object identity: "I see food" → approach)
         engine_.add_projection("IT", "NAcc", 2);
+        // NAcc → M1 (VP output → motor drive via SpikeBus)
+        // Anti-cheat: replaces motivation_output() scalar bypass.
+        // Biology: NAcc Core D1 → VP inhibition → VP releases downstream targets.
+        //   VP→MD thalamus→PFC is the full pathway; we shortcut VP→M1 for motor vigor.
+        //   High D1 (approach) → VP inhibited → less VP→M1 inhibition → more M1 activity.
+        //   High D2 (avoidance) → VP excited → more VP→M1 inhibition → less M1 activity.
+        engine_.add_projection("NAcc", "M1", 2);
+    }
+
+    // --- v41: PAG 导水管周围灰质 (LeDoux 1996: defense circuit) ---
+    // CeA → PAG → brainstem: hardwired defense bypassing BG
+    // dlPAG: active flight, vlPAG: passive freeze
+    if (config_.enable_pag) {
+        PAGConfig pag_cfg;
+        pag_cfg.n_dlpag = n_act * s;   // 4: active defense
+        pag_cfg.n_vlpag = n_act * s;   // 4: passive defense
+        engine_.add_region(std::make_unique<PeriaqueductalGray>(pag_cfg));
+        // Amygdala CeA → PAG (fear drive, fast: delay=1)
+        if (config_.enable_amygdala) {
+            engine_.add_projection("Amygdala", "PAG", 1);
+        }
     }
 
     // --- v40: Superior Colliculus 上丘 (Krauzlis 2013: subcortical saliency) ---
@@ -352,6 +393,11 @@ void ClosedLoopAgent::build_brain() {
         engine_.add_region(std::make_unique<SNc_DA>(snc_cfg));
         // M1 → SNc (motor efference copy: active movement → SNc maintenance)
         engine_.add_projection("M1", "SNc", 2);
+        // BG → SNc (striatonigral D1 feedback: active D1 MSN → SNc tonic maintenance)
+        // Anti-cheat: replaces inject_d1_activity() scalar bypass.
+        // Biology: D1 MSN project back to SNc (Haber 2003), maintaining tonic DA
+        // for well-learned actions. This feedback arrives through SpikeBus.
+        engine_.add_projection("BG", "SNc", 2);
     }
 
     // --- v34: 神经调质系统 (LC-NE, NBM-ACh, DRN-5HT) ---
@@ -409,6 +455,8 @@ void ClosedLoopAgent::build_brain() {
     nacc_  = dynamic_cast<NucleusAccumbens*>(engine_.find_region("NAcc"));
     snc_   = dynamic_cast<SNc_DA*>(engine_.find_region("SNc"));
     sc_    = dynamic_cast<SuperiorColliculus*>(engine_.find_region("SC"));
+    pag_   = dynamic_cast<PeriaqueductalGray*>(engine_.find_region("PAG"));
+    fpc_   = dynamic_cast<CorticalRegion*>(engine_.find_region("FPC"));
 
     // --- Topographic mappings through visual hierarchy ---
     // V1→V2: retinotopic (preserve spatial layout)
@@ -605,15 +653,9 @@ StepResult ClosedLoopAgent::agent_step() {
         // v40: SNc habit maintenance — blend tonic DA with VTA phasic DA
         // Biology: BG DA = VTA phasic (new learning) + SNc tonic (habit maintenance)
         //   As habits form, SNc contribution stabilizes BG weights against VTA fluctuations
-        if (snc_) {
-            snc_->inject_reward_history(avg_reward(200));
-            // D1 activity feedback: how active is the dorsal BG Go pathway?
-            size_t d1_fires = 0;
-            for (size_t j = 0; j < bg_->d1().size(); ++j)
-                if (bg_->d1().fired()[j]) d1_fires++;
-            float d1_rate = static_cast<float>(d1_fires) / static_cast<float>(std::max<size_t>(bg_->d1().size(), 1));
-            snc_->inject_d1_activity(d1_rate);
-        }
+        // Anti-cheat: SNc tonic adapts from BG→SNc SpikeBus spikes (D1 feedback),
+        //   NOT from agent-computed avg_reward or D1 firing rate scalars.
+        //   See snc_da.cpp step() for spike-driven tonic adaptation logic.
 
         // Run a few steps so DA can modulate BG eligibility traces
         // DA broadcast: VTA computes DA level, BG reads it directly (volume transmission)
@@ -771,18 +813,10 @@ StepResult ClosedLoopAgent::agent_step() {
         noise_scale = std::clamp(noise_scale, 0.3f, 2.0f);
     }
 
-    // v40: NAcc motivation modulates motor vigor
-    // Biology: NAcc Core D1 (approach) → VP inhibition → BG disinhibition → more vigorous
-    //          NAcc Core D2 (avoidance) → VP excitation → BG inhibition → less movement
-    // Mogenson 1980: NAcc is the "limbic-motor interface"
-    float motivation_vigor = 1.0f;
-    if (nacc_) {
-        float mot = nacc_->motivation_output();
-        // motivation > 0: approach → increase vigor (up to 1.3×)
-        // motivation < 0: avoidance → decrease vigor (down to 0.7×)
-        motivation_vigor = std::clamp(1.0f + mot * 0.15f, 0.7f, 1.3f);
-        noise_scale *= motivation_vigor;
-    }
+    // v40 anti-cheat: NAcc motivation no longer bypasses SpikeBus.
+    // NAcc VP spikes flow through NAcc→M1 projection (SpikeBus), modulating
+    // M1 activity directly via neural pathways. motivation_output() remains
+    // available as a diagnostic but is NOT used for noise scaling.
 
     float effective_noise = config_.exploration_noise * noise_scale;
 
@@ -832,6 +866,15 @@ StepResult ClosedLoopAgent::agent_step() {
         // LHb → VTA inhibition broadcast (every brain step during action processing)
         if (lhb_) {
             vta_->inject_lhb_inhibition(lhb_->vta_inhibition());
+        }
+        // v41: PAG defense circuit — CeA → PAG → emergency motor bias
+        // Biology: CeA fear output drives PAG, which bypasses BG for immediate defense
+        if (pag_ && amyg_) {
+            pag_->inject_fear(amyg_->cea_vta_drive());
+            // PAG arousal → LC (fear heightens alertness)
+            if (lc_) {
+                lc_->inject_arousal(pag_->arousal_drive() * 0.2f);
+            }
         }
         // Amygdala CeA → VTA/LHb: fear-driven DA pause
         // Biology: when Amygdala detects threatening visual pattern (learned CS),

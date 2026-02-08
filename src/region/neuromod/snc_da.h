@@ -47,13 +47,9 @@ public:
     /** Current DA output level (tonic-dominant, stable) */
     float da_output() const { return da_level_; }
 
-    /** Inject reward signal (for slow habit consolidation)
-     *  Unlike VTA: SNc responds slowly to repeated rewards, not single events */
-    void inject_reward_history(float avg_reward) { reward_history_ = avg_reward; }
-
-    /** Inject BG D1 activity (dorsal striatal feedback)
-     *  Well-learned actions → high D1 activity → SNc tonic maintenance */
-    void inject_d1_activity(float d1_rate) { d1_activity_ = d1_rate; }
+    // Anti-cheat: NO inject_reward_history / inject_d1_activity.
+    // SNc tonic baseline adapts from received spike rate (striatonigral D1→SNc feedback
+    // via SpikeBus BG→SNc projection), not from agent-computed scalars.
 
 private:
     SNcConfig config_;
@@ -61,8 +57,11 @@ private:
 
     float da_level_;
     float tonic_baseline_;     // Slowly adapting baseline
-    float reward_history_ = 0.0f;
-    float d1_activity_ = 0.0f;
+
+    // Spike-driven tonic adaptation (anti-cheat: replaces inject_reward_history/d1_activity)
+    // Biology: striatonigral D1 MSN → SNc positive feedback (Haber 2003)
+    // Consistent D1 firing → consistent spikes arriving → SNc tonic maintained
+    size_t received_spike_count_ = 0;  // Reset each step
 
     std::vector<uint8_t> fired_;
     std::vector<int8_t>  spike_type_;
