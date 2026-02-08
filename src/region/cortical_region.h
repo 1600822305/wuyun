@@ -153,7 +153,10 @@ private:
 
     // PSP 输入缓冲: 模拟跨区域突触后电位的时间常数
     // 每个到达脉冲维持数步的电流注入 (指数衰减)
-    static constexpr float PSP_DECAY = 0.7f;  // 每步衰减为 70%
+    // v39: 0.7→0.85 for small networks (same fix as BG CTX_MSN_PSP_DECAY)
+    // PSP_DECAY=0.7 (half-life 1.9 steps) → input vanishes before L4 integrates
+    // PSP_DECAY=0.85 (half-life 4.3 steps) → L4 (2-3 neurons) can reach threshold
+    static constexpr float PSP_DECAY = 0.85f;
     std::vector<float> psp_buffer_;  // 每个 L4 神经元的残余 PSP 电流
     float  psp_current_regular_;     // PSP current per regular spike
     float  psp_current_burst_;       // PSP current per burst spike

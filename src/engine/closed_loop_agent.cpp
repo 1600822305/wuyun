@@ -62,9 +62,11 @@ void ClosedLoopAgent::build_brain() {
     // Distributes N across 7 populations maintaining biological ratios
     auto add_ctx = [&](const std::string& name, size_t N, bool stdp = false) {
         ColumnConfig c;
-        c.n_l4_stellate    = std::max<size_t>(2, N * 25 / 100) * s;  // 25%
+        // v39: L4/L5 minimum 2→3 (ensures reliable signal propagation through hierarchy)
+        // With 2 neurons, one missed spike kills the chain. 3 provides redundancy.
+        c.n_l4_stellate    = std::max<size_t>(3, N * 25 / 100) * s;  // 25%
         c.n_l23_pyramidal  = std::max<size_t>(3, N * 35 / 100) * s;  // 35%
-        c.n_l5_pyramidal   = std::max<size_t>(2, N * 20 / 100) * s;  // 20%
+        c.n_l5_pyramidal   = std::max<size_t>(3, N * 20 / 100) * s;  // 20%
         c.n_l6_pyramidal   = std::max<size_t>(2, N * 12 / 100) * s;  // 12%
         c.n_pv_basket      = std::max<size_t>(2, N * 4 / 100) * s;   // 4%
         c.n_sst_martinotti = std::max<size_t>(1, N * 3 / 100) * s;   // 3%

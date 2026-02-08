@@ -55,8 +55,12 @@ struct AgentConfig {
 
     // Action decoding
     // Step 33 best: 30gen×40pop Baldwin (gen26, fitness=2.05, consolidation+dev100)
-    size_t brain_steps_per_action = 12;
-    size_t reward_processing_steps = 7;
+    // v39: 12→20 to accommodate 5-level visual hierarchy (14-step propagation delay)
+    // With 20 steps: cortical signals reach BG at step ~14, leaving 6 steps of
+    // cortical→BG overlap for direction-specific eligibility trace building.
+    // Previous: 12 steps < 14 delay → cortical spikes never reached BG within one step.
+    size_t brain_steps_per_action = 20;
+    size_t reward_processing_steps = 10;  // v39: 7→10, proportional to brain_steps increase
 
     float reward_scale = 1.43f;
 
