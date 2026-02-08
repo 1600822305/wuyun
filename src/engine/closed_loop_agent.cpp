@@ -527,6 +527,15 @@ StepResult ClosedLoopAgent::agent_step() {
         if (v4_)  v4_->column().set_ach_stdp_gain(ach_boost);
         // IT intentionally excluded (NO STDP, representation stability)
 
+        // v38: ACh → BG consolidation gating (volume transmission)
+        // High ACh during reward events → opens plasticity window for reversal learning
+        // Biology: NBM ACh signals uncertainty/novelty → striatal consolidation reduced
+        //   (Hasselmo 1999: ACh switches cortex from recall to encoding mode)
+        if (bg_) {
+            float ach = nbm_ ? nbm_->ach_output() : 0.2f;
+            bg_->set_ach_level(ach);
+        }
+
         // Run a few steps so DA can modulate BG eligibility traces
         // DA broadcast: VTA computes DA level, BG reads it directly (volume transmission)
         for (size_t i = 0; i < config_.reward_processing_steps; ++i) {
@@ -547,6 +556,8 @@ StepResult ClosedLoopAgent::agent_step() {
         if (v1_)  v1_->column().set_ach_stdp_gain(1.0f);
         if (v2_)  v2_->column().set_ach_stdp_gain(1.0f);
         if (v4_)  v4_->column().set_ach_stdp_gain(1.0f);
+        // v38: Reset BG ACh to baseline (consolidation fully protected during routine Phase B)
+        if (bg_) bg_->set_ach_level(0.2f);
     }
 
     // --- Phase B: Observe + decide ---

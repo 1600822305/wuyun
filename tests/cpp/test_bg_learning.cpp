@@ -275,15 +275,16 @@ void test_action_selection_learning() {
 // 测试4: 反转学习
 // =============================================================================
 void test_reversal_learning() {
-    printf("\n--- 测试4: 反转学习 ---\n");
-    printf("    原理: 先奖励A→偏好A, 再奖励B→偏好应逐渐反转\n");
+    printf("\n--- 测试4: 反转学习 (ACh门控巩固) ---\n");
+    printf("    原理: 先奖励A→巩固→再奖励B+高ACh→巩固被侵蚀→偏好反转\n");
 
+    // v38: Enable consolidation + ACh gating (tests the full mechanism)
     BasalGangliaConfig cfg;
     cfg.da_stdp_enabled = true;
     cfg.da_stdp_lr = 0.03f;  // Faster learning for clear reversal
     cfg.msn_up_state_drive = 0.0f;  // Disable for standalone test (direct spike injection)
-    cfg.da_stdp_w_decay = 0.0f;     // Disable weight decay for reversal test (decay fights reversal)
-    cfg.synaptic_consolidation = false;  // v33 added consolidation (default=true), but it blocks reversal
+    cfg.da_stdp_w_decay = 0.0f;     // Disable weight decay (isolate reversal mechanism)
+    cfg.synaptic_consolidation = true;  // v38: NOW ENABLED — ACh gating handles reversal
     BasalGanglia bg(cfg);
 
     // Action A and B spike events
@@ -304,7 +305,8 @@ void test_reversal_learning() {
     auto action_a = make_action(0, 20);
     auto action_b = make_action(80, 20);
 
-    // Phase 1: Reward A (200 steps)
+    // Phase 1: Reward A (200 steps), low ACh (routine → consolidation builds)
+    bg.set_ach_level(0.2f);  // Baseline ACh → full consolidation protection
     for (int t = 0; t < 200; ++t) {
         if (t % 2 == 0) {
             bg.set_da_level(0.8f);
@@ -333,7 +335,10 @@ void test_reversal_learning() {
             if (bg.d1().fired()[i]) d1_b_phase1++;
     }
 
-    // Phase 2: REVERSE - Reward B (500 steps, longer to overcome eligibility trace persistence)
+    // Phase 2: REVERSE - Reward B (500 steps)
+    // HIGH ACh simulates "surprise/environment change" → consolidation protection reduced
+    // + active erosion: opposing Δw erodes old consolidation score
+    bg.set_ach_level(0.7f);  // High ACh → 90% consolidation reduction (novelty signal)
     for (int t = 340; t < 840; ++t) {
         if (t % 2 == 0) {
             bg.set_da_level(0.05f);   // Punish A
@@ -347,6 +352,7 @@ void test_reversal_learning() {
 
     // Measure preference after Phase 2
     bg.set_da_level(0.3f);
+    bg.set_ach_level(0.2f);  // Return to baseline for fair measurement
     size_t d1_a_phase2 = 0, d1_b_phase2 = 0;
     for (int t = 840; t < 900; ++t) {
         bg.receive_spikes(action_a);
@@ -369,16 +375,15 @@ void test_reversal_learning() {
     CHECK(d1_a_phase1 > d1_b_phase1,
           "Phase1: 奖励A后应偏好A");
 
-    // Phase 2: After reversal, B's RELATIVE strength should improve
-    // (absolute firing may change due to eligibility trace dynamics affecting overall D1 excitability)
+    // Phase 2: B/A ratio should improve (reversal direction correct)
     float ratio_phase1 = (d1_b_phase1 > 0) ? (float)d1_b_phase1 / (float)d1_a_phase1 : 0.0f;
     float ratio_phase2 = (d1_b_phase2 > 0) ? (float)d1_b_phase2 / (float)d1_a_phase2 : 0.0f;
     printf("    B/A ratio: Phase1=%.3f → Phase2=%.3f (change=%+.3f)\n",
            ratio_phase1, ratio_phase2, ratio_phase2 - ratio_phase1);
     CHECK(ratio_phase2 > ratio_phase1,
-          "Phase2: 反转后B/A比率应改善 (相对偏好反转)");
+          "Phase2: 反转后B/A比率应改善 (ACh门控巩固允许反转)");
 
-    PASS("反转学习");
+    PASS("反转学习 (ACh门控巩固)");
 }
 
 // =============================================================================

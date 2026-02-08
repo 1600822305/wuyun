@@ -630,7 +630,17 @@ void BasalGanglia::apply_da_stdp(int32_t t) {
     float elig_decay = config_.da_stdp_elig_decay;
     bool use_consol = config_.synaptic_consolidation;
     float c_rate = config_.consol_rate;
-    float c_str  = config_.consol_strength;
+    // v38: ACh-gated consolidation (Hasselmo 1999, Yu & Dayan 2005)
+    // High ACh (surprise/novelty) → reduces consolidation protection → enables reversal
+    // Low ACh (routine) → full protection → prevents catastrophic forgetting
+    // ach_gate ∈ [0.2, 1.0]: baseline ACh=0.2 → gate=0.2 → c_eff=c*5*0.2=c*1.0 (strong protection)
+    //                        high ACh=0.8 → gate=0.8 → c_eff=c*5*0.8=c*4.0 (but consol eroded)
+    //                        Actually: ach_gate reduces c_str → weakens protection
+    float ach_gate = std::clamp(1.0f - (ach_level_ - 0.2f) * 2.0f, 0.1f, 1.0f);
+    // ach_level_=0.2 → ach_gate=1.0 (full protection)
+    // ach_level_=0.5 → ach_gate=0.4 (60% reduced)
+    // ach_level_=0.7 → ach_gate=0.1 (90% reduced, near open)
+    float c_str  = config_.consol_strength * ach_gate;
     float c_decay = config_.consol_decay;
 
     // Phase 1: Update eligibility traces from co-activation
@@ -664,11 +674,19 @@ void BasalGanglia::apply_da_stdp(int32_t t) {
                     ctx_d1_w_[src][idx] += dw;
                     ctx_d1_w_[src][idx] = std::clamp(ctx_d1_w_[src][idx],
                         config_.da_stdp_w_min, config_.da_stdp_w_max);
-                    // Build consolidation: consistent direction reinforces
+                    // Build or erode consolidation based on consistency
                     if (use_consol) {
                         float dev = ctx_d1_w_[src][idx] - 1.0f;
-                        if (dw * dev > 0)  // Δw same direction as deviation from baseline
+                        if (dw * dev > 0) {
+                            // Δw same direction as deviation → reinforce consolidation
                             consol_d1_[src][idx] += std::abs(dw) * c_rate;
+                        } else if (dw * dev < 0) {
+                            // v38: Δw OPPOSES deviation → actively erode consolidation
+                            // Biology: prediction error signals override prior learning
+                            // Erosion rate = 2× build rate (unlearning should be fast)
+                            consol_d1_[src][idx] -= std::abs(dw) * c_rate * 2.0f;
+                            if (consol_d1_[src][idx] < 0.0f) consol_d1_[src][idx] = 0.0f;
+                        }
                     }
                 }
             }
@@ -683,8 +701,13 @@ void BasalGanglia::apply_da_stdp(int32_t t) {
                         config_.da_stdp_w_min, config_.da_stdp_w_max);
                     if (use_consol) {
                         float dev = ctx_d2_w_[src][idx] - 1.0f;
-                        if (dw * dev > 0)
+                        if (dw * dev > 0) {
                             consol_d2_[src][idx] += std::abs(dw) * c_rate;
+                        } else if (dw * dev < 0) {
+                            // v38: Active consolidation erosion for D2 (same as D1)
+                            consol_d2_[src][idx] -= std::abs(dw) * c_rate * 2.0f;
+                            if (consol_d2_[src][idx] < 0.0f) consol_d2_[src][idx] = 0.0f;
+                        }
                     }
                 }
             }

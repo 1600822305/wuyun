@@ -113,6 +113,12 @@ public:
     /** 设置 DA 水平 (影响 D1/D2 兴奋性) — 仅用于直接测试, 正式仿真由脉冲自动推算 */
     void set_da_level(float da);
 
+    /** v38: Set ACh level for consolidation gating (Hasselmo 1999, Yu & Dayan 2005)
+     *  High ACh (surprise/novelty) → reduces consolidation protection → enables reversal
+     *  Low ACh (routine) → full consolidation protection → prevents forgetting
+     *  Range: [0, 1], baseline ~0.2 */
+    void set_ach_level(float ach) { ach_level_ = ach; }
+
     /** 设置 DA 源区域 ID (来自 VTA 的脉冲将自动更新 DA 水平) */
     void set_da_source_region(uint32_t region_id) { da_source_region_ = region_id; }
 
@@ -177,6 +183,7 @@ private:
 
     BasalGangliaConfig config_;
     float da_level_ = 0.3f;      // DA tonic baseline (matches VTA tonic_rate)
+    float ach_level_ = 0.2f;      // v38: ACh level for consolidation gating (baseline 0.2)
     uint32_t da_source_region_ = UINT32_MAX;  // VTA region ID (UINT32_MAX = not set)
     float da_spike_accum_ = 0.0f; // DA spike accumulator for rate estimation
     uint32_t thalamic_source_ = UINT32_MAX;  // v38: LGN/thalamic region ID for thalamostriatal

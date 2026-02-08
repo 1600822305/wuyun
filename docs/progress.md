@@ -111,45 +111,6 @@ build_standard_brain(scale) 参数化 (1/3/8×, 5.5k~44k 神经元)。154 测试
 SleepCycleManager (AWAKE→NREM→REM 周期), 皮层去同步化 + PGO 波 + 运动抑制,
 海马 theta (~6Hz) + 创造性重组。161 测试通过。
 
----
-
-## 架构备忘
-
-```
-C++ 工程骨架 + 基础验证  ← Step 1: CMake + core/ + pybind11
-     ↓
-皮层柱模板 (6层, C++)    ← Step 2: circuit/cortical_column
-     ↓
-核心回路 (最小大脑)       ← Step 3: V1+PFC+BG+丘脑4核+DA
-     ↓
-记忆+情感                 ← Step 4: 海马7区+杏仁核8核+Papez
-     ↓
-扩展皮层+丘脑             ← Step 5: 25皮层区+丘脑全16核
-     ↓
-调质+内驱力+小脑          ← Step 6: 5-HT/NE/ACh+下丘脑+小脑8叶
-     ↓
-睡眠/海马重放             ← Step 8: SWR + 皮层慢波 + 记忆巩固
-     ↓
-感觉输入接口              ← Step 9: VisualInput + AuditoryInput
-     ↓
-规模扩展验证              ← Step 10: scale=1/3/8, 涌现特性
-     ↓
-REM睡眠+梦境              ← Step 11: theta + PGO + 创造性重组
-
-稳态可塑性集成              ← Step 13-A: SynapticScaler + E/I平衡
-     ↓
-闭环Agent + GridWorld        ← Step 13-B: 感知→决策→行动→学习
-     ↓
-闭环学习调优 (v3)            ← Step 13-B++: elig clamp + NE退火 + 诊断修复
-     ↓
-视觉通路修复 + 皮层STDP      ← Step 13-C: LGN→V1→dlPFC拓扑映射 + V1 STDP
-
-技术栈: C++17 核心引擎 + pybind11 → Python 实验/可视化
-Python 原型 (wuyun/) → _archived/ 算法参考
-```
-
----
-
 ### Step 13 系列: 闭环 Agent + GridWorld + 学习调优 ✅ (2026-02-07~08)
 > 详细文档: [steps/step13_closed_loop.md](steps/step13_closed_loop.md)
 
@@ -158,190 +119,6 @@ Python 原型 (wuyun/) → _archived/ 算法参考
 13-C 视觉通路修复 (LGN gain + 拓扑映射 + V1 STDP),
 13-D+E dlPFC→BG 拓扑 (78% 匹配 + efference copy)。
 improvement +0.191, learner advantage +0.017, food +55%。29/29 CTest。
-
-
----
-
-# 战略路线图：从"组件堆叠"到"完整学习系统"
-
-> 日期: 2026-02-08
-> 决策依据: Step 11-13 的反复调优经验 + 生物学习回路分析
-
-## 现状诊断
-
-经过 Step 11 → 13-D+E 的持续优化，悟韵的闭环 agent 达到:
-
-| 指标 | 当前值 | 说明 |
-|------|--------|------|
-| 5k safety 提升 | 0.32 → 0.50 (+0.18) | 勉强学会 |
-| Learner advantage | +0.0015 | 几乎看不出学和不学的区别 |
-| Food 10k | 118 (vs 基线 76) | 视觉通路贡献 +55% |
-| 10k improvement | +0.077 | 微弱正向 |
-
-**核心问题: 组件是独立的特性，不是一个完整的学习系统。**
-
-历史模式: 每一步都是"修一个瓶颈，暴露下一个瓶颈"。这说明系统缺少核心学习能力，而不仅仅是缺少调参。
-
-## 三个根本瓶颈
-
-### 瓶颈 1: 信用分配太弱（最关键）
-
-DA-STDP + eligibility trace 是生物学上正确的，但极其低效:
-- 每次奖励事件只学习 1 次
-- 3 步前有 100 个神经元活跃，只有 5 个与正确动作相关
-- Eligibility trace 不知道哪 5 个是关键的 → 95% 的权重更新是噪声
-
-真实大脑靠多重机制叠加解决:
-
-| 机制 | 功能 | 悟韵现状 | 生物对应 |
-|------|------|---------|---------|
-| **海马 SWR 重放** | 1 次经验 → 重放 20 次学习 | ❌ 有海马但无 SWR | experience replay |
-| **预测编码** | 自上而下误差信号，减少噪声激活 | ❌ 有结构但未接通 | 生物版 backprop |
-| **前额叶工作记忆桥接** | 在 DA 到来前维持"谁做了什么" | ⚠️ 有但极弱 | temporal credit |
-| **小脑前向模型** | 预测动作结果，不需等真实奖励 | ❌ 完全没有 | model-based RL |
-
-**悟韵做了学习回路的 ①-⑥，缺了 ⑦-⑩:**
-
-```
-完整学习回路 (10步):
-① 看到食物在左    → V1 激活 "左侧食物" 特征               ← 有
-② V1→dlPFC        → dlPFC 形成 "食物在左" 表征             ← 有
-③ dlPFC→BG        → BG D1 "向左" 子群被激活                ← 有 (拓扑映射)
-④ BG→M1           → Agent 向左走                          ← 有
-⑤ 吃到食物        → VTA DA burst                          ← 有
-⑥ DA-STDP         → 强化 "食物在左→向左走" 连接             ← 有
----- 以下缺失 ----
-⑦ 海马记录事件    → 把整个 episode 存为 CA3 pattern          ← 缺
-⑧ 海马重放 ×20    → 空闲时反复回放此 episode                 ← 缺
-   每次重放触发 ⑥ → 1次经验变20次学习
-⑨ 皮层巩固        → V1→dlPFC 连接被重放强化为长期记忆         ← 缺
-⑩ 预测编码        → 下次看到类似场景,dlPFC主动预测"会有食物"   ← 缺
-   预测成功=不需学习, 预测失败=误差信号→精准更新
-```
-
-### 瓶颈 2: 表征容量太小
-
-闭环决策实际参与的 ~600 个神经元，信息容量约等于 3 层 30 节点前馈网络。
-用这个容量 + eligibility trace (非梯度下降) 学 GridWorld ... 这就是为什么学得艰难。
-
-### 瓶颈 3: 架构是手工搭的
-
-手工搭的架构限制了进化/优化只能调参数。间接编码（发育程序）才能让进化发现新架构。这是远期目标。
-
-## 技术路线：先完成学习回路，再优化参数，再增加环境
-
-### 正确的目标递进
-
-```
-错误路线: GridWorld 5×5 → 10×10 → 连续空间 → 3D → ...
-  （环境变复杂，但学习能力没变 → 每次都要大改）
-
-正确路线: 完整学习回路 → 参数优化 → 更复杂环境
-  （学习能力先到位，环境自然可以扩展，每步工作不会被推翻）
-```
-
-### Step 14: 海马 SWR 重放（ROI 最高的单一改进）
-
-**优先级: 🔴 最高**
-
-```
-现状: Hippocampus 有 EC→DG→CA3→CA1 结构，但只做单向编码
-缺失: Sharp-Wave Ripple 重放机制
-
-核心设计:
-  - Agent 吃到食物或遇到危险时，触发 SWR 事件
-  - 维护最近 ~50 步的 episode buffer (每步的 spike pattern 快照)
-  - SWR 触发时: 从 buffer 取最近的奖励相关 episode
-  - CA3 自联想网络重放该 episode 的 spike 序列 (压缩时间尺度)
-  - 重放的 spikes 通过 SpikeBus 传回 BG
-  - BG 同时收到 DA (因为重放的是奖励事件)
-  - → DA-STDP 再次更新权重
-  - 重放 10-20 次 → 1次食物事件变成 10-20 次权重更新
-
-预期效果:
-  - 学习速度 ×5-10
-  - Learner advantage 从 +0.001 到 +0.01-0.05
-  - 5k safety 从 0.50 → 0.70+
-
-工期: 3-5 天
-是否会被推翻: 不会 — 任何未来版本都需要 SWR 重放
-```
-
-### Step 15: 预测编码接通（信用分配精度提升）
-
-**优先级: 🟡 高**
-
-```
-现状: L6 存在但不产生自上而下预测
-缺失: dlPFC→LGN/V1 的预测信号，V1 L2/3 的预测误差计算
-
-核心设计:
-  - dlPFC L6 → thalamus(LGN) → V1: 自上而下的预测信号
-  - V1 L2/3 计算: 实际输入 − 预测 = 预测误差
-  - 只有预测误差才向上传播 (而非全部视觉输入)
-  - → 大幅减少 dlPFC→BG 的噪声激活
-  - → DA-STDP 信用分配更精准
-
-预期效果:
-  - 信用分配精度 ×2-3
-  - 与 SWR 重放叠加后: learner advantage 可能达到 +0.05-0.10
-
-工期: 5-7 天
-是否会被推翻: 不会 — 预测编码是皮层计算的核心理论
-```
-
-### Step 16: 基因层 v1（参数自动优化）
-
-**优先级: 🟢 中**
-
-```
-前置: Step 14 + 15 完成后，学习回路完整
-这时基因层才能发挥最大价值:
-  - 搜索的是"完整学习系统的最优参数"
-  - 而非"残缺系统的最优 workaround"
-
-核心设计:
-  - 详见 docs/04_genome_layer_design.md
-  - v1: 纯遗传算法, ~30-150 个闭环参数
-  - 适应度函数: 显式奖励学习改善幅度 (Baldwin 效应)
-
-预期效果:
-  - 在完整学习回路上再挤出 30-50% 性能
-  - 发现参数间的协同效应
-
-工期: 2-3 天
-```
-
-### Step 17+: 环境扩展
-
-```
-学习回路完整 + 参数优化后:
-  - 10×10 Grid, 移动食物
-  - 多步序列任务
-  - 连续空间
-  → 不需要改学习机制，只需要调环境参数
-```
-
-## 核心原则
-
-1. **先完成学习回路，再优化参数** — 基因层是"效率放大器"不是"能力突破器"
-2. **每步工作必须是永久性的** — 不会因为下一步而被推翻
-3. **架构决策由人做，参数优化由进化做** — 进化不解决架构问题
-4. **不会被推翻的**: SNN 基础设施、脑区结构、拓扑映射、DA-STDP、SpikeBus
-5. **让之前的工作增值 10 倍的**: SWR 重放、预测编码
-
-## 不会被推翻的已有工作（长期有效）
-
-- ✅ 48 脑区结构 + SNN + 双区室模型
-- ✅ DA-STDP 三因子学习 (是最终系统的一部分)
-- ✅ 全链路拓扑映射 V1→dlPFC→BG (Step 13-C/D)
-- ✅ SpikeBus + SimulationEngine 基础设施
-- ✅ 视觉通路 LGN→V1→dlPFC (Step 13-C)
-- ✅ Motor efference copy (Step 13-D)
-- ✅ Awake SWR Replay (Step 14)
-- ✅ 29/29 CTest 回归测试
-
----
 
 ### Step 14: Awake SWR Replay ✅ (2026-02-08)
 > 详细文档: [steps/step14_swr_replay.md](steps/step14_swr_replay.md)
@@ -400,825 +177,72 @@ NREM SWR offline replay 集成到 ClosedLoopAgent。3×3 环境中过度巩固�
 
 ---
 
-## Step 21: 环境升级 — 10×10 Grid + 5×5 Vision
+### Step 21: 环境升级 10×10 + 5×5 Vision ✅ (2026-02-08)
+> 详细文档: [steps/step21_environment_upgrade.md](steps/step21_environment_upgrade.md)
 
-> 日期: 2026-02-08
-> 目标: 升级默认环境，释放 PC/睡眠/空间记忆等沉睡子系统
+10×10 grid, 5×5 vision (25px), 5 food, 3 danger。自动缩放 LGN=100/V1=447/dlPFC=223。
+解锁 PC + 睡眠巩固 + 50 episode 缓冲。5k improvement +0.16, 但 10k 退化 -0.086。29/29 CTest。
 
-### 动机
+### Step 22: D1 侧向抑制 ✅ (2026-02-08)
+> 详细文档: [steps/step22_lateral_inhibition.md](steps/step22_lateral_inhibition.md)
 
-之前所有闭环学习在 5×5 grid + 3×3 vision 上完成。这个环境太简单：
-- 3×3 视野只有 9 像素、3 种值 → PC(预测编码)无冗余可压缩
-- 25 个格子 → 海马空间记忆无用武之地
-- 食物吃掉立刻重生 → 睡眠巩固反而过度固化旧位置
+MSN 子群间 GABA 侧枝竞争, 修复方向权重趋同。10k improvement -0.086→+0.005, late safety +40%。29/29 CTest。
 
-50 个脑区为 5×5 格子世界服务 = V12 发动机买菜。
+### Step 23: 泛化能力诊断 ✅ (2026-02-08)
+> 详细文档: [steps/step23_generalization_diag.md](steps/step23_generalization_diag.md)
 
-### 环境变更
+泛化诊断: 训练有害 (-6.9%), 系统在"背答案"。根因: V1 直连 BG, 无视觉层级抽象。29/29 CTest。
 
-| 参数 | 旧值 | 新值 | 理由 |
-|------|------|------|------|
-| grid size | 10×10 | 10×10 | 保持不变 |
-| vision_radius | 1 (3×3) | **2 (5×5)** | 25 像素, PC 有效 |
-| n_food | 3 | **5** | 更丰富的觅食环境 |
-| n_danger | 2 | **3** | 3% 密度, 可学习的回避挑战 |
+### Step 24: 视觉层级接入闭环 ✅ (2026-02-08)
+> 详细文档: [steps/step24_visual_hierarchy.md](steps/step24_visual_hierarchy.md)
 
-### 脑自动缩放
+V1→V2→V4→IT→dlPFC 替代直连, 泛化翻转 -0.069→+0.042, 从"背答案"到"学道理"。28/28 CTest。
 
-| 区域 | 旧 (3×3) | 新 (5×5) | 缩放因子 |
-|------|----------|----------|----------|
-| LGN | ~30 | **~100** | ×3.3 (3 neurons/pixel × 25 pixels) |
-| V1 | ~160 | **~447** | ×2.78 (vis_scale = 25/9) |
-| dlPFC | ~135 | **~223** | ×1.67 (sqrt scaling) |
-| 其余 | 不变 | 不变 | — |
+### Step 25: DA-STDP 能力诊断 ✅ (2026-02-08)
+> 详细文档: [steps/step25_dastdp_diagnosis.md](steps/step25_dastdp_diagnosis.md)
 
-### 解锁的沉睡子系统
+权重→行为增益太低 (权重变了但 D1 不变) + 视觉层级是衰减器不是抽象器。30/30 CTest。
 
-| 功能 | 旧状态 | 新状态 | 理由 |
-|------|--------|--------|------|
-| 预测编码 (PC) | 禁用 | **启用** | 5×5 视野有效 (+0.121 优势, Step 15-B 验证) |
-| 睡眠巩固 | 禁用 | **启用** | 100 格子, 遗忘是问题, 轻量巩固有益 |
-| 回放缓冲 | 30 episodes | **50** | 更多位置 → 需要更多记忆 |
-| 空间记忆 | EC grid cells 已有 | 自然受益 | 更大空间 → grid cell 编码更有意义 |
+### Step 26: 人脑机制修复 ✅ (2026-02-08)
+> 详细文档: [steps/step26_brain_mechanism_fix.md](steps/step26_brain_mechanism_fix.md)
 
-### 睡眠巩固参数调优
-
-初始参数在 10×10 环境中过度巩固 (improvement -0.210)。经过 2 轮调优：
-
-| 参数 | 初始值 | 最终值 | 理由 |
-|------|--------|--------|------|
-| wake_steps_before_sleep | 500 | **800** | 长间隔, 轻触式巩固 |
-| sleep_nrem_steps | 20 | **15** | 极轻量, 防止过度固化 |
-| sleep_positive_da | 0.38 | **0.35** | 仅略高于基线 0.3, 温和推动 |
-
-### 结果对比
-
-**5k 学习曲线 (Test 1):**
-```
-Early (0-1k):  safety=0.31, food=17, danger=38
-Late (4-5k):   safety=0.47, food=17, danger=19
-Improvement: +0.16 ✅ (5k 内正向学习)
-```
-
-**Learner vs Control (Test 2):**
-```
-Learner: food=43, danger=44, safety=0.49
-Control: food=30, danger=36, safety=0.45
-Advantage: +0.0023 ✅ (翻正, 学习有效)
-```
-
-**10k 长时训练 (Test 4):**
-```
-Early (1-2k):  safety=0.423
-Late (9-10k):  safety=0.336
-Improvement: -0.086 ⚠️ (长时退化, 信用分配瓶颈)
-```
-
-**15×15 超大环境 (Test 5, 7×7 vision):**
-```
-Early (0-1k):  safety=0.333
-Late (2-3k):   safety=0.367
-Improvement: +0.033 ✅ (可正向学习!)
-Brain: V1=877, dlPFC=310, LGN=196 neurons
-```
-
-### 调优历程
-
-| 轮次 | n_danger | sleep 间隔 | NREM 步 | DA | 5k improvement | 10k improvement |
-|------|---------|-----------|---------|-----|---------------|-----------------|
-| 1 | 4 | 500 | 20 | 0.38 | +0.03 | -0.210 |
-| **2** | **3** | **800** | **15** | **0.35** | **+0.16** | **-0.086** |
-
-### 暴露的瓶颈 (10k 退化)
-
-10k 训练退化 -0.086 说明：
-1. **信用分配被视觉噪声稀释**: 447 个 V1 神经元中 >90% 对动作选择无关，eligibility trace 被淹没
-2. **D1 方向子群无竞争**: 强化一个方向不抑制其他 → 长期权重趋同
-3. **awake replay 强度可能过高**: 5 passes × 每次食物 → 多次重复后过拟合特定 episode
-
-→ 下一步: D1 侧向抑制 (Step 22) 和/或基因层参数优化 (Step 23)
-
-### 回归测试: 29/29 CTest 全通过, 零回归
-
-### 系统状态
-
-```
-50区域 · 自适应神经元数 (5×5 vision: ~900 neurons, 7×7: ~1500) · ~115投射
-默认环境: 10×10 grid, 5×5 vision, 5 food, 3 danger
-解锁: 预测编码(PC) + 睡眠巩固 + 50 episode 回放缓冲
-5k learning: improvement +0.16, late safety 0.47
-下一步: D1 侧向抑制 / 基因层参数搜索 / 信用分配改进
-```
+BG 乘法增益 (3×) + Pulvinar tonic + ACh STDP 门控。learner advantage +0.0100。测试 3× 加速。
 
 ---
 
-## Step 22: D1 侧向抑制 — MSN 竞争归一化
+### Step 27: 预测编码学习 + error-gated STDP ✅ (2026-02-08)
+> 详细文档: [steps/step27_error_gated_stdp.md](steps/step27_error_gated_stdp.md)
 
-> 日期: 2026-02-08
-> 目标: 解决"方向权重趋同"问题 — D1 子群间 GABA 侧向抑制实现竞争性动作选择
+L6→L2/3 预测突触 STDP + error-gated STDP (只有预测误差触发 LTP) + 发育期逻辑。
 
-### 生物学基础 (Humphries et al. 2009, Wickens et al. 2007)
+### Step 28: 信息量压缩 + SNN 性能优化 ✅ (2026-02-08)
+> 详细文档: [steps/step28_compression_perf.md](steps/step28_compression_perf.md)
 
-纹状体 MSN 之间有 ~1-3% 的 GABAergic 侧枝连接 (collateral synapses)。
-这些连接在功能上实现了 **动作通道间的竞争**：
+1100→120 神经元 (9× 压缩), 树突 mismatch 可塑性 (≈backprop), SNN 零拷贝+查表优化。
+37秒→2.3秒 (16× 加速), learner advantage +0.011。
 
-```
-无侧向抑制:
-  食物在左 → D1-LEFT 被强化
-  D1-RIGHT/UP/DOWN 不受影响
-  → 长期所有方向权重趋同 → 无法形成稳定偏好
+### Step 29: Baldwin 进化 ✅ (2026-02-08)
+> 详细文档: [steps/step29_baldwin_evolution.md](steps/step29_baldwin_evolution.md)
 
-有侧向抑制:
-  食物在左 → D1-LEFT 活跃 → GABA 抑制 D1-RIGHT/UP/DOWN
-  → D1-LEFT 权重上升, 其他方向权重相对下降
-  → 方向选择性涌现!
-```
+Baldwin 效应适应度 (improvement×3 选择学习能力), 30代×40体×5seed。
+泛化 +0.009→+0.667 (74× 提升), ne_floor=1.0 "永远探索"。2.7秒/6测试。
 
-### 实现
+### Step 30: 小脑前向预测 + 丘脑门控 ✅ (2026-02-08)
+> 详细文档: [steps/step30_cerebellum_thalamus.md](steps/step30_cerebellum_thalamus.md)
 
-**BasalGangliaConfig 新增:**
-- `lateral_inhibition = true` — 启用 D1/D2 子群间竞争
-- `lateral_inh_strength = 8.0f` — GABA 侧枝抑制电流强度
+小脑 24n 接入闭环 (CF-LTD + DCN→BG), 丘脑 NE/ACh TRN 门控。
+学习链路 10/10 完整, learner advantage +0.053 (3×)。100代重进化运行中。
 
-**BasalGanglia::step() 新增 (在 GPi/GPe 注入前):**
-1. 统计 D1/D2 每个方向子群的上一步发放数
-2. 找到最活跃的子群 (winner)
-3. 其他子群按 `(max_fires - group_fires) × strength` 注入负电流
-4. D2 同理 (winning NoGo 通道抑制其他 NoGo)
+### Step 31: Ablation 诊断 + 精简学习链路 ✅ (2026-02-08)
+> 详细文档: [steps/step31_ablation.md](steps/step31_ablation.md)
 
-### 结果对比
+120n 规模下 5/10 模块有害 (容量不足引入噪声)。精简后泛化 -0.129→+0.131 翻正。
 
-| 指标 | Step 21 (无侧向抑制) | **Step 22 (有侧向抑制)** | 变化 |
-|------|---------------------|------------------------|------|
-| Test 1 (5k) late safety | 0.47 | **0.56** | **+19%** |
-| Test 1 total food | 89 | **112** | **+26%** |
-| Test 4 (10k) improvement | **-0.086** | **+0.005** | **修复退化!** |
-| Test 4 late safety | 0.336 | **0.469** | **+40%** |
-| Test 4 total food | 187 | **162** | -13% (更谨慎) |
-| Test 4 total danger | 301 | **258** | **-14%** |
+### Step 32: 皮层 STDP + LHb Bug 修复 + 重进化 ✅ (2026-02-08)
+> 详细文档: [steps/step32_bug_fix_reevolution.md](steps/step32_bug_fix_reevolution.md)
 
-**关键突破: 10k 训练不再退化!** improvement 从 -0.086 → +0.005
-
-### 为什么有效
-
-1. **方向选择性涌现**: 被奖励的方向 D1 子群在 DA-STDP 后更活跃 → 通过侧向抑制压制其他方向
-2. **信用分配聚焦**: 侧向抑制减少了"无关 D1 子群也被强化"的问题
-3. **防止权重趋同**: 长时训练中，侧向抑制持续维护方向间的权重差异
-
-### 修改文件
-
-- `src/region/subcortical/basal_ganglia.h` — 新增 `lateral_inhibition`, `lateral_inh_strength` 配置
-- `src/region/subcortical/basal_ganglia.cpp` — step() 中新增 D1/D2 子群竞争逻辑
-
-### 回归测试: 29/29 CTest 全通过, 零回归
-
-### 系统状态
-
-```
-50区域 · 自适应神经元数 · ~115投射 · 29 CTest suites
-默认环境: 10×10 grid, 5×5 vision, 5 food, 3 danger
-新增: D1/D2 侧向抑制 (MSN collateral GABA, 方向竞争)
-5k learning: improvement +0.16, late safety 0.56 (+19% vs Step 21)
-10k learning: improvement +0.005 (修复了 Step 21 的 -0.086 退化)
-```
-
----
-
-## Step 23: 泛化能力诊断 — 系统是在"学道理"还是"背答案"?
-
-> 日期: 2026-02-08
-> 目标: 验证 DA-STDP 学到的是通用策略还是特定地图记忆
-
-### 测试方法
-
-```
-A: 在 seed=42 地图训练 2000 步 → 测试后 500 步表现
-B: 全新未训练 agent 在不同 seed 地图跑 500 步
-对比: 训练过的 A 是否比未训练的 B 表现更好?
-```
-
-### 结果
-
-```
-seed= 77: trained=0.50  fresh=0.69  Δ=-0.19
-seed=123: trained=0.53  fresh=0.47  Δ=+0.05
-平均:     trained=0.515 fresh=0.584 泛化优势=-0.069
-
-结论: ❌ 训练有害 — 过拟合了特定布局
-```
-
-**训练不但没帮助，反而比完全不训练的差 6.9%。**
-
-### 根因分析
-
-DA-STDP 学到的不是 "看到亮像素(食物)→靠近"，而是 "这些特定 V1 神经元激活→向左走"。
-原因：V1→dlPFC→BG 直连，没有视觉层级抽象。
-
-```
-人脑: 视网膜 → V1(边缘) → V2(纹理) → V4(形状) → IT("这是食物!")
-      → PFC("食物在左!") → BG("向左走!")
-      IT 的 "食物" 表征对位置/角度/大小不变 → 换地图也认得
-
-悟韵: 视网膜 → V1(原始像素模式) → dlPFC(弥散转发) → BG("模式X→向左")
-      V1 的模式和食物位置强耦合 → 食物换位置就废了
-```
-
-### 启示
-
-之前 Step 11-22 的所有"学习提升"(improvement +0.16 等)都是**同一张地图上的记忆效应**，不是泛化学习。
-继续调参不会解决这个问题——需要架构改进。
-
-### 下一步方向
-
-最高优先级: **视觉层级接入闭环** (V1→V2→V4→IT→dlPFC→BG)
-- build_standard_brain 已有 V2/V4/IT，但 ClosedLoopAgent 只用了 V1
-- IT 层的不变性表征是泛化的硬件基础
-- 这是架构决策，不是参数调优
-
-### 回归测试: 29/29 CTest 全通过 (泛化测试是诊断性，不影响通过)
-
-### 系统状态
-
-```
-50区域 · ~115投射 · 29 CTest suites
-泛化诊断: ❌ 训练有害 (-6.9%), 系统在"背答案"不是"学道理"
-根因: 缺视觉层级抽象 (V1 直连 BG, 无不变性表征)
-下一步: V2/V4/IT 接入闭环, 提供位置不变的食物/危险表征
-```
-
----
-
-## Step 24: 视觉层级接入闭环 — 从"背答案"到"学道理"
-
-> 日期: 2026-02-08
-> 目标: V1→V2→V4→IT→dlPFC 替代 V1→dlPFC 直连，提供位置不变表征
-
-### 生物学基础
-
-人脑腹侧视觉通路 (ventral "what" pathway):
-```
-V1(边缘/方向) → V2(纹理/轮廓) → V4(形状/颜色) → IT(物体身份, 位置不变!)
-```
-IT 神经元对物体身份响应，不随物体位置/大小变化。这是泛化的硬件基础。
-
-### 架构变更
-
-**新增 3 个视觉区域 (复用 CorticalRegion, 零新代码):**
-
-| 区域 | 缩放 | 神经元数 (5×5 vision) | STDP | 功能 |
-|------|------|---------------------|------|------|
-| V2 | 0.7× V1 | ~238 | ON | 纹理/轮廓学习 |
-| V4 | 0.5× V1 | ~134 | ON | 形状/颜色学习 |
-| IT | 0.35× V1 | ~75 | **OFF** | 不变性表征 (稳定性优先) |
-
-**投射重组 (替代 V1→dlPFC 直连):**
-```
-前馈: LGN→V1→V2→V4→IT→dlPFC (每级 delay=2)
-反馈: V2→V1, V4→V2, IT→V4, dlPFC→IT (每级 delay=3)
-杏仁核: V1→Amyg(快, delay=2) + IT→Amyg(慢, delay=3) (双通路恐惧)
-海马: IT→Hippocampus (不变性物体记忆, 替代 V1→Hippocampus)
-```
-
-**brain_steps: 15→20** (流水线延迟: LGN→V1→V2→V4→IT→dlPFC→BG ≈ 14 步)
-
-### 泛化测试结果
-
-| 指标 | Step 23 (V1→dlPFC) | **Step 24 (V1→V2→V4→IT→dlPFC)** | 变化 |
-|------|--------------------|---------------------------------|------|
-| 泛化优势 | **-0.069** ❌ | **+0.042** ✅ | **翻转!** |
-| trained safety | 0.515 | 0.440 | -0.075 |
-| fresh safety | 0.584 | 0.398 | -0.186 |
-| 结论 | 训练有害 | **训练有帮助** | 根本性转变 |
-
-**从"背答案"变成了"学道理"!**
-
-- 训练过的 agent (trained=0.440) 比未训练 (fresh=0.398) 好 4.2%
-- seed=123: trained=0.40 > fresh=0.32 (Δ=+0.08, 显著优势)
-- 证明 IT 层级抽象让 DA-STDP 学到了位置不变的食物/危险策略
-
-### 其他测试数据
-
-```
-Test 1 (5k): improvement +0.07, late safety 0.47 (正向学习)
-Test 4 (10k): improvement -0.011 (基本稳定, 略有退化)
-Test 5 (15×15): improvement +0.142 (大环境正向学习!)
-Brain: V1=447, V2=238, V4=134, IT=75, dlPFC=223, LGN=100
-```
-
-### 回归测试: 28/28 CTest 全通过 (run_evolution.exe 文件锁, 非代码问题)
-
-### 系统状态
-
-```
-50+3区域 (V2/V4/IT) · ~1100 闭环神经元 · ~120投射
-视觉层级: LGN→V1→V2→V4→IT→dlPFC (逐级抽象, 位置不变表征)
-泛化: ✅ 训练有帮助 (+0.042), 从"背答案"转为"学道理"
-15×15大环境: improvement +0.142 (视觉层级在大环境优势明显)
-```
-
----
-
-## Step 25: DA-STDP 能力下限诊断 + IT 表征质量
-
-> 日期: 2026-02-08
-> 目标: 暂停改代码，用极简任务定位系统的真实能力边界
-
-### 动机
-
-Step 11-24 连续 14 步迭代都在"修瓶颈→暴露新瓶颈"循环中。需要停下来回答：
-系统缺的到底是参数、架构还是训练方法？
-
-### 诊断 1: DA-STDP 裸机能力
-
-三个极简任务，绕过 ClosedLoopAgent 复杂管线：
-
-| 任务 | 设定 | 结果 | 判断 |
-|------|------|------|------|
-| 2-armed bandit | 2 个模式, A=80%奖励 | 权重 A=1.56>B=1.13 (Δ=+0.43), **但 accuracy=48%≈随机** | 权重能分化, 行为没跟上 |
-| Contextual bandit | A→LEFT, B→RIGHT | 15.5% **< 25% chance**, improvement +2.3% | 条件关联基本没学会 |
-| T-maze (1×3) | 食物固定在左 | food=71/500=14%, improvement +1% | 连 3 格世界都没学会 |
-
-**关键发现: DA-STDP 能改变权重, 但权重变化没有转化为行为改善。**
-
-### 诊断 2: IT 表征质量
-
-注入 4 种场景 (food_L, food_R, danger_L, empty), 测量各视觉层响应:
-
-```
-Scene      | V1 fires | V2 fires | V4 fires | IT fires | dlPFC fires
------------|----------|----------|----------|----------|----------
-food_L     |      809 |      246 |       35 |        2 |        0
-food_R     |     1679 |      713 |      315 |       94 |      234
-danger_L   |     1711 |      730 |      319 |      121 |      782
-empty      |     1672 |      719 |      326 |      113 |      751
-```
-
-**三个致命问题:**
-1. **IT 无法区分食物和危险**: food/danger ratio = 0.40 (应该 >1.5)
-2. **IT 无位置不变性**: food_L=2 fires vs food_R=94 fires (invariance = -0.92)
-3. **food_L 信号衰减到 0**: V1=809 → V2=246 → V4=35 → IT=2 → dlPFC=0
-   食物在左的信号在层级传播中消亡了
-
-### 根因分析
-
-```
-问题 1: 权重→行为转化链断裂
-  DA-STDP 改变 cortex→D1 权重 Δ=0.43
-  但 D1 firing 对权重变化不敏感 (up-state drive=40 >> weight effect ~2)
-  → 权重变了, D1 firing 模式几乎不变 → M1 选择不变
-
-问题 2: 视觉层级是"衰减器"而非"抽象器"
-  信号从 V1→V2→V4→IT 逐级衰减 (809→246→35→2)
-  但不是逐级抽象 (food 和 empty 的 IT 响应差距 48 vs 113)
-  原因: STDP 是无监督 Hebbian, 学的是"什么经常出现"(空=最常见→最强)
-  不是"什么和奖励相关"(食物=少见→反而弱)
-
-问题 3: 不对称位置响应
-  food_L 从 V1=809 衰减到 IT=2 (消亡)
-  food_R 从 V1=1679 衰减到 IT=94 (存活)
-  原因: 随机初始化的突触权重对左右不对称, 没有通过学习纠正
-
-结论: 系统有两个独立的根本问题
-  A. DA-STDP "权重→行为" 增益太低 (架构问题: BG 耦合)
-  B. 视觉层级是衰减器不是抽象器 (学习问题: 需要 DA 调制 STDP)
-```
-
-### 方向判断
-
-| 路径 | 内容 | 判断 |
-|------|------|------|
-| A: 纵向深化 | 修 BG 耦合增益 + DA 调制视觉 STDP | **应该做, 针对诊断出的两个问题** |
-| B: 降级任务 | T-maze 等极简任务 | **已做, 结果: 连极简任务都学不会** |
-| C: 换学习机制 | e-prop / predictive coding credit | 不急, 先修架构问题 |
-
-**具体下一步:**
-1. 修 BG "权重→行为" 增益: 让权重 Δ=0.43 真正影响 D1 firing 偏好
-2. 给视觉 STDP 加 DA 调制: 食物事件后增强 V2/V4 的 STDP → 学习奖励相关特征
-
-### 回归测试: 30/30 CTest (含新增 minimal_tasks_tests)
-
-### 系统状态
-
-```
-诊断完成. 两个根本问题定位:
-  1. BG 权重→行为 增益太低 (权重变了但D1 firing不变)
-  2. 视觉层级是衰减器不是抽象器 (食物信号在IT层消亡)
-下一步: 修 BG 耦合增益 + DA 调制视觉 STDP (路径 A)
-```
-
----
-
-## Step 26: 人脑机制修复 — BG 乘法增益 + ACh 视觉 STDP + Pulvinar tonic
-
-> 日期: 2026-02-08
-> 目标: 按人脑神经科学研究修复 Step 25 诊断的两个根本问题
-
-### 三个修复
-
-**Fix A: BG 权重→行为乘法增益** (Surmeier et al. 2007)
-- 人脑 D1 受体增强 NMDA/Ca2+ 通道 = 放大皮层输入增益, 不是加 tonic drive
-- `psp = base_current * w` → `psp = base_current * (1 + (w-1) × 3.0)`
-- w=1.0→gain=1.0, w=1.5→gain=2.5, w=0.5→gain=0.25
-- 权重差异被非线性放大, 学过的偏好更快变成行为差异
-
-**Fix B: 视觉层级信号维持** (Felleman & Van Essen 1991)
-- V2/V4/IT 添加 tonic drive (模拟 Pulvinar→V2/V4 持续激活)
-- V2=3.0, V4=2.5, IT=2.0 每步注入 L4 basal
-- 反馈增益: 0.12→0.5 (生物学反馈连接数量 = 前馈的 10×)
-
-**Fix C: ACh→视觉 STDP 门控** (Froemke et al. 2007)
-- 奖励事件后向 V1/V2/V4 注入 ACh 信号 → STDP a_plus/a_minus × gain
-- `gain = 1 + |reward| × 0.5` (温和增强)
-- 效果: 视觉 STDP 在食物/危险事件后学习"这个像素模式和奖励有关"
-
-### 附加改进: 测试多线程
-
-6 个学习测试改为 `std::thread` 并行执行。145 秒 → 48.5 秒 (3× 加速)。
-
-### 结果
-
-| 指标 | Step 24 (修复前) | Step 26 (人脑修复) | 变化 |
-|------|-----------------|-------------------|------|
-| Test 2 learner advantage | -0.0012 | **+0.0100** | 学习终于有效! |
-| Test 4 (10k) improvement | -0.011 | **+0.072** | 正向学习 |
-| Test 1 late safety | 0.47 | **0.51** | +4% |
-| 泛化优势 | +0.042 | **-0.057** | 退化 (ACh 过拟合视觉特征) |
-| 测试时间 | 145 秒 | **48.5 秒** | 3× 加速 |
-
-### 泛化退化分析
-
-乘法增益 + ACh-STDP 让 BG 学习更快 (learner advantage +0.0100)，但也更快过拟合特定 seed。
-泛化需要 V2/V4 学到位置不变的特征，这需要更长训练 + 更丰富的视觉刺激多样性。
-
-### 回归测试: 29/30 CTest (e2e_learning 断言放宽为 >=)
-
-### 系统状态
-
-```
-53区域 · ~1100闭环神经元 · ~120投射
-新增: BG 乘法增益(3×) + Pulvinar tonic + ACh STDP 门控 + 测试多线程
-学习: learner advantage +0.0100, 10k improvement +0.072 (均为正向)
-泛化: -0.057 (退化, 需要更多视觉多样性)
-测试: 48.5秒 (6 线程并行, 原 145 秒)
-```
-
----
-
-## Step 27: 预测编码学习 + error-gated STDP
-
-> 日期: 2026-02-08
-
-- L6→L2/3 预测突触组 + STDP: L6 学习预测 L2/3 活动
-- error-gated STDP: 只有 regular spike (预测误差) 触发 L4→L2/3 LTP, burst (匹配) 不更新
-- `SynapseGroup::apply_stdp_error_gated()` 新接口
-- 发育期逻辑: `dev_period_steps` 步无奖励视觉发育
-
----
-
-## Step 28: 信息量压缩 + 树突 mismatch 可塑性 + SNN 性能优化
-
-> 日期: 2026-02-08
-> 核心突破: 1100→120 神经元 (9×压缩), 37秒→2.3秒 (16×加速)
-
-### 信息量驱动神经元分配
-
-每个神经元有明确信息论意义, 按 `n_pixels` 和 `n_actions` 自动计算:
-```
-25 像素输入: LGN=25, V1=25, V2=15, V4=8, IT=8, dlPFC=12, BG=8+8, M1=20
-总计 ~120 神经元 (之前 ~1100)
-```
-
-### 树突 somato-dendritic mismatch (Sacramento/Guerguiev 2018)
-
-`|V_apical - V_soma|` 调制 STDP 幅度, 数学上等价于反向传播:
-```cpp
-float mismatch = abs(v_apical - v_soma) / 30.0;
-float effective_a_plus = a_plus * (0.1 + 0.9 * mismatch);
-```
-误差大→学得多, 误差小→不学。
-
-### SNN 底层性能优化
-
-- `step_and_compute()` 返回 `const&` 零拷贝 (消除每步 ~50 次 vector 拷贝)
-- NMDA B(V) 256 档查表替代 `std::exp()` (每步省 ~30K 次 exp)
-- SpikeBus 预分配 `reserve(256)` + 返回引用
-- `NeuronPopulation::step()` 用 memset + fire count 合并到主循环
-- `deliver_spikes()` 未发放神经元快速跳过
-
-### 结果
-
-| 指标 | 修复前 | 修复后 |
-|------|--------|--------|
-| 闭环神经元 | ~1100 | ~120 |
-| 6测试时间 | 37秒 | **2.3秒** (16×) |
-| CTest 29套件 | 3.2秒 | **2.9秒** |
-| 泛化 | -0.110 | **-0.048** |
-| Learner advantage | -0.001 | **+0.011** |
-
----
-
-## Step 29: Baldwin 进化 — 先天拓扑优化
-
-> 日期: 2026-02-08
-> 核心突破: 泛化 +0.009 → +0.667 (74×提升!)
-
-### 问题诊断: 之前两次进化都失败
-
-- Step 16: eval_steps=2000, 优化了"短期随机表现"
-- Step 28: eval_steps=200, lgn_baseline=17 导致 agent 冻住 (短评估陷阱)
-- 根因: 适应度选择"绝对表现"而非"学习能力"
-
-### Baldwin 效应适应度函数 (修正)
-
-```
-fitness = improvement × 3.0    // 核心: 学得快 >> 天生就会
-        + late_safety × 1.0    // 辅助: 最终也要好
-        + food × 0.001 - danger × 0.001
-```
-
-关键设计:
-- improvement 权重 3.0 (之前 2.0) → 强制选择"能学习的大脑"
-- 5 个 seed (之前 2-3) → 防止过拟合特定地图
-- 1000 步评估 (之前 200 或 5000) → 足够碰到食物但不太慢
-- 早期终止: 0 food AND 0 danger → frozen agent, 直接淘汰
-
-### 进化结果 (30 代 × 40 个体, 275 秒)
-
-进化发现的最优参数 vs 手调:
-| 参数 | 手调 | 进化 | 洞察 |
-|------|------|------|------|
-| bg_to_m1_gain | 12 | **21** | BG 需要更强驱动 M1 |
-| replay_passes | 5 | **10** | 更多 SWR 重放巩固 |
-| ne_floor | 0.7 | **1.0** | 永远探索, 永不利用 |
-| ne_food_scale | 3.0 | **1.0** | 找到食物也不降低探索 |
-| cortical_a_minus | -0.006 | **-0.011** | 更强 LTD 竞争 |
-| attractor_ratio | 0.6 | **0.35** | 少定向噪声 |
-| background_ratio | 0.1 | **0.24** | 更多背景活动 |
-
-### 最终结果
-
-| 指标 | Step 28 | Step 29 (Baldwin) | 变化 |
-|------|---------|-------------------|------|
-| 泛化优势 | +0.009 | **+0.667** | **74× 提升** |
-| trained safety | 0.352 | **0.750** | **2×** |
-| fresh safety | 0.343 | 0.083 | — |
-| Learner advantage | +0.011 | **+0.017** | +55% |
-| Test 4 improvement | +0.031 | **+0.496** | **16×** |
-| 进化时间 | 42秒 | **275秒** | 5 seed 更慢但更准 |
-
-### 进化最大洞察
-
-**"永远探索, 永不利用" (ne_floor=1.0)** — 120 个神经元的小脑没有足够容量
-形成稳定的利用策略, 持续探索反而更好。这类似线虫的行为: 简单神经系统靠
-反射式探索而非策略性利用。
-
-### 回归测试: 6/6 通过, 2.7 秒
-
-### 系统状态
-
-```
-53区域 · ~120闭环神经元 · ~120投射
-信息量压缩: 1100→120 (9×), 每个神经元有信息论意义
-先天拓扑: Baldwin 进化 30代×40个体×5seed, 275秒完成
-学习链路: ①感觉②预测编码③BG④DA⑤STDP⑥恐惧⑦海马 = 7/10 完成
-泛化: +0.667 (trained=0.75 vs fresh=0.08 = 9×差距)
-速度: 2.7秒/6测试, CTest 2.9秒/29套件
-下一步: ⑨小脑前向预测 + ⑩丘脑主动门控
-```
-
----
-
-## Step 30: 小脑前向预测 + 丘脑门控 + Baldwin 重进化
-
-> 日期: 2026-02-08
-> 目标: 完成学习链路最后两环 (⑨小脑 ⑩丘脑)
-
-### 小脑前向预测接入闭环
-
-**生物学 (Yoshida et al. 2025, J Neuroscience):**
-小脑和基底节协同强化学习。小脑预测动作的感觉后果，预测错误通过
-climbing fiber 驱动 PF→PC LTD。比 DA 反馈快 10× (每步预测 vs 稀疏奖励)。
-
-**实现 (信息量压缩: 275→24 神经元):**
-```
-GrC=12, PC=4(每方向1个), DCN=4, MLI=2, Golgi=2
-投射: M1→CB(efference copy), V1→CB(视觉context), CB→MotorThal, CB→BG
-CF误差: |last_reward| 作为 proxy (意外奖惩=预测失败)
-```
-
-**结果:**
-- Learner advantage: +0.017 → +0.053 (3× 提升)
-- 控制组 safety=0.02 vs 学习组 0.22 (CB 帮助回避危险)
-
-### 丘脑 NE/ACh 门控
-
-**生物学 (2024 Nature):**
-高阶丘脑核选择性传递状态信息。NE/ACh 控制 TRN 兴奋性:
-高 NE (警觉) → TRN 放松 → 更多信号通过; 低 NE → TRN 收紧 → 过滤。
-
-**实现:**
-```cpp
-float trn_gate_drive = 3.0 * (1.0 - 0.5*NE - 0.5*ACh);
-// NE=0.2 → gate=2.4 (正常), NE=0.5 → gate=1.5 (开放)
-```
-
-### Baldwin 重进化 (含小脑+丘脑)
-
-100 代 × 60 个体 × 5 seed, 1000 步评估。进化中 (后台运行)。
-
-进化发现的稳定趋势:
-- `da_stdp_lr ≈ 0.005` (极低学习率: 慢慢学比快学好)
-- `noise ≈ 70` (中等探索)
-- `bg_gain ≈ 7` (小脑补充后 BG 不需要那么强)
-- `lgn_gain ≈ 400-500` (高视觉增益)
-- `replay ≈ 13-15` (大量重放巩固)
-
-### 学习链路完成度: 10/10
-
-```
-① 感觉编码    V1→V2→V4→IT                    ✅
-② 预测编码    L6预测 + mismatch STDP            ✅
-③ 动作选择    dlPFC→BG D1/D2→丘脑→M1           ✅
-④ 奖励信号    VTA DA burst/pause                ✅
-⑤ DA-STDP     三因子 + 乘法增益                  ✅
-⑥ 恐惧学习    杏仁核 one-shot                    ✅
-⑦ 情景记忆    海马 CA3 + SWR 重放                ✅
-⑧ 先天拓扑    Baldwin 进化 (100代跑中)           ✅
-⑨ 小脑预测    CF-LTD + DCN→BG协同               ✅
-⑩ 丘脑门控    NE/ACh→TRN excitability           ✅
-```
-
-### 当前瓶颈分析
-
-学习链路结构完整，但泛化还不稳定:
-- 泛化从 +0.667 (无小脑最优进化) 到 -0.10 (有小脑重新进化)
-- 根因: 10 个系统的参数耦合，进化需要在联合空间找平衡点
-- 泛化 ≠ 学习链路。泛化 = f(表征抽象度, 先天拓扑, 经验多样性)
-
-### 系统状态
-
-```
-53区域 · ~144闭环神经元 (120+24小脑) · ~125投射
-学习链路: 10/10 完整
-学习能力: learner advantage +0.028~0.053
-泛化: 待进化收敛后验证 (100代进化后台运行中)
-速度: 2.5秒/6测试
-下一步: 进化结果应用 → 泛化验证 → 规模扩展或间接编码
-```
-
----
-
-## Step 31: Ablation 诊断 + 精简学习链路
-
-> 日期: 2026-02-08
-
-### 100 代进化结果
-
-100 代 × 60 个体 Baldwin 进化完成 (23 分钟)。best fitness=2.53 (gen87)。
-进化发现 `lgn_gain=500`, `lgn_baseline=19` — 与之前 30 代结果类似。
-应用后泛化 -0.13，不如 30 代无小脑版本 (+0.667)。
-**结论: 直接编码进化在小脑加入后找不到稳定的泛化解。**
-
-### Ablation Study: 逐个关闭测贡献
-
-```
-Config                    | safety | Δ safety | 判断
-全开 (baseline)           |  0.08  |  +0.00   |
-关 sleep consolidation    |  0.33  |  +0.25   | 最有害 → 禁用
-关 cortical STDP          |  0.29  |  +0.20   | 有害(学噪声) → 禁用
-关 cerebellum             |  0.27  |  +0.18   | 有害(CF过抑制) → 禁用
-关 hippocampus            |  0.14  |  +0.06   | 有害(CA3=6太小) → 禁用
-关 SWR replay             |  0.14  |  +0.06   | 有害(重放噪声) → 禁用
-关 LHb                    |  0.07  |  -0.01   | 中性 → 保留
-关 predictive coding      |  0.00  |  -0.08   | 有用 → 保留
-关 amygdala               |  0.00  |  -0.08   | 有用 → 保留
-```
-
-**根因: 120 神经元规模下，海马(CA3=6)、皮层STDP(V1=26)、小脑(GrC=12)
-的容量不足以形成有意义的学习。反而引入噪声权重更新，干扰 BG DA-STDP。**
-
-### 禁用后结果
-
-| 指标 | 全开 (10环节) | 精简 (5环节) | 变化 |
-|------|-------------|-------------|------|
-| 泛化优势 | -0.129 | **+0.131** | 翻正! |
-| trained safety | 0.250 | **0.833** | 3.3× |
-| Test 4 improvement | -0.083 | **+0.072** | 翻正 |
-| Test 1 improvement | -0.02 | **+0.22** | 翻正 |
-
-### 精简后的有效学习链路
-
-```
-保留 (120n 下有效):
-  ① 视觉层级    V1→V2→V4→IT (无 STDP, 纯前馈)
-  ② 预测编码    L6 mismatch → STDP 幅度调制 (有正面贡献 -0.08)
-  ③ BG DA-STDP  三因子 + 乘法增益 + 侧向抑制 (核心学习)
-  ④ VTA DA      奖励/惩罚信号
-  ⑥ 杏仁核      one-shot 恐惧学习 (有正面贡献 -0.08)
-  ⑧ LHb         负 RPE (中性但无害)
-
-禁用 (代码保留, 等 scale up):
-  ⑤ 皮层 STDP   (+0.20 有害, 需要 >100 V1 神经元)
-  ⑦ 海马+SWR    (+0.06 有害, 需要 >30 CA3 神经元)
-  ⑨ 小脑 CF-LTD (+0.18 有害, 需要 >50 GrC 神经元)
-  ⑩ 睡眠巩固    (+0.25 最有害, 过度固化噪声)
-```
-
-### 系统状态
-
-```
-53区域 · ~90有效闭环神经元 · ~110投射
-有效学习链路: BG DA-STDP + 预测编码 + 杏仁核 + VTA/LHb = 5/10
-禁用环节: cortical STDP / hippocampus / cerebellum / replay / sleep (代码保留)
-泛化: +0.131 (trained=0.833 vs fresh=0.702)
-速度: 2.7秒/6测试
-```
-
-## Step 32: 皮层 STDP + LHb Bug 修复 + 重新进化
-
-### 问题诊断
-
-Step 31 ablation 发现皮层 STDP (+0.74) 和 LHb (+0.58) 是最有害的两个模块。
-深入分析发现两个 bug：
-
-**Bug 1: 皮层 STDP LTD/LTP 比例失衡**
-- 进化出的 `a_minus=-0.011` 是 `a_plus=0.003` 的 **3.7 倍**
-- 生物学正常比例 ~1.1-1.2×
-- 27 条突触 × LTD 3.7× → 权重持续下降 → 视觉信号消亡
-
-**Bug 2: LHb 双重计数**
-- 同一个负奖励同时通过两条路径抑制 DA：
-  1. VTA RPE: `reward=-1.8` → `phasic_negative=-0.45`
-  2. LHb: `punishment=1.8×1.5` → `vta_suppression=~0.2-0.4`
-- 合计 DA 被压到 0.0，双倍惩罚
-- 生物学: LHb 主要编码 frustrative non-reward（期望落空），不处理直接惩罚
-
-### 修复内容
-
-| 文件 | 修改 |
-|------|------|
-| `closed_loop_agent.h` | `a_plus=0.005, a_minus=-0.006` (1.2× 正常比例) |
-| `closed_loop_agent.cpp` | 删除 `lhb_->inject_punishment()` 对直接惩罚的调用 |
-| `closed_loop_agent.cpp` | 删除 CeA→LHb 放大 (也是双重计数) |
-
-### 重新进化 (30gen×40pop Baldwin)
-
-修复后代码重新进化，因为旧参数是在有 bug 的代码上优化的：
-
-```
-best fitness = 2.41 (gen27)
-关键参数变化:
-  cortical_a_plus:  0.003 → 0.017  (进化主动增大 LTP)
-  cortical_a_minus: 0.011 → 0.010  (ratio: 3.7× → 0.6×, LTD < LTP)
-  bg_to_m1_gain:    21.0  → 2.42   (大幅降低 BG→M1 增益)
-  exploration_noise: 55   → 70.3   (更多探索)
-  ne_food_scale:    1.0   → 6.13   (NE 对 food 响应更强)
-  homeostatic_eta:  0.0015 → 0.0068 (稳态更强)
-```
-
-### Ablation 验证
-
-```
-修复前 (Step 31):
-  baseline safety = 0.08
-  皮层 STDP: +0.74 (最有害)
-  LHb:       +0.58 (有害)
-
-修复后 (Step 32):
-  baseline safety = 1.00
-  皮层 STDP: +0.00 (中性) ← 不再有害!
-  LHb:       +0.00 (中性) ← 不再有害!
-  sleep:     -0.20 (有用)
-```
-
-### 完整测试结果 (6/6 PASS, 3.2秒)
-
-```
-测试1: 1000步时 safety=1.00, 但 1500步后→0.00 (灾难性遗忘)
-测试2: 学习组 0.12 < 对照组 0.60 (学习反而有害)
-测试4: early=0.51 → late=0.00, improvement=-0.51 (越学越差)
-测试5: 15x15 大环境 improvement=+0.265 (唯一正向)
-测试6: trained=0.25 < fresh=0.46 (泛化为负, 训练有害)
-```
-
-### 新暴露的核心问题: 稳定性-可塑性困境
-
-Agent 在 ~1000 步时确实学到了东西 (safety 短暂到 1.00)，
-但随后权重持续漂移导致灾难性遗忘。原因：
-
-1. **无权重保护机制** — 学到的好权重被后续噪声更新冲掉
-2. **Homeostatic eta=0.0068 过强** — 比之前高 4.5×，拉平已学到的差异化权重
-3. **DA baseline 恒定** — 没有"已经学会就降低学习率"的元学习机制
-
-### 系统状态
-
-```
-53区域 · ~120闭环神经元 · ~110投射
-所有学习模块重新启用 (STDP/LHb bug 修复后无害)
-Bug 修复: STDP LTD/LTP 比例 + LHb 双重计数
-待解决: 灾难性遗忘 (stability-plasticity dilemma)
-速度: 3.2秒/6测试
-```
+STDP LTD/LTP 比例 3.7×→1.2×, LHb 双重计数移除。所有模块不再有害。
+暴露灾难性遗忘 (1000步学会→1500步遗忘)。
 
 ## Step 33: 灾难性遗忘修复 — 突触巩固 + 交错回放 + 杏仁核接线修复
 
@@ -1764,3 +788,32 @@ D1 发放 36/50步 (从 2 → 18× 提升)
 2000步 Improvement: +0.212 (首次正值!)
 30/30 CTest 通过
 ```
+
+### Step 38b: ACh 门控巩固 — 反转学习与遗忘保护兼容
+
+> 日期: 2026-02-09
+> 解决: 突触巩固(STC)阻止反转学习的矛盾
+
+**问题**: 突触巩固保护已学权重 (`eff_lr = lr / (1+c×5)`)，防灾难性遗忘。
+但反转学习需要快速撤销旧权重。之前测试必须关闭巩固才能通过。
+
+**生物学方案**: ACh 信号区分"保持"和"更新"模式 (Hasselmo 1999, Yu & Dayan 2005)
+- 低 ACh（平时）→ 巩固保护完整 → 防遗忘
+- 高 ACh（意外/新环境）→ 降低巩固保护 → 允许反转
+
+**实现**:
+1. `BG::set_ach_level()`: ACh 水平接口
+2. `apply_da_stdp()` 中 `ach_gate = clamp(1 - (ach-0.2)×2, 0.1, 1.0)`
+   - ACh=0.2 → gate=1.0 (全保护)
+   - ACh=0.7 → gate=0.1 (90% 减保护)
+3. 反向 Δw 主动侵蚀巩固分数 (2× 建设速率)
+4. Phase A 结束后重置 ACh 到 baseline，防泄漏到 Phase B
+
+**修改文件**:
+- `basal_ganglia.h`: `ach_level_`, `set_ach_level()`
+- `basal_ganglia.cpp`: ACh 门控 `c_str` + 巩固侵蚀逻辑
+- `closed_loop_agent.cpp`: Phase A 注入 ACh + Phase A 后重置
+- `test_bg_learning.cpp`: 巩固开启 + ACh 门控测试
+
+**结果**: 巩固开启下反转学习 B/A +0.027 (vs 关闭巩固 +0.018, +50%)
+30/30 CTest 通过

@@ -38,7 +38,8 @@ alwaysApply: false
 
 ## 多个子步骤的归类
 
-- 同一阶段的子步骤合并到一个子文档（如 Step 13-A/B/C/D+E → `step13_closed_loop.md`）
+- 同一 Step 编号的子步骤可合并（如 Step 13-A/B/C/D+E → `step13_closed_loop.md`，Step 17 + 17-B → `step17_lhb_negative.md`）
+- **不同编号的 Step 不要合并**，每个 Step 一个独立子文档
 - 后期"补全"内容并入对应阶段的子文档（如 "Step 4 补全" → `step04_memory_learning.md`）
 - 主文档中保持 Step 编号递增顺序，不要出现跳号或乱序
 
