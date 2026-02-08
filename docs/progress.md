@@ -359,29 +359,43 @@ brain_steps 敏感参数按 10bs→20bs 缩放 (homeostatic ×2, eta ÷2, lgn_no
 DA-STDP 学的不再是"加强某一组"，而是"塑造群体活动方向"。
 **D1 权重分化 0.0607→0.0900 (+48%)。** 30/30 CTest。
 
+### Step 46: VTA 内部 RPE 计算 ✅ (2026-02-09)
+> 详细文档: [steps/step46_vta_internal_rpe.md](steps/step46_vta_internal_rpe.md)
+
+消除系统最后一个"上帝视角": VTA 不再接收 agent 注入的 reward 标量。
+奖赏通过 Hypothalamus LH 感觉接口进入 (类比 LGN 之于视觉), OFC 提供预期价值:
+- **Hypo→VTA** SpikeBus (d=1): hedonic_psp_ = 实际奖赏
+- **OFC→VTA** SpikeBus (d=2): prediction_psp_ = 预期价值
+- **RPE = hedonic - prediction**, 从脉冲率差值涌现 (Schultz 1997)
+
+删除 `inject_reward()` + `set_expected_reward()`。Hypothalamus 首次加入闭环 (+24n)。**30/30 CTest。**
+
 ---
 
 ## 当前系统状态
 
 ```
-63区域 · ~228闭环神经元 · ~137投射 · 30/30 CTest
+64区域 · ~252闭环神经元 · ~139投射 · 30/30 CTest
 默认环境: 10×10 grid, 5×5 vision (25px), 5 food, 3 danger
 
-编码架构:
-  M1: 群体向量编码 (Georgopoulos 1986), 每个 L5 神经元有随机偏好方向
-  BG→M1: D1 群体向量 → cos 相似度偏置, 不再是 4 组硬编码映射
-  解码: 群体向量角 → 最近基数方向 (UP/DOWN/LEFT/RIGHT)
+架构升级 (v45-46):
+  M1: 群体向量编码 (Georgopoulos 1986), 方向从群体活动涌现
+  VTA: 内部 RPE (Schultz 1997), 奖赏通过 Hypothalamus→VTA SpikeBus
+  BG→M1: D1 群体向量 → cos 相似度偏置
+  解码: 群体向量角 → 最近基数方向
 
-学习链路 17/17:
+学习链路 18/18:
   ① V1→V2→V4→IT 视觉层级   ② L6 预测编码 + mismatch STDP
-  ③ dlPFC→BG DA-STDP (乘法增益+侧向抑制)   ④ VTA DA burst/pause
+  ③ dlPFC→BG DA-STDP (乘法增益+侧向抑制)   ④ VTA 内部 RPE (Hypo hedonic - OFC prediction)
   ⑤ ACh STDP 门控 (巩固+反转)   ⑥ 杏仁核 one-shot 恐惧   ⑦ 海马 CA3 + SWR 重放
   ⑧ Baldwin 进化 (v44 重适配)   ⑨ 小脑 CF-LTD + DCN→BG   ⑩ 丘脑 NE/ACh TRN 门控 + 丘脑纹状体通路
   ⑪ NAcc 动机/奖赏整合   ⑫ SNc 习惯维持 (tonic DA)   ⑬ SC 显著性→皮层
   ⑭ PAG 恐惧→NE觉醒 (CeA→PAG→LC)   ⑮ FPC 前额极规划 (单向→dlPFC)
   ⑯ OFC 价值预测 (DA增益门控)   ⑰ vmPFC 恐惧消退/安全信号
+  ⑱ Hypothalamus LH→VTA 享乐感觉通路
 
-关键指标 (v45 群体向量):
+关键指标 (v46 VTA 内部 RPE):
   D1 发放: 41/50步, D2 发放: 76/50步
   皮层→BG events: 423/10步
-  Max eligibility: 72.0, Weight range: 0.0900 (+48% vs v44)
+  Weight range: 0.0900
+  VTA RPE: 脉冲驱动 (不再使用标量注入)

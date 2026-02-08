@@ -17,33 +17,40 @@ VTA_DA::VTA_DA(const VTAConfig& config)
 void VTA_DA::step(int32_t t, float dt) {
     oscillation_.step(dt);
 
-    // Compute RPE = actual reward - expected reward
-    last_rpe_ = reward_input_ - expected_reward_;
-
-    // Accumulate reward into PSP buffer (sustained drive across multiple steps)
-    if (std::abs(reward_input_) > 0.001f) {
-        reward_psp_ += last_rpe_ * config_.phasic_gain * 200.0f;
-    }
+    // =========================================================
+    // v46: Spike-driven RPE (replaces inject_reward scalar)
+    // Biology (Schultz 1997, Nieh 2015, Takahashi 2011):
+    //   VTA DA neurons receive convergent inputs:
+    //   - Hedonic (Hypothalamus LH): excitatory → "actual reward arrived"
+    //   - Prediction (OFC): inhibitory → "expected reward" → suppresses DA
+    //   - LHb: inhibitory → "negative RPE / frustration"
+    //   RPE emerges from the net drive: hedonic excitation - prediction inhibition
+    //   No scalar reward is injected. VTA only sees spike patterns.
+    // =========================================================
 
     // Accumulate LHb inhibition into sustained PSP buffer
-    // Biology: LHb → RMTg (GABA) → VTA: inhibitory postsynaptic current
-    // that hyperpolarizes DA neurons, causing a firing pause (200-500ms)
     if (lhb_inhibition_ > 0.01f) {
-        lhb_inh_psp_ += lhb_inhibition_ * 180.0f;  // Strong inhibitory drive
+        lhb_inh_psp_ += lhb_inhibition_ * 180.0f;
     }
 
-    // Inject PSP buffer (cross-region input, sustained)
+    // Inject neural drive into DA neurons:
+    //   Baseline tonic (20.0) + hedonic excitation - prediction inhibition
+    //   + general cortical/striatal PSP - LHb inhibition
     for (size_t i = 0; i < psp_da_.size(); ++i) {
         float psp_input = psp_da_[i] > 0.5f ? psp_da_[i] : 0.0f;
-        // Tonic baseline drive + sustained reward PSP + cross-region PSP - LHb inhibition
-        // 20.0 = enough for ~4Hz spontaneous firing (normal DA tonic activity)
-        // LHb inhibition subtracts from drive → DA neurons hyperpolarize → firing pause
-        float net_drive = 20.0f + reward_psp_ + psp_input - lhb_inh_psp_;
+        // Hedonic spikes (LH) excite DA neurons → burst when reward arrives
+        // Prediction spikes (OFC) suppress DA neurons → no burst when expected
+        // Net effect: unexpected reward → hedonic high, prediction low → DA burst
+        //             expected reward → hedonic high, prediction high → cancel → tonic
+        //             expected omission → hedonic low, prediction high → DA pause
+        float net_drive = 20.0f + hedonic_psp_ - prediction_psp_ * 0.7f
+                        + psp_input - lhb_inh_psp_;
         da_neurons_.inject_basal(i, std::max(0.0f, net_drive));
         psp_da_[i] *= PSP_DECAY;
     }
-    reward_psp_ *= REWARD_PSP_DECAY;  // Slow decay of reward signal
-    lhb_inh_psp_ *= LHB_INH_PSP_DECAY;  // Slow decay of LHb inhibition
+    hedonic_psp_ *= HEDONIC_PSP_DECAY;
+    prediction_psp_ *= PREDICTION_PSP_DECAY;
+    lhb_inh_psp_ *= LHB_INH_PSP_DECAY;
 
     da_neurons_.step(t, dt);
 
@@ -56,55 +63,54 @@ void VTA_DA::step(int32_t t, float dt) {
     }
 
     // v37: DA level based on firing rate deviation from tonic baseline
-    // Biology (Grace 1991, Schultz 1997):
-    //   DA concentration depends on firing rate relative to tonic baseline:
-    //   - Burst firing (reward) → DA release >> reuptake → DA rises above tonic
-    //   - Firing pause (punishment/LHb) → reuptake > release → DA drops BELOW tonic
-    //
-    // Previous bug: negative phasic used instantaneous RPE (reward_input_, reset to 0
-    //   after 1 step). Even though reward_psp_ kept DA neurons suppressed for ~15 steps,
-    //   da_level_ returned to 0.3 after step 1 because phasic_negative = 0 when RPE = 0.
-    //   Result: DA dip lasted only 1 engine step → BG never saw punishment signal.
-    //
-    // Fix: compute DA purely from firing rate. When neurons fire more than tonic → DA up.
-    //   When neurons fire less (suppressed by negative reward_psp_) → DA down.
-    //   This naturally produces sustained DA dip for the entire reward_psp_ decay period.
     float firing_rate = static_cast<float>(n_fired) / static_cast<float>(da_neurons_.size());
 
-    // Phasic component: deviation of firing rate from tracked tonic baseline
-    // phasic_gain * 3.0 amplifies the signal to produce meaningful DA swings
     float phasic = 0.0f;
     if (step_count_ >= WARMUP_STEPS) {
-        // After warmup: firing-rate-based DA (both burst AND pause detected)
         phasic = (firing_rate - tonic_firing_smooth_) * config_.phasic_gain * 3.0f;
     }
-    // During warmup: phasic=0 → DA stays at tonic_rate (no spurious D2 strengthening)
 
-    // LHb adds additional DA suppression (separate from firing pause)
+    // LHb adds additional DA suppression
     float lhb_suppression = lhb_inhibition_ * config_.phasic_gain;
 
     da_level_ = std::clamp(config_.tonic_rate + phasic - lhb_suppression, 0.0f, 1.0f);
 
-    // Update tonic firing rate estimate (always track, even during warmup)
-    // Fast convergence during warmup (α=0.1), slow tracking after (α=0.01)
-    if (std::abs(reward_psp_) < 5.0f && lhb_inh_psp_ < 5.0f) {
+    // v46: RPE from spike rates (diagnostic, replaces old reward_input_ - expected_reward_)
+    float hedonic_rate = hedonic_psp_ / std::max<float>(1.0f, static_cast<float>(da_neurons_.size()));
+    float prediction_rate = prediction_psp_ / std::max<float>(1.0f, static_cast<float>(da_neurons_.size()));
+    last_rpe_ = hedonic_rate - prediction_rate;
+
+    // Update tonic firing rate estimate
+    if (hedonic_psp_ < 5.0f && lhb_inh_psp_ < 5.0f) {
         float alpha = (step_count_ < WARMUP_STEPS) ? 0.1f : 0.01f;
         tonic_firing_smooth_ = tonic_firing_smooth_ * (1.0f - alpha) + firing_rate * alpha;
     }
     ++step_count_;
 
     // Reset inputs (consumed)
-    reward_input_ = 0.0f;
     lhb_inhibition_ = 0.0f;
 }
 
 void VTA_DA::receive_spikes(const std::vector<SpikeEvent>& events) {
-    // Arriving spikes → PSP buffer (sustained drive via exponential decay)
+    // v46: Route incoming spikes by source region (SpikeEvent.region_id)
+    // Hedonic source (Hypothalamus) → hedonic_psp_ (excitatory, actual reward)
+    // Prediction source (OFC) → prediction_psp_ (inhibitory, expected value)
+    // All other sources → psp_da_ (general cortical/striatal modulation)
     for (const auto& evt : events) {
         float current = is_burst(static_cast<SpikeType>(evt.spike_type)) ? 20.0f : 12.0f;
-        size_t base = evt.neuron_id % psp_da_.size();
-        for (size_t k = 0; k < 3 && (base + k) < psp_da_.size(); ++k) {
-            psp_da_[base + k] += current;
+
+        if (has_hedonic_source_ && evt.region_id == hedonic_source_id_) {
+            // Hypothalamus LH spikes → "actual reward arrived"
+            hedonic_psp_ += current * 1.5f;  // Strong excitatory drive
+        } else if (has_prediction_source_ && evt.region_id == prediction_source_id_) {
+            // OFC spikes → "expected value" → will suppress DA (prediction inhibition)
+            prediction_psp_ += current;
+        } else {
+            // General cortical/striatal modulation (existing behavior)
+            size_t base = evt.neuron_id % psp_da_.size();
+            for (size_t k = 0; k < 3 && (base + k) < psp_da_.size(); ++k) {
+                psp_da_[base + k] += current;
+            }
         }
     }
 }
@@ -119,13 +125,9 @@ void VTA_DA::inject_external(const std::vector<float>& currents) {
     }
 }
 
-void VTA_DA::inject_reward(float reward) {
-    reward_input_ = reward;
-}
-
-void VTA_DA::set_expected_reward(float expected) {
-    expected_reward_ = expected;
-}
+// v46: inject_reward() and set_expected_reward() REMOVED (anti-cheat).
+// VTA now computes RPE from spike rates: hedonic (Hypothalamus) - prediction (OFC).
+// Reward enters through Hypothalamus→VTA SpikeBus, not agent scalar injection.
 
 void VTA_DA::inject_lhb_inhibition(float inhibition) {
     lhb_inhibition_ = std::clamp(inhibition, 0.0f, 1.0f);

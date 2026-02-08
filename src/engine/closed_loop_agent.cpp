@@ -487,6 +487,35 @@ void ClosedLoopAgent::build_brain() {
     if (config_.enable_drn_5ht)
         engine_.register_neuromod_source("DRN", SimulationEngine::NeuromodType::SHT);
 
+    // --- v46: Hypothalamus — hedonic sensory interface for reward signals ---
+    // Biology: LH (lateral hypothalamus) → VTA drives DA release during feeding (Nieh 2015)
+    //   PVN (paraventricular) → stress response during pain
+    // Analogous to LGN for vision: the "body" converting environmental reward to neural signals.
+    // Agent injects reward into Hypothalamus (inject_hedonic), NOT into VTA.
+    {
+        HypothalamusConfig hypo_cfg;
+        hypo_cfg.name = "Hypothalamus";
+        // Use small populations for closed-loop (only LH and PVN matter for reward)
+        hypo_cfg.n_lh  = std::max<size_t>(4, n_act) * s;   // 4: food satisfaction
+        hypo_cfg.n_pvn = std::max<size_t>(4, n_act) * s;   // 4: pain/stress
+        // Keep other nuclei small (not critical for GridWorld reward path)
+        hypo_cfg.n_scn = 4;
+        hypo_cfg.n_vlpo = 4;
+        hypo_cfg.n_orexin = 4;
+        hypo_cfg.n_vmh = 4;
+        engine_.add_region(std::make_unique<Hypothalamus>(hypo_cfg));
+
+        // Hypothalamus → VTA (hedonic signal: LH excitation → DA burst)
+        // Fast pathway: delay=1 (reward must reach VTA quickly)
+        engine_.add_projection("Hypothalamus", "VTA", 1);
+    }
+
+    // OFC → VTA (value prediction: expected reward → suppress DA surprise)
+    // Biology: OFC projects to VTA providing expected value signal (Takahashi 2011)
+    if (config_.enable_ofc) {
+        engine_.add_projection("OFC", "VTA", 2);
+    }
+
     // --- Wire DA source for BG ---
     auto* bg_ptr = dynamic_cast<BasalGanglia*>(engine_.find_region("BG"));
     auto* vta_ptr = engine_.find_region("VTA");
@@ -518,6 +547,16 @@ void ClosedLoopAgent::build_brain() {
     fpc_   = dynamic_cast<CorticalRegion*>(engine_.find_region("FPC"));
     ofc_   = dynamic_cast<OrbitofrontalCortex*>(engine_.find_region("OFC"));
     vmpfc_ = dynamic_cast<CorticalRegion*>(engine_.find_region("vmPFC"));
+    hypo_  = dynamic_cast<Hypothalamus*>(engine_.find_region("Hypothalamus"));
+
+    // v46: Register VTA spike sources for internal RPE computation
+    // VTA distinguishes Hypothalamus spikes (hedonic) from OFC spikes (prediction)
+    if (vta_ && hypo_) {
+        vta_->register_hedonic_source(hypo_->region_id());
+    }
+    if (vta_ && ofc_) {
+        vta_->register_prediction_source(ofc_->region_id());
+    }
 
     // --- Topographic mappings through visual hierarchy ---
     // V1→V2: retinotopic (preserve spatial layout)
@@ -800,8 +839,8 @@ StepResult ClosedLoopAgent::agent_step() {
     //   D2 → GPe → GPi(disinhibit) → MotorThal(inhibit) (NoGo)
     //   M1 L5 = sole motor output (action decoded here)
     //
-    //   Exploration = diffuse cortical spontaneous activity (all M1 L5)
-    //   BG influence = D1 subgroup firing → bias corresponding M1 L5 group
+    //   Exploration = cosine-weighted noise along random attractor_angle (all M1 L5)
+    //   BG influence = D1 population vector → cosine bias on M1 L5 (Georgopoulos 1986)
     //                  (simplified proxy for BG→MotorThal→M1 disinhibition)
     //   Learning naturally shifts M1 firing from noise-driven to BG-biased
     // =====================================================================
@@ -814,29 +853,42 @@ StepResult ClosedLoopAgent::agent_step() {
     size_t l5_offset = l4_size + l23_size;
     std::vector<int> l5_accum(l5_size, 0);
 
-    // BG D1 subgroup parameters (for bias injection into M1)
+    // v45: BG D1 population vector parameters (for bias injection into M1)
     size_t d1_size = bg_->d1().size();
-    size_t d1_group = (d1_size >= 4) ? d1_size / 4 : d1_size;
     float bg_to_m1_gain = config_.bg_to_m1_gain;
 
-    // v35: ACC 冲突/惊讶/波动性计算 → 驱动 LC-NE 探索
-    // Biology: dACC检测BG D1子群冲突 → ACC→LC phasic burst → NE↑ → 探索
+    // v35: ACC 冲突/惊讶/波動性计算 → 驱动 LC-NE 探索
+    // Biology: dACC检测BG D1方向冲突 → ACC→LC phasic burst → NE↑ → 探索
     //          PRO模型惊讶信号 → 额外唤醒
     //          替代硬编码 ne_floor 和手工 food_rate arousal 计算
     if (acc_ && bg_) {
-        // 读取 BG D1 子群发放率 (4个方向组)
+        // v45: D1 按 preferred direction 最近基数方向分组 (替代旧的索引切分)
+        // Biology: ACC 检测 BG 中不同方向 D1 MSN 的竞争强度
+        //   如果多个方向的 D1 同等活跃 → 高冲突 → 需要更多探索
+        // 旧方式(v35-v44): 按索引位置 d1_size/4 切分 → 群体向量后无意义
+        // 新方式(v45+): 按 d1_preferred_dir_ 最近基数方向分组
+        //   Direction angles: UP=π/2, DOWN=-π/2, LEFT=π, RIGHT=0
+        constexpr float ACC_DIR_ANGLES[4] = {1.5708f, -1.5708f, 3.14159f, 0.0f};
         std::array<float, 4> d1_rates = {0.0f, 0.0f, 0.0f, 0.0f};
-        size_t d1_sz = bg_->d1().size();
-        size_t d1_grp = (d1_sz >= 4) ? d1_sz / 4 : d1_sz;
+        std::array<int, 4> d1_counts = {0, 0, 0, 0};  // neurons per direction group
         const auto& d1_f = bg_->d1().fired();
-        for (int g = 0; g < 4; ++g) {
-            size_t start = g * d1_grp;
-            size_t end = (g < 3) ? (g + 1) * d1_grp : d1_sz;
-            int fires = 0;
-            for (size_t k = start; k < end; ++k) {
-                if (d1_f[k]) fires++;
+        size_t d1_sz = bg_->d1().size();
+        for (size_t k = 0; k < d1_sz && k < d1_preferred_dir_.size(); ++k) {
+            // Assign to nearest cardinal direction by preferred angle
+            int best_dir = 0;
+            float best_cos = -2.0f;
+            for (int d = 0; d < 4; ++d) {
+                float c = std::cos(d1_preferred_dir_[k] - ACC_DIR_ANGLES[d]);
+                if (c > best_cos) { best_cos = c; best_dir = d; }
             }
-            d1_rates[g] = static_cast<float>(fires) / static_cast<float>(std::max<size_t>(end - start, 1));
+            d1_counts[best_dir]++;
+            if (d1_f[k]) d1_rates[best_dir] += 1.0f;
+        }
+        // Normalize by group size
+        for (int d = 0; d < 4; ++d) {
+            if (d1_counts[d] > 0) {
+                d1_rates[d] /= static_cast<float>(d1_counts[d]);
+            }
         }
         acc_->inject_d1_rates(d1_rates);
 
@@ -1209,12 +1261,15 @@ Action ClosedLoopAgent::decode_m1_action(const std::vector<int>& l5_accum) const
 }
 
 // =============================================================================
-// Reward: inject to VTA
+// Reward: inject to Hypothalamus (hedonic sensory interface)
+// v46: Reward no longer injected directly into VTA. Instead, it enters through
+// Hypothalamus LH/PVN (sensory pathway), propagates to VTA via SpikeBus.
+// Analogous to visual input entering through LGN, not directly into V1.
 // =============================================================================
 
 void ClosedLoopAgent::inject_reward(float reward) {
-    if (vta_ && std::abs(reward) > 0.001f) {
-        vta_->inject_reward(reward);
+    if (hypo_ && std::abs(reward) > 0.001f) {
+        hypo_->inject_hedonic(reward);
     }
 }
 

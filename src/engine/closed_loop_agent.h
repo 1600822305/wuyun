@@ -39,6 +39,7 @@
 #include "region/neuromod/snc_da.h"
 #include "region/subcortical/superior_colliculus.h"
 #include "region/subcortical/periaqueductal_gray.h"
+#include "region/limbic/hypothalamus.h"
 #include "region/anterior_cingulate.h"
 #include "region/prefrontal/orbitofrontal.h"
 #include "engine/sleep_cycle.h"
@@ -293,6 +294,7 @@ public:
     CorticalRegion*     fpc()  const { return fpc_; }
     OrbitofrontalCortex* ofc()  const { return ofc_; }
     CorticalRegion*     vmpfc() const { return vmpfc_; }
+    Hypothalamus*       hypo()  const { return hypo_; }
 
 private:
     AgentConfig config_;
@@ -326,6 +328,7 @@ private:
     CorticalRegion*     fpc_   = nullptr;   // v41: FPC planning
     OrbitofrontalCortex* ofc_   = nullptr;   // v42: OFC value
     CorticalRegion*     vmpfc_  = nullptr;   // v42: vmPFC emotion regulation
+    Hypothalamus*       hypo_   = nullptr;   // v46: hedonic sensory interface
 
     // v45: Population vector encoding (Georgopoulos 1986)
     // Each M1 L5 neuron has a random preferred direction angle θ ∈ [0, 2π)

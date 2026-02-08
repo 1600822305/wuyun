@@ -263,6 +263,31 @@ void Hypothalamus::inject_external(const std::vector<float>& currents) {
     }
 }
 
+void Hypothalamus::inject_hedonic(float reward) {
+    // v46: Hedonic reward signal — sensory interface for reward events
+    // Analogous to VisualInput::encode_and_inject() for LGN.
+    // Converts environmental reward/punishment into neural activity.
+    //
+    // Biology (Nieh et al. 2015, Nature):
+    //   Food consumption → LH glutamatergic neurons fire → VTA DA release
+    //   Pain/danger → PVN CRH neurons fire → stress response + VTA DA suppression
+    //
+    // Positive reward → LH excitation (food satisfaction)
+    // Negative reward → PVN excitation (pain/stress)
+    float magnitude = std::abs(reward) * 100.0f;  // Scale to synaptic current range
+    if (reward > 0.01f) {
+        // Food satisfaction → drive LH neurons
+        for (size_t i = 0; i < lh_.size(); ++i) {
+            lh_.inject_basal(i, magnitude);
+        }
+    } else if (reward < -0.01f) {
+        // Pain/stress → drive PVN neurons
+        for (size_t i = 0; i < pvn_.size(); ++i) {
+            pvn_.inject_basal(i, magnitude);
+        }
+    }
+}
+
 // === Aggregate ===
 
 void Hypothalamus::aggregate_state() {

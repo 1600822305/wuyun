@@ -40,20 +40,25 @@ public:
 
     // --- DA 特有接口 ---
 
-    /** 注入奖励信号 (正=奖励, 负=惩罚) */
-    void inject_reward(float reward);
-
-    /** 注入预期奖励 (来自纹状体/PFC 的预测) */
-    void set_expected_reward(float expected);
-
     /** 获取当前 DA 输出水平 (tonic + phasic) */
     float da_output() const { return da_level_; }
 
-    /** 获取最近的 RPE */
+    /** 获取最近的 RPE (now computed from spike rates, not injected scalars) */
     float last_rpe() const { return last_rpe_; }
 
-    /** 注入LHb抑制信号 (0~1, LHb firing → RMTg GABA → VTA DA pause) */
+    /** 注入LHb抑制信号 (0~1, LHb firing → RMTg GABA → VTA DA pause)
+     *  This is ModulationBus (volume transmission), acceptable per 02 design doc. */
     void inject_lhb_inhibition(float inhibition);
+
+    /** v46: Register hedonic source region (Hypothalamus LH → VTA excitation)
+     *  Spikes from this region = "actual reward arrived" → DA burst
+     *  Biology: LH glutamatergic → VTA (Nieh et al. 2015) */
+    void register_hedonic_source(uint32_t region_id) { hedonic_source_id_ = region_id; has_hedonic_source_ = true; }
+
+    /** v46: Register prediction source region (OFC → VTA inhibition)
+     *  Spikes from this region = "expected reward" → suppress DA (no surprise)
+     *  Biology: OFC/striatum → VTA GABAergic interneurons (Takahashi et al. 2011) */
+    void register_prediction_source(uint32_t region_id) { prediction_source_id_ = region_id; has_prediction_source_ = true; }
 
     NeuronPopulation& neurons() { return da_neurons_; }
 
@@ -61,25 +66,32 @@ private:
     VTAConfig config_;
     NeuronPopulation da_neurons_;
 
-    float reward_input_    = 0.0f;
-    float expected_reward_ = 0.0f;
     float last_rpe_        = 0.0f;
     float da_level_        = 0.1f;  // tonic + phasic
-    float reward_psp_      = 0.0f;  // Sustained reward drive (exponential decay)
-    static constexpr float REWARD_PSP_DECAY = 0.85f;  // Slower decay for reward signal
 
     float lhb_inhibition_   = 0.0f;  // LHb → RMTg → VTA inhibition (0~1)
     float lhb_inh_psp_      = 0.0f;  // Sustained LHb inhibition (exponential decay)
     static constexpr float LHB_INH_PSP_DECAY = 0.85f;
 
-    // v37: Track tonic firing rate for firing-rate-based DA computation
-    // Biology: DA level reflects firing rate deviation from tonic baseline.
-    // Previous bug: negative phasic used RPE (reset after 1 step) → DA dip lasted 1 step only.
-    float tonic_firing_smooth_ = 0.0f;   // EMA of baseline firing rate (init 0, converges in warmup)
-    int   step_count_          = 0;      // Step counter for warmup period
-    static constexpr int WARMUP_STEPS = 50;  // Steps before firing-rate-based DA kicks in
+    // v46: Spike-driven RPE (replaces inject_reward / set_expected_reward)
+    // Hedonic source (Hypothalamus LH): actual reward signal → excites DA neurons
+    // Prediction source (OFC): expected value → inhibits DA neurons (no surprise)
+    // RPE = hedonic_rate - prediction_rate (Schultz 1997)
+    uint32_t hedonic_source_id_ = 0;
+    uint32_t prediction_source_id_ = 0;
+    bool has_hedonic_source_ = false;
+    bool has_prediction_source_ = false;
+    float hedonic_psp_    = 0.0f;   // Accumulated hedonic spikes (actual reward)
+    float prediction_psp_ = 0.0f;   // Accumulated prediction spikes (expected value)
+    static constexpr float HEDONIC_PSP_DECAY = 0.85f;
+    static constexpr float PREDICTION_PSP_DECAY = 0.85f;
 
-    // PSP buffer for cross-region input (sustained synaptic drive)
+    // v37: Track tonic firing rate for firing-rate-based DA computation
+    float tonic_firing_smooth_ = 0.0f;
+    int   step_count_          = 0;
+    static constexpr int WARMUP_STEPS = 50;
+
+    // PSP buffer for cross-region input (general cortical/striatal modulation)
     static constexpr float PSP_DECAY = 0.7f;
     std::vector<float> psp_da_;
 

@@ -118,6 +118,14 @@ public:
     /** Set satiety level */
     void set_satiety_level(float s) { config_.satiety_level = std::clamp(s, 0.0f, 1.0f); }
 
+    /** v46: Inject hedonic reward signal (sensory interface, like LGN for vision)
+     *  Positive reward: excite LH neurons (food satisfaction → VTA DA burst via SpikeBus)
+     *  Negative reward: excite PVN neurons (pain/stress → VTA DA pause via SpikeBus)
+     *  Biology: taste/pain → LH/PVN → VTA (Nieh et al. 2015, Nature)
+     *  Agent calls this like inject_external for LGN — the "body" converting
+     *  environmental reward signals to neural signals. */
+    void inject_hedonic(float reward);
+
     // === Population access ===
     const NeuronPopulation& scn_pop()    const { return scn_; }
     const NeuronPopulation& vlpo_pop()   const { return vlpo_; }
