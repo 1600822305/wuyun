@@ -335,6 +335,7 @@ OFC: IT/Amygdala→OFC→dlPFC/NAcc 价值引导决策。vmPFC: OFC/Hippocampus�
 **修复后全部 7 个新区域翻正: all_new -0.43 (有用)。** 30/30 CTest。
 
 ### Step 44: Baldwin 重进化 ✅ (2026-02-09)
+> 详细文档: [steps/step44_baldwin_reevolution.md](steps/step44_baldwin_reevolution.md)
 
 30代×40体×5seed Baldwin 进化 (373s)。新架构最优参数 vs Step 33:
 - **reward_scale**: 1.43→3.50 (228n 需要更强奖赏信号)
@@ -347,6 +348,7 @@ brain_steps 敏感参数按 10bs→20bs 缩放 (homeostatic ×2, eta ÷2, lgn_no
 **进化 vs 手工: fitness +0.56, late_safety +0.21。** D1=57, elig=71.6。30/30 CTest。
 
 ### Step 45: M1 群体向量编码 ✅ (2026-02-09)
+> 详细文档: [steps/step45_m1_population_vector.md](steps/step45_m1_population_vector.md)
 
 将 M1 动作解码从"4 组固定神经元 WTA 计数"改为"群体向量编码" (Georgopoulos 1986):
 - **M1 L5**: 每个神经元赋随机偏好方向 θ ∈ [0, 2π), 群体向量 = Σ fired × (cos θ, sin θ)
