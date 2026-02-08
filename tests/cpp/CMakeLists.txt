@@ -253,5 +253,13 @@ if(MSVC)
 endif()
 add_test(NAME minimal_tasks_tests COMMAND test_minimal_tasks)
 
+# Step 49: 间接编码发育基因组
+add_executable(test_dev_genome test_dev_genome.cpp)
+target_link_libraries(test_dev_genome PRIVATE wuyun_core)
+if(MSVC)
+    target_compile_options(test_dev_genome PRIVATE /utf-8)
+endif()
+add_test(NAME dev_genome_tests COMMAND test_dev_genome)
+
 # Register as CTest
 add_test(NAME neuron_tests COMMAND test_neuron)

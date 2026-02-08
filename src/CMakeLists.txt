@@ -44,6 +44,8 @@ set(WUYUN_CORE_SOURCES
     engine/closed_loop_agent.cpp
     genome/genome.cpp
     genome/evolution.cpp
+    genome/dev_genome.cpp
+    development/developer.cpp
 )
 
 add_library(wuyun_core STATIC ${WUYUN_CORE_SOURCES})

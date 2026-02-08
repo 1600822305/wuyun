@@ -388,30 +388,45 @@ GridWorld 迷宫支持: `MazeType` 枚举 (T_MAZE/CORRIDOR/SIMPLE_MAZE) + `set_c
 均匀分布后 T-迷宫从 0 次 → **6 次食物** (2000步, 后期加速)。走廊 3 次食物 (1000步)。
 **大脑首次进入迷宫并学会导航。** 30/30 CTest。
 
+### Step 49: 间接编码 — 神经发育基因组 ✅ (2026-02-09)
+> 详细文档: [steps/step49_indirect_encoding.md](steps/step49_indirect_encoding.md)
+
+从直接编码 (23 个浮点旋钮) 升级为间接编码 (124 个发育规则基因)。
+基因不编码"大脑长什么样"，而是编码"大脑怎么长出来":
+- **增殖**: division_rounds[type] → 2^N 个神经元涌现
+- **导向分子**: 8 种化学梯度 (Netrin/Slit/Ephrin 类), 轴突沿梯度生长 → 连接涌现 (820 突触)
+- **分化**: 受体表达 (40 基因) + DA/NMDA 前后轴梯度
+- **关键期**: 自发活动 → 稳态调整 → 连接精炼
+进化验证: 5 代后适应度 +0.66, 最佳基因组发育出 300 神经元。**31/31 CTest。**
+
 ---
 
 ## 当前系统状态
 
 ```
-64区域 · ~252闭环神经元 · ~139投射 · 30/30 CTest (22s)
-环境: 10×10 开放场地 (默认) + T-迷宫 / 走廊 / 简单迷宫
+双轨系统:
+  手工模式: 64区域 · ~252闭环神经元 · ~139投射 (build_brain)
+  发育模式: 124基因 → develop() → 大脑结构涌现 (DevGenome)
 
-架构升级 (v45-48):
-  M1: 群体向量编码 (Georgopoulos 1986), 均匀偏好方向 + 17°抖动
+环境: 10×10 开放场地 + T-迷宫 / 走廊 / 简单迷宫
+
+架构升级 (v45-49):
+  M1: 群体向量编码 (Georgopoulos 1986), 均匀偏好方向
   VTA: 内部 RPE (Schultz 1997), Hypothalamus→VTA SpikeBus
-  BG→M1: D1 群体向量 → cos 相似度偏置
+  基因层: 间接编码 — 增殖/导向分子/分化/修剪 发育模拟
   迷宫: T_MAZE(5×5) / CORRIDOR(10×3) / SIMPLE_MAZE(7×7)
 
 学习链路 18/18:
   ① V1→V2→V4→IT 视觉层级   ② L6 预测编码 + mismatch STDP
   ③ dlPFC→BG DA-STDP (乘法增益+侧向抑制)   ④ VTA 内部 RPE (Hypo hedonic - OFC prediction)
   ⑤ ACh STDP 门控 (巩固+反转)   ⑥ 杏仁核 one-shot 恐惧   ⑦ 海马 CA3 + SWR 重放
-  ⑧ Baldwin 进化 (v47 重适配)   ⑨ 小脑 CF-LTD + DCN→BG   ⑩ 丘脑 NE/ACh TRN 门控 + 丘脑纹状体通路
+  ⑧ Baldwin 进化   ⑨ 小脑 CF-LTD + DCN→BG   ⑩ 丘脑 NE/ACh TRN 门控 + 丘脑纹状体通路
   ⑪ NAcc 动机/奖赏整合   ⑫ SNc 习惯维持 (tonic DA)   ⑬ SC 显著性→皮层
-  ⑭ PAG 恐惧→NE觉醒 (CeA→PAG→LC)   ⑮ FPC 前额极规划 (单向→dlPFC)
-  ⑯ OFC 价值预测 (DA增益门控)   ⑰ vmPFC 恐惧消退/安全信号
-  ⑱ Hypothalamus LH→VTA 享乐感觉通路
+  ⑭ PAG 恐惧→NE觉醒   ⑮ FPC 前额极规划   ⑯ OFC 价值预测
+  ⑰ vmPFC 恐惧消退   ⑱ Hypothalamus 享乐感觉通路
 
-迷宫验证:
-  T-迷宫 (5×5): 6次食物/2000步 (后期加速)
-  走廊 (10×3): 3次食物/1000步
+间接编码 (DevGenome):
+  124 基因 → 发育模拟 → 大脑涌现
+  8 种导向分子 → 820 突触涌现
+  进化 5 代 → 最佳 300 神经元
+  31/31 CTest
