@@ -2,17 +2,16 @@
 /**
  * ClosedLoopAgent — 闭环智能体
  *
- * 将 GridWorld 环境与 WuYun 大脑连接形成完整的感知-决策-行动循环:
+ * 将 Environment 环境与 WuYun 大脑连接形成完整的感知-决策-行动循环:
  *
- *   GridWorld.observe() → VisualInput → LGN → V1 → ... → dlPFC → BG → MotorThal → M1
- *                                                                                   ↓
- *   GridWorld.act(action) ← decode_action() ← M1 L5 fired pattern
+ *   Environment.observe() → VisualInput → LGN → V1 → ... → dlPFC → BG → MotorThal → M1
+ *                                                                                      ↓
+ *   Environment.step(dx,dy) ← decode_m1_continuous() ← M1 L5 population vector
  *                ↓
- *   reward → VTA.inject_reward() → DA → BG DA-STDP → 学习
+ *   reward → Hypothalamus → VTA DA → BG DA-STDP → 学习
  *
  * 动作解码:
- *   M1 L5 神经元分为4组 (UP/DOWN/LEFT/RIGHT), 统计各组发放数, winner-take-all
- *   如果全部沉默 → STAY
+ *   M1 L5 群体向量编码 (Georgopoulos 1986), 连续位移 (dx, dy)
  *
  * 生物学基础:
  *   - 运动皮层 M1 L5 锥体细胞直接投射到脊髓 (皮质脊髓束)
@@ -20,6 +19,7 @@
  *   - VTA RPE 信号驱动强化学习
  */
 
+#include "engine/environment.h"
 #include "engine/grid_world.h"
 #include "engine/simulation_engine.h"
 #include "engine/sensory_input.h"
@@ -55,7 +55,7 @@ struct AgentConfig {
     // Brain scale
     int brain_scale = 1;  // scale=1 default (scale=3 暴露 D2 过度激活问题)
 
-    // Perception (auto-computed from world_config.vision_radius in constructor)
+    // Perception (auto-computed from Environment::vis_width/height in constructor)
     size_t vision_width  = 5;   // v21: default 5x5 local patch (vision_radius=2)
     size_t vision_height = 5;
 
@@ -249,9 +249,6 @@ struct AgentConfig {
     // Biology: M1 population vector (angle + coherence) → float displacement.
     // There is no discrete 4-direction mode; real brains don't have one.
     float continuous_step_size = 0.8f;  // max displacement per step (≤1.0 to avoid skipping cells)
-
-    // GridWorld
-    GridWorldConfig world_config;
 };
 
 /** 每步回调: agent_step, action, reward, agent_x, agent_y */
@@ -259,7 +256,10 @@ using AgentStepCallback = std::function<void(int, Action, float, int, int)>;
 
 class ClosedLoopAgent {
 public:
-    explicit ClosedLoopAgent(const AgentConfig& config = {});
+    /** 构造闭环智能体
+     *  @param env    环境 (所有权转移给 Agent)
+     *  @param config 大脑/学习参数 (vision_width/height 自动从 env 推导) */
+    ClosedLoopAgent(std::unique_ptr<Environment> env, const AgentConfig& config = {});
 
     // Non-copyable, non-movable (contains SimulationEngine with unique_ptrs + cached raw pointers)
     ClosedLoopAgent(const ClosedLoopAgent&) = delete;
@@ -267,7 +267,7 @@ public:
     ClosedLoopAgent(ClosedLoopAgent&&) = delete;
     ClosedLoopAgent& operator=(ClosedLoopAgent&&) = delete;
 
-    /** 重置环境 (大脑保持不变, 只重置GridWorld) */
+    /** 重置环境 (大脑保持不变, 只重置环境) */
     void reset_world();
 
     /** v53: 换种子重置环境 (反转学习: 大脑保留, 世界换布局)
@@ -280,11 +280,11 @@ public:
      *   1. observe → encode → inject LGN
      *   2. run brain N steps
      *   3. decode M1 → action
-     *   4. world.act(action)
-     *   5. reward → VTA
-     * @return StepResult
+     *   4. env.step(dx, dy)
+     *   5. reward → Hypothalamus → VTA
+     * @return Environment::Result
      */
-    StepResult agent_step();
+    Environment::Result agent_step();
 
     /** 运行 n 个环境步 */
     void run(int n_steps);
@@ -293,7 +293,8 @@ public:
     void set_callback(AgentStepCallback cb) { callback_ = std::move(cb); }
 
     // --- 访问器 ---
-    GridWorld&         world()  { return world_; }
+    Environment&       env()    { return *env_; }
+    const Environment& env() const { return *env_; }
     SimulationEngine&  brain()  { return engine_; }
 
     int    agent_step_count() const { return agent_step_count_; }
@@ -333,7 +334,7 @@ public:
 private:
     AgentConfig config_;
 
-    GridWorld world_;
+    std::unique_ptr<Environment> env_;
     SimulationEngine engine_;
     VisualInput visual_encoder_;
 
@@ -404,10 +405,12 @@ private:
     float danger_novelty_ = 1.0f;
 
     // --- v36: Spatial value map (cognitive map / Tolman 1948) ---
-    // Records reward outcomes at each grid position → value gradient for navigation.
+    // Records reward outcomes at each position → value gradient for navigation.
     // Biology: hippocampal place cells + OFC value coding = spatial value memory.
     // Updated on reward events, decays slowly → persistent spatial knowledge.
-    std::vector<float> spatial_value_map_;   // [width × height], init 0
+    std::vector<float> spatial_value_map_;   // [world_width × world_height], init 0
+    int spatial_map_w_ = 0;  // discretized map width  (= world_width)
+    int spatial_map_h_ = 0;  // discretized map height (= world_height)
     // v37: asymmetric decay — positive values (food) persist, negative (danger) extinguish
     // Biology: fear extinction is faster than reward memory (Milad & Quirk 2002)
     // Previous: uniform 0.999 decay (half-life 693 steps) → negative values never cleared

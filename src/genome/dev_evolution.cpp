@@ -78,16 +78,21 @@ std::vector<DevGenome> DevEvolutionEngine::next_generation(std::vector<DevGenome
 // 通用: 跑 agent N 步, 计算 early×1 + improvement×2 + late×2
 float DevEvolutionEngine::run_and_score(ClosedLoopAgent& agent, size_t steps,
                                          int& out_food, int& out_danger) {
-    // 早停: 50 步内是否有运动
-    int events = 0;
+    // 早停: 50 步内是否有运动 (用位移判断, 不依赖 food/danger 事件)
+    // v56 fix: 稀疏环境 (1 food, 0 danger) 中旧检查用 food/danger 事件判断运动,
+    //   但 100 格只有 1 食物 → 60% 概率 50 步内没碰到 → 误判为"不动" → -1.0
     size_t warmup = std::min<size_t>(50, steps / 4);
+    float start_x = agent.world().agent_fx();
+    float start_y = agent.world().agent_fy();
     for (size_t i = 0; i < warmup; ++i) {
-        auto r = agent.agent_step();
-        if (r.got_food || r.hit_danger) events++;
+        agent.agent_step();
     }
-    if (events == 0) {
+    float dx = agent.world().agent_fx() - start_x;
+    float dy = agent.world().agent_fy() - start_y;
+    float displacement = dx * dx + dy * dy;
+    if (displacement < 1.0f) {
         out_food = 0; out_danger = 0;
-        return -1.0f;  // 不动 = 差评
+        return -1.0f;  // 真的不动 = 差评
     }
 
     size_t remaining = steps - warmup;

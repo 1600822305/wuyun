@@ -12,22 +12,24 @@ namespace wuyun {
 // Construction
 // =============================================================================
 
-ClosedLoopAgent::ClosedLoopAgent(const AgentConfig& config)
+ClosedLoopAgent::ClosedLoopAgent(std::unique_ptr<Environment> env, const AgentConfig& config)
     : config_(config)
-    , world_(config.world_config)
+    , env_(std::move(env))
     , engine_(10)
     , reward_history_(1000, 0.0f)
     , food_history_(1000, 0)
     , replay_buffer_(config.replay_buffer_size, config.brain_steps_per_action)
 {
-    // Auto-compute vision size from world config
-    config_.vision_width  = config_.world_config.vision_side();
-    config_.vision_height = config_.world_config.vision_side();
+    // Auto-compute vision size from environment
+    config_.vision_width  = env_->vis_width();
+    config_.vision_height = env_->vis_height();
 
     build_brain();
 
     // v36: Initialize spatial value map (cognitive map)
-    size_t map_size = config_.world_config.width * config_.world_config.height;
+    spatial_map_w_ = static_cast<int>(env_->world_width());
+    spatial_map_h_ = static_cast<int>(env_->world_height());
+    size_t map_size = static_cast<size_t>(spatial_map_w_) * spatial_map_h_;
     spatial_value_map_.assign(map_size, 0.0f);
 
     // Setup visual encoder for NxN patch → LGN
@@ -684,7 +686,7 @@ void ClosedLoopAgent::build_brain() {
 // =============================================================================
 
 void ClosedLoopAgent::reset_world() {
-    world_.reset();
+    env_->reset();
     agent_step_count_ = 0;
     std::fill(reward_history_.begin(), reward_history_.end(), 0.0f);
     std::fill(food_history_.begin(), food_history_.end(), 0);
@@ -695,7 +697,7 @@ void ClosedLoopAgent::reset_world_with_seed(uint32_t seed) {
     // v53: 反转学习 — 大脑保留, 世界换布局
     // 只重置世界和历史, 不重置 agent_step_count_ (大脑继续成长)
     // 不重置 novelty (已在旧世界 habituate, 新世界也不是第一次了)
-    world_.reset_with_seed(seed);
+    env_->reset_with_seed(seed);
     // 清空空间价值图 (旧世界的空间记忆不适用新布局)
     if (!spatial_value_map_.empty()) {
         std::fill(spatial_value_map_.begin(), spatial_value_map_.end(), 0.0f);
