@@ -445,6 +445,7 @@ M1 群体向量从离散 4 方向升级为连续浮点位移 (**唯一输出模�
 - `decode_m1_action()` 保留仅用于 efference copy/replay/callback。**31/31 CTest。**
 
 ### Step 56: 丘脑皮层预测反馈 ✅ (2026-02-08)
+> 详细文档: [steps/step56_thalamocortical_feedback.md](steps/step56_thalamocortical_feedback.md)
 
 V1 L6 → LGN 皮层丘脑反馈闭环 (Sherman & Guillery 2006):
 - **ThalamicRelay**: `add_cortical_feedback_source()` — 区分前馈/反馈源
